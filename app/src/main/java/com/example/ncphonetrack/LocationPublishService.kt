@@ -4,9 +4,13 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.location.Location
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
@@ -20,50 +24,102 @@ import com.google.android.gms.location.LocationServices
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.util.concurrent.TimeUnit
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.net.URLEncoder
+import java.util.concurrent.atomic.AtomicBoolean
 
 class LocationPublishService : Service() {
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private val client = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).build()
+    private lateinit var prefs: SharedPreferences
+    private var locationCallback: LocationCallback? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var nextcloudUrl: String = ""
     private var token: String = ""
     private var deviceName: String = ""
+    private val bufferLock = Any()
+    private val flushing = AtomicBoolean(false)
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        nextcloudUrl = intent?.getStringExtra("url") ?: ""
-        token = intent?.getStringExtra("token") ?: ""
-        deviceName = intent?.getStringExtra("device") ?: "Android"
-        LogManager.add("Service started for $deviceName")
+        prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        nextcloudUrl = intent?.getStringExtra("url")?.takeIf { it.isNotBlank() }
+            ?: prefs.getString("url", "") ?: ""
+        token = intent?.getStringExtra("token")?.takeIf { it.isNotBlank() }
+            ?: prefs.getString("token", "") ?: ""
+        deviceName = intent?.getStringExtra("device")?.takeIf { it.isNotBlank() }
+            ?: prefs.getString("device", "Android") ?: "Android"
 
         createNotificationChannel()
-        val notification = createNotification()
-        startForeground(1, notification)
+        startForeground(1, createNotification())
 
+        if (nextcloudUrl.isBlank() || token.isBlank()) {
+            LogManager.add("Service stopped: missing URL or token")
+            prefs.edit().putString("logging_state", "stopped").apply()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        LogManager.add("Service started for $deviceName")
+        prefs.edit().putString("logging_state", "tracking").apply()
         startLocationUpdates()
+        watchNetwork()
+        flushBufferAsync()
         return START_STICKY
     }
 
+    private fun publishIntervalMs(): Long {
+        val sec = prefs.getInt("publish_interval_sec", 60).coerceIn(5, 3600)
+        return sec * 1000L
+    }
+
     private fun startLocationUpdates() {
-        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        if (!::fusedLocationClient.isInitialized) {
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        }
+        locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+
+        val interval = publishIntervalMs()
         val locationRequest = LocationRequest.create().apply {
-            interval = 60000
-            fastestInterval = 30000
+            this.interval = interval
+            fastestInterval = interval
             priority = LocationRequest.PRIORITY_HIGH_ACCURACY
         }
 
-        val locationCallback = object : LocationCallback() {
+        val callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
                 result.lastLocation?.let { publishLocation(it) }
             }
         }
+        locationCallback = callback
 
         try {
-            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
+            fusedLocationClient.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
+            LogManager.add("Location updates every ${interval / 1000}s")
         } catch (e: SecurityException) {
             LogManager.add("Location permission missing")
+            prefs.edit().putString("logging_state", "permission denied").apply()
+        }
+    }
+
+    private fun watchNetwork() {
+        if (networkCallback != null) return
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                LogManager.add("Network available, retrying buffered points")
+                flushBufferAsync()
+            }
+        }
+        networkCallback = callback
+        try {
+            cm.registerDefaultNetworkCallback(callback)
+        } catch (e: Exception) {
+            LogManager.add("Network callback failed: ${e.message}")
+            networkCallback = null
         }
     }
 
@@ -74,30 +130,122 @@ class LocationPublishService : Service() {
         return if (level >= 0 && scale > 0) (level * 100 / scale) else 0
     }
 
-    private fun publishLocation(location: Location) {
-        val url = "$nextcloudUrl/index.php/apps/phonetrack/logPost/$token/$deviceName"
-        LogManager.add("POST $url lat=${location.latitude} lon=${location.longitude}")
-        val body = FormBody.Builder()
-            .add("lat", location.latitude.toString())
-            .add("lon", location.longitude.toString())
-            .add("timestamp", (System.currentTimeMillis() / 1000).toString())
-            .add("acc", location.accuracy.toString())
-            .add("alt", location.altitude.toString())
-            .add("bat", getBatteryLevel().toString())
-            .add("speed", location.speed.toString())
-            .add("bearing", location.bearing.toString())
-            .build()
+    private fun logUrl(): String {
+        val encToken = URLEncoder.encode(token, "UTF-8").replace("+", "%20")
+        val encDevice = URLEncoder.encode(deviceName, "UTF-8").replace("+", "%20")
+        return "$nextcloudUrl/index.php/apps/phonetrack/logPost/$encToken/$encDevice"
+    }
 
-        val request = Request.Builder().url(url).post(body).build()
-        client.newCall(request).enqueue(object : okhttp3.Callback {
-            override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-                LogManager.add("POST failed: ${e.message}")
+    private fun pointFrom(location: Location): JSONObject {
+        return JSONObject()
+            .put("lat", location.latitude)
+            .put("lon", location.longitude)
+            .put("timestamp", System.currentTimeMillis() / 1000)
+            .put("acc", location.accuracy.toDouble())
+            .put("alt", location.altitude)
+            .put("bat", getBatteryLevel())
+            .put("speed", location.speed.toDouble())
+            .put("bearing", location.bearing.toDouble())
+    }
+
+    private fun publishLocation(location: Location) {
+        val point = pointFrom(location)
+        LogManager.add("Fix lat=${location.latitude} lon=${location.longitude}")
+        Thread {
+            val client = CertHelper.buildClient(prefs)
+            if (postSync(client, point)) {
+                recordResult("ok")
+                flushLocked(client)
+            } else {
+                appendBuffer(point)
+                recordResult("buffered")
             }
-            override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                LogManager.add("POST response: ${response.code} ${response.message}")
-                response.close()
+        }.start()
+    }
+
+    private fun postSync(client: OkHttpClient, point: JSONObject): Boolean {
+        val url = logUrl()
+        val body = FormBody.Builder()
+            .add("lat", point.optDouble("lat").toString())
+            .add("lon", point.optDouble("lon").toString())
+            .add("timestamp", point.optLong("timestamp").toString())
+            .add("acc", point.optDouble("acc").toString())
+            .add("alt", point.optDouble("alt").toString())
+            .add("bat", point.optInt("bat").toString())
+            .add("speed", point.optDouble("speed").toString())
+            .add("bearing", point.optDouble("bearing").toString())
+            .build()
+        return try {
+            client.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
+                LogManager.add("POST ${response.code} ${response.message}")
+                response.isSuccessful
             }
-        })
+        } catch (e: Exception) {
+            LogManager.add("POST failed: ${e.message}")
+            false
+        }
+    }
+
+    private fun bufferFile(): File = File(filesDir, "pending_points.json")
+
+    private fun readBuffer(): JSONArray {
+        return try {
+            val text = bufferFile().takeIf { it.exists() }?.readText().orEmpty()
+            if (text.isBlank()) JSONArray() else JSONArray(text)
+        } catch (e: Exception) {
+            JSONArray()
+        }
+    }
+
+    private fun writeBuffer(arr: JSONArray) {
+        bufferFile().writeText(arr.toString())
+        prefs.edit().putInt("buffer_count", arr.length()).apply()
+    }
+
+    private fun appendBuffer(point: JSONObject) {
+        synchronized(bufferLock) {
+            val arr = readBuffer()
+            arr.put(point)
+            writeBuffer(arr)
+            LogManager.add("Buffered point (${arr.length()} waiting)")
+        }
+    }
+
+    private fun flushBufferAsync() {
+        Thread {
+            val client = CertHelper.buildClient(prefs)
+            flushLocked(client)
+        }.start()
+    }
+
+    private fun flushLocked(client: OkHttpClient) {
+        if (!flushing.compareAndSet(false, true)) return
+        try {
+            val snapshot: JSONArray = synchronized(bufferLock) { readBuffer() }
+            if (snapshot.length() == 0) return
+            val remaining = JSONArray()
+            var failed = false
+            for (i in 0 until snapshot.length()) {
+                val point = snapshot.getJSONObject(i)
+                if (failed || !postSync(client, point)) {
+                    failed = true
+                    remaining.put(point)
+                }
+            }
+            synchronized(bufferLock) { writeBuffer(remaining) }
+            LogManager.add("Buffer retry left ${remaining.length()}")
+            if (remaining.length() == 0) recordResult("buffer cleared")
+        } finally {
+            flushing.set(false)
+        }
+    }
+
+    private fun recordResult(result: String) {
+        prefs.edit()
+            .putLong("last_publish_epoch", System.currentTimeMillis())
+            .putString("last_result", result)
+            .putString("logging_state", "tracking")
+            .apply()
     }
 
     private fun createNotificationChannel() {
@@ -114,5 +262,18 @@ class LocationPublishService : Service() {
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .build()
+    }
+
+    override fun onDestroy() {
+        locationCallback?.let {
+            if (::fusedLocationClient.isInitialized) fusedLocationClient.removeLocationUpdates(it)
+        }
+        networkCallback?.let { callback ->
+            try {
+                getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback)
+            } catch (_: Exception) {
+            }
+        }
+        super.onDestroy()
     }
 }

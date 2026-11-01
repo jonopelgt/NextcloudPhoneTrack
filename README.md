@@ -4,12 +4,12 @@ Android app that publishes device location to a Nextcloud PhoneTrack session and
 
 See [SPEC.md](SPEC.md) for full requirements and acceptance criteria.
 
-## Features (Rev 1)
-- Configurable Nextcloud URL, session token, and device name (persisted)
-- Foreground service for reliable location publishing (includes battery, speed, bearing)
-- Periodic fetch of last positions via public API
-- OSM map with markers for self and friends
-- Distro folder for revision snapshots
+## Features (Rev 5 / app 0.5)
+- Configurable Nextcloud URL, session token, device name, publish interval, and map refresh
+- Saved sessions listed in the menu, with About and Connection Status
+- Foreground service publishes location (battery, speed, bearing) and retries buffered points offline
+- OSM map with a distinct marker for this device
+- Same signing key on every build so updates install over the previous app
 
 ## Setup
 1. Install PhoneTrack app on your Nextcloud.
