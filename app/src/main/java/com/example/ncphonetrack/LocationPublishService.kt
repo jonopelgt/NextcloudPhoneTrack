@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.location.Location
@@ -20,6 +21,7 @@ import com.google.android.gms.location.LocationServices
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.TimeUnit
 
 class LocationPublishService : Service() {
@@ -29,6 +31,27 @@ class LocationPublishService : Service() {
     private var nextcloudUrl: String = ""
     private var token: String = ""
     private var deviceName: String = ""
+    private val queue = ConcurrentLinkedQueue<Location>()
+    private var lastStatus = "Idle"
+
+    companion object {
+        const val PREFS = "nc_phonetrack"
+        const val KEY_QUEUE = "queue_count"
+        const val KEY_STATUS = "publish_status"
+
+        fun getQueueCount(ctx: Context): Int =
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_QUEUE, 0)
+
+        fun getPublishStatus(ctx: Context): String =
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_STATUS, "Idle") ?: "Idle"
+    }
+
+    private fun updatePrefs() {
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_QUEUE, queue.size)
+            .putString(KEY_STATUS, lastStatus)
+            .apply()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -37,6 +60,7 @@ class LocationPublishService : Service() {
         token = intent?.getStringExtra("token") ?: ""
         deviceName = intent?.getStringExtra("device") ?: "Android"
         LogManager.add("Service started for $deviceName")
+        updatePrefs()
 
         createNotificationChannel()
         val notification = createNotification()
@@ -56,7 +80,11 @@ class LocationPublishService : Service() {
 
         val locationCallback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.let { publishLocation(it) }
+                result.lastLocation?.let { 
+                    queue.add(it)
+                    updatePrefs()
+                    tryPublish()
+                }
             }
         }
 
@@ -74,28 +102,40 @@ class LocationPublishService : Service() {
         return if (level >= 0 && scale > 0) (level * 100 / scale) else 0
     }
 
-    private fun publishLocation(location: Location) {
+    private fun tryPublish() {
+        val loc = queue.peek() ?: return
         val url = "$nextcloudUrl/index.php/apps/phonetrack/logPost/$token/$deviceName"
-        LogManager.add("POST $url lat=${location.latitude} lon=${location.longitude}")
+        LogManager.add("POST $url lat=${loc.latitude} lon=${loc.longitude}")
         val body = FormBody.Builder()
-            .add("lat", location.latitude.toString())
-            .add("lon", location.longitude.toString())
+            .add("lat", loc.latitude.toString())
+            .add("lon", loc.longitude.toString())
             .add("timestamp", (System.currentTimeMillis() / 1000).toString())
-            .add("acc", location.accuracy.toString())
-            .add("alt", location.altitude.toString())
+            .add("acc", loc.accuracy.toString())
+            .add("alt", loc.altitude.toString())
             .add("bat", getBatteryLevel().toString())
-            .add("speed", location.speed.toString())
-            .add("bearing", location.bearing.toString())
+            .add("speed", loc.speed.toString())
+            .add("bearing", loc.bearing.toString())
             .build()
 
         val request = Request.Builder().url(url).post(body).build()
         client.newCall(request).enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
+                lastStatus = "Failed"
                 LogManager.add("POST failed: ${e.message}")
+                updatePrefs()
             }
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
-                LogManager.add("POST response: ${response.code} ${response.message}")
+                if (response.isSuccessful) {
+                    queue.poll()
+                    lastStatus = "OK"
+                    LogManager.add("POST OK: ${response.code}")
+                } else {
+                    lastStatus = "Failed"
+                    LogManager.add("POST failed: ${response.code}")
+                }
                 response.close()
+                updatePrefs()
+                if (queue.isNotEmpty()) tryPublish()
             }
         })
     }
