@@ -36,6 +36,7 @@ class LocationPublishService : Service() {
         nextcloudUrl = intent?.getStringExtra("url") ?: ""
         token = intent?.getStringExtra("token") ?: ""
         deviceName = intent?.getStringExtra("device") ?: "Android"
+        LogManager.add("Service started for $deviceName")
 
         createNotificationChannel()
         val notification = createNotification()
@@ -62,7 +63,7 @@ class LocationPublishService : Service() {
         try {
             fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
         } catch (e: SecurityException) {
-            // Permission missing
+            LogManager.add("Location permission missing")
         }
     }
 
@@ -75,6 +76,7 @@ class LocationPublishService : Service() {
 
     private fun publishLocation(location: Location) {
         val url = "$nextcloudUrl/index.php/apps/phonetrack/logPost/$token/$deviceName"
+        LogManager.add("POST $url lat=${location.latitude} lon=${location.longitude}")
         val body = FormBody.Builder()
             .add("lat", location.latitude.toString())
             .add("lon", location.longitude.toString())
@@ -89,9 +91,10 @@ class LocationPublishService : Service() {
         val request = Request.Builder().url(url).post(body).build()
         client.newCall(request).enqueue(object : okhttp3.Callback {
             override fun onFailure(call: okhttp3.Call, e: java.io.IOException) {
-                // TODO: buffer for retry
+                LogManager.add("POST failed: ${e.message}")
             }
             override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                LogManager.add("POST response: ${response.code} ${response.message}")
                 response.close()
             }
         })
