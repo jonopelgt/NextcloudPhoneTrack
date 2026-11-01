@@ -3,6 +3,10 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def versionFile = rootProject.file('VERSION')
+def rev = versionFile.exists() ? versionFile.text.trim() : '1'
+def revInt = rev.isInteger() ? rev.toInteger() : 1
+
 android {
     namespace 'com.example.ncphonetrack'
     compileSdk 34
@@ -11,8 +15,8 @@ android {
         applicationId "com.example.ncphonetrack"
         minSdk 24
         targetSdk 34
-        versionCode 5
-        versionName "5"
+        versionCode revInt
+        versionName rev
     }
 
     signingConfigs {
