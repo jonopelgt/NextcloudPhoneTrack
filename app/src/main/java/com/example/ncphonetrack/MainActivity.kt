@@ -50,9 +50,14 @@ class MainActivity : AppCompatActivity() {
     private var autoCenter = true
     private var fitAll = false
 
+    private fun readVersion(): String = try {
+        assets.open("VERSION").bufferedReader().use { it.readText().trim() }
+    } catch (e: Exception) { "unknown" }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Configuration.getInstance().userAgentValue = "NextcloudPhoneTrack/5 (cyberchilli LLC)"
+        val rev = readVersion()
+        Configuration.getInstance().userAgentValue = "NextcloudPhoneTrack/$rev (cyberchilli LLC)"
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
@@ -114,9 +119,10 @@ class MainActivity : AppCompatActivity() {
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_about -> {
+                    val version = readVersion()
                     AlertDialog.Builder(this)
                         .setTitle("About Nextcloud PhoneTrack")
-                        .setMessage("cyberchilli LLC\nRevision 5\nLocation sharing via Nextcloud PhoneTrack")
+                        .setMessage("cyberchilli LLC\nRevision $version\nLocation sharing via Nextcloud PhoneTrack")
                         .setPositiveButton("OK", null)
                         .show()
                     drawerLayout.closeDrawers()
