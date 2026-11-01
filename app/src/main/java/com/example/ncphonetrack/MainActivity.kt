@@ -464,9 +464,96 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Sessions")
             .setView(scroll)
             .setNeutralButton("Add New") { _, _ -> openNewSessionForm() }
+            .setNegativeButton("From server") { _, _ -> promptLoadSessions() }
             .setPositiveButton("Close", null)
             .create()
         sessionsDialog?.show()
+    }
+
+    private fun promptLoadSessions() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, 0, pad, 0)
+        }
+        val width = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        val savedUrl = prefs.getString("nc_auth_url", null)
+            ?: prefs.getString("url", null)
+            ?: loadSessions().firstOrNull()?.optString("url")
+            ?: "https://"
+        val urlField = EditText(this).apply {
+            hint = "Nextcloud server"
+            setText(savedUrl)
+            layoutParams = width
+        }
+        val userField = EditText(this).apply {
+            hint = "Nextcloud username"
+            setText(prefs.getString("nc_user", ""))
+            layoutParams = width
+        }
+        val passField = EditText(this).apply {
+            hint = "Nextcloud app password"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(prefs.getString("nc_pass", ""))
+            layoutParams = width
+        }
+        box.addView(urlField)
+        box.addView(userField)
+        box.addView(passField)
+        AlertDialog.Builder(this)
+            .setTitle("Load sessions from server")
+            .setMessage("PhoneTrack lists only sessions owned by or shared with this Nextcloud user. Use an app password.")
+            .setView(box)
+            .setPositiveButton("Load") { _, _ ->
+                val url = PhoneTrackUrl.parse(urlField.text.toString()).base
+                val user = userField.text.toString().trim()
+                val pass = passField.text.toString()
+                if (!isValidBaseUrl(url) || user.isBlank() || pass.isBlank()) {
+                    Toast.makeText(this, "Server, username, and app password are required", Toast.LENGTH_LONG).show()
+                    showSessions()
+                    return@setPositiveButton
+                }
+                prefs.edit().putString("nc_auth_url", url).putString("nc_user", user).putString("nc_pass", pass).apply()
+                Toast.makeText(this, "Loading sessions…", Toast.LENGTH_SHORT).show()
+                Thread {
+                    val (remote, error) = PhoneTrackApi.fetchSessionList(this, url, user, pass)
+                    runOnUiThread {
+                        if (error != null) {
+                            Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                        } else {
+                            val added = mergeRemoteSessions(url, remote)
+                            Toast.makeText(this, "Server has ${remote.size} sessions. Added $added.", Toast.LENGTH_LONG).show()
+                        }
+                        showSessions()
+                    }
+                }.start()
+            }
+            .setNegativeButton("Cancel") { _, _ -> showSessions() }
+            .show()
+    }
+
+    private fun mergeRemoteSessions(baseUrl: String, remote: List<RemoteSession>): Int {
+        val sessions = loadSessions().toMutableList()
+        var added = 0
+        remote.forEach { item ->
+            val existing = sessions.find {
+                it.optString("token") == item.token && PhoneTrackUrl.parse(it.optString("url")).base == baseUrl
+            }
+            if (existing == null) {
+                sessions.add(JSONObject().apply {
+                    put("name", item.name)
+                    put("url", baseUrl)
+                    put("token", item.token)
+                    put("device", android.os.Build.MODEL)
+                    put("enabled", false)
+                })
+                added += 1
+            } else if (item.name.isNotBlank()) {
+                existing.put("name", item.name)
+            }
+        }
+        prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
+        return added
     }
 
     private fun sessionLabel(session: JSONObject): String {

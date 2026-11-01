@@ -24,6 +24,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Validation of URL format and non-empty token.
 - Multiple sessions remembered; listed in menu.
 - User can accept a self-signed HTTPS certificate after reviewing its SHA-256 fingerprint. The accepted fingerprint is stored and used for later publish and fetch calls. The user can forget it and return to the Android trust store.
+- User can load the PhoneTrack sessions available to a Nextcloud account. The app calls the server session list with that user's app password and adds each session name and logging token. Newly imported sessions are disabled until the user turns one on. This does not list sessions belonging to other users.
 
 ### FR-2: Location Publishing
 - Foreground service requests high-accuracy location updates.
@@ -99,3 +100,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 8 (2026-11-01): Configure is no longer a drawer item. Session setup is opened from Sessions.
 - Rev 9 (2026-11-01): Hold a session to open a menu with Configure and Delete.
 - Rev 10 (2026-11-01): Each session on the sessions page has an enable switch. Only one session is enabled at a time. Turning it off stops sharing.
+- Rev 11 (2026-11-01): Sessions page can load the available PhoneTrack session list for a Nextcloud user.
