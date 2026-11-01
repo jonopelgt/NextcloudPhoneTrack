@@ -21,8 +21,10 @@ import com.google.android.material.navigation.NavigationView
 import org.json.JSONArray
 import org.json.JSONObject
 import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import java.util.Timer
@@ -47,7 +49,8 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        Configuration.getInstance().userAgentValue = packageName
+        // Avoid OSM block on com.example.* User-Agents
+        Configuration.getInstance().userAgentValue = "NextcloudPhoneTrack/5 (cyberchilli LLC)"
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
@@ -70,7 +73,13 @@ class MainActivity : AppCompatActivity() {
         etDevice.setText(prefs.getString("device", android.os.Build.MODEL))
 
         map = findViewById(R.id.map)
-        map.setTileSource(TileSourceFactory.MAPNIK)
+        // Custom HTTPS Mapnik source to avoid HTTP blocks
+        val httpsMapnik = object : OnlineTileSourceBase("MapnikHTTPS", 0, 19, 256, ".png", arrayOf("https://tile.openstreetmap.org/")) {
+            override fun getTileURLString(pMapTileIndex: Long): String {
+                return baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + imageFilenameEnding
+            }
+        }
+        map.setTileSource(httpsMapnik)
         map.setMultiTouchControls(true)
         map.controller.setZoom(15.0)
 
