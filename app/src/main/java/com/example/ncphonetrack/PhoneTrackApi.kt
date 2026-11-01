@@ -1,14 +1,13 @@
 package com.example.ncphonetrack
 
-import okhttp3.OkHttpClient
+import android.content.Context
 import okhttp3.Request
 import org.json.JSONObject
-import java.io.IOException
 
 object PhoneTrackApi {
-    private val client = OkHttpClient()
-
-    fun getLastPositions(baseUrl: String, token: String): Map<String, GeoPointData>? {
+    fun getLastPositions(context: Context, baseUrl: String, token: String): Map<String, GeoPointData>? {
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val client = CertHelper.buildClient(prefs)
         val url = "$baseUrl/apps/phonetrack/api/getlastpositions/$token"
         LogManager.add("GET $url")
         val request = Request.Builder().url(url).build()
