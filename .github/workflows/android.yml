@@ -47,7 +47,7 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
 
-      - name: Publish APK to distro
+      - name: Publish APK to distro and bump version
         run: |
           REV=$(cat VERSION)
           RUN=${{ github.run_number }}
@@ -55,8 +55,13 @@ jobs:
           mkdir -p $FOLDER
           cp app/build/outputs/apk/debug/*.apk $FOLDER/NextcloudPhoneTrack-rev$REV-run$RUN-debug.apk
           cp SPEC.md $FOLDER/SPEC.md
+          # Increment lowest segment of 0.x
+          MAJOR=$(echo $REV | cut -d. -f1)
+          MINOR=$(echo $REV | cut -d. -f2)
+          NEXT=$((MINOR + 1))
+          echo "$MAJOR.$NEXT" > VERSION
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add $FOLDER/
-          git diff --staged --quiet || git commit -m "ci: publish Rev $REV run $RUN signed debug APK and SPEC to distro"
+          git add $FOLDER/ VERSION
+          git diff --staged --quiet || git commit -m "ci: publish Rev $REV run $RUN and bump to $MAJOR.$NEXT"
           git push
