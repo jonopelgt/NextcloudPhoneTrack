@@ -35,6 +35,13 @@
             android:visibility="gone">
 
             <EditText
+                android:id="@+id/etSessionName"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Session Name"
+                android:inputType="text" />
+
+            <EditText
                 android:id="@+id/etUrl"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
