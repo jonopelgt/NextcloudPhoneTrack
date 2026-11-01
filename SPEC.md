@@ -101,3 +101,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 9 (2026-11-01): Hold a session to open a menu with Configure and Delete.
 - Rev 10 (2026-11-01): Each session on the sessions page has an enable switch. Only one session is enabled at a time. Turning it off stops sharing.
 - Rev 11 (2026-11-01): Sessions page can load the available PhoneTrack session list for a Nextcloud user.
+- Rev 12 (2026-11-01): Position updates use the Nextcloud username as the device id when that username is saved.

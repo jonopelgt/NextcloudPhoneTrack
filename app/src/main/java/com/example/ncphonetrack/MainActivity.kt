@@ -701,8 +701,9 @@ class MainActivity : AppCompatActivity() {
         val token = prefs.getString("token", "") ?: ""
         val device = prefs.getString("device", "Android") ?: "Android"
         if (!isValidBaseUrl(url) || token.isBlank() || !activeSessionEnabled()) return
-        startLocationService(url, token, device)
-        startFetchingPositions(url, token, device)
+        val positionId = prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty { device }
+        startLocationService(url, token, positionId)
+        startFetchingPositions(url, token, positionId)
         updateStatusText("Tracking started")
     }
 

@@ -50,8 +50,10 @@ class LocationPublishService : Service() {
             ?: prefs.getString("url", "") ?: ""
         token = intent?.getStringExtra("token")?.takeIf { it.isNotBlank() }
             ?: prefs.getString("token", "") ?: ""
-        deviceName = intent?.getStringExtra("device")?.takeIf { it.isNotBlank() }
-            ?: prefs.getString("device", "Android") ?: "Android"
+        deviceName = prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty {
+            intent?.getStringExtra("device")?.takeIf { it.isNotBlank() }
+                ?: prefs.getString("device", "Android") ?: "Android"
+        }
 
         createNotificationChannel()
         startForeground(1, createNotification())
