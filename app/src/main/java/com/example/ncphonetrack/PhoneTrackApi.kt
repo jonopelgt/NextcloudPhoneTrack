@@ -26,7 +26,8 @@ object PhoneTrackApi {
                         lat = dev.getDouble("lat"),
                         lon = dev.getDouble("lon"),
                         timestamp = dev.optLong("timestamp", 0),
-                        accuracy = dev.optDouble("accuracy", 0.0)
+                        accuracy = dev.optDouble("accuracy", 0.0),
+                        bearing = dev.optDouble("bearing", 0.0).toFloat()
                     )
                 }
                 LogManager.add("GET parsed ${devices.size} devices")
@@ -39,4 +40,4 @@ object PhoneTrackApi {
     }
 }
 
-data class GeoPointData(val lat: Double, val lon: Double, val timestamp: Long, val accuracy: Double)
+data class GeoPointData(val lat: Double, val lon: Double, val timestamp: Long, val accuracy: Double, val bearing: Float = 0f)
