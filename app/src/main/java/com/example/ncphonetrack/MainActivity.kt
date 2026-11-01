@@ -54,9 +54,13 @@ class MainActivity : AppCompatActivity() {
         assets.open("VERSION").bufferedReader().use { it.readText().trim() }
     } catch (e: Exception) { "unknown" }
 
+    private fun getAppVersion(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
+    } catch (e: Exception) { "unknown" }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val rev = readVersion()
+        val rev = getAppVersion()
         Configuration.getInstance().userAgentValue = "NextcloudPhoneTrack/$rev (cyberchilli LLC)"
         setContentView(R.layout.activity_main)
 
@@ -119,7 +123,7 @@ class MainActivity : AppCompatActivity() {
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_about -> {
-                    val version = readVersion()
+                    val version = getAppVersion()
                     AlertDialog.Builder(this)
                         .setTitle("About Nextcloud PhoneTrack")
                         .setMessage("cyberchilli LLC\nRevision $version\nLocation sharing via Nextcloud PhoneTrack")
