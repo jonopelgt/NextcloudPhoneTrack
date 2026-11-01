@@ -434,6 +434,8 @@ class MainActivity : AppCompatActivity() {
             put("enabled", true)
             val name = previous?.optString("name").orEmpty()
             if (name.isNotBlank()) put("name", name)
+            val publicToken = previous?.optString("public_token").orEmpty()
+            if (publicToken.isNotBlank()) put("public_token", publicToken)
         }
         sessions.add(0, obj)
         prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
@@ -670,12 +672,14 @@ class MainActivity : AppCompatActivity() {
                     put("name", item.name)
                     put("url", baseUrl)
                     put("token", item.token)
+                    put("public_token", item.publicToken)
                     put("device", android.os.Build.MODEL)
                     put("enabled", false)
                 })
                 added += 1
             } else {
                 if (item.name.isNotBlank()) existing.put("name", item.name)
+                if (item.publicToken.isNotBlank()) existing.put("public_token", item.publicToken)
                 if (existing.optString("url").isBlank()) existing.put("url", baseUrl)
             }
         }

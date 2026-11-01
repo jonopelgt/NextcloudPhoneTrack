@@ -157,6 +157,11 @@ class LocationPublishService : Service() {
     private fun publishLocation(location: Location) {
         val point = pointFrom(location)
         LogManager.add("Fix lat=${location.latitude} lon=${location.longitude}")
+        if (PhoneTrackApi.rateLimited(this)) {
+            appendBuffer(point)
+            recordResult("buffered")
+            return
+        }
         Thread {
             val client = CertHelper.buildClient(prefs)
             if (postSync(client, point)) {
@@ -184,6 +189,7 @@ class LocationPublishService : Service() {
         return try {
             client.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
                 LogManager.add("POST ${response.code} ${response.message}")
+                if (response.code == 429) PhoneTrackApi.noteRateLimit(this, response)
                 response.isSuccessful
             }
         } catch (e: Exception) {
@@ -212,6 +218,7 @@ class LocationPublishService : Service() {
         synchronized(bufferLock) {
             val arr = readBuffer()
             arr.put(point)
+            while (arr.length() > 30) arr.remove(0)
             writeBuffer(arr)
             LogManager.add("Buffered point (${arr.length()} waiting)")
         }
@@ -229,11 +236,17 @@ class LocationPublishService : Service() {
         try {
             val snapshot: JSONArray = synchronized(bufferLock) { readBuffer() }
             if (snapshot.length() == 0) return
+            if (PhoneTrackApi.rateLimited(this)) return
             val remaining = JSONArray()
             var failed = false
+            var sent = 0
             for (i in 0 until snapshot.length()) {
                 val point = snapshot.getJSONObject(i)
-                if (failed || !postSync(client, point)) {
+                if (failed || sent >= 3) {
+                    remaining.put(point)
+                    continue
+                }
+                if (postSync(client, point)) sent += 1 else {
                     failed = true
                     remaining.put(point)
                 }

@@ -6,53 +6,116 @@ import org.json.JSONObject
 import java.net.URLEncoder
 
 object PhoneTrackApi {
+    fun rateLimited(context: Context): Boolean {
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        return System.currentTimeMillis() < prefs.getLong("rate_limit_until", 0L)
+    }
+
+    fun noteRateLimit(context: Context, response: okhttp3.Response) {
+        val retry = response.header("Retry-After")?.toLongOrNull() ?: 300L
+        val wait = retry.coerceIn(60, 3600)
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        prefs.edit().putLong("rate_limit_until", System.currentTimeMillis() + wait * 1000).apply()
+        LogManager.add("Server rate limit, pausing ${wait}s")
+    }
+
     fun getLastPositions(context: Context, baseUrl: String, token: String): Map<String, GeoPointData>? {
+        if (rateLimited(context)) {
+            LogManager.add("Map update skipped, server rate limit")
+            return null
+        }
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         val client = CertHelper.buildClient(prefs)
         val server = PhoneTrackUrl.parse(baseUrl).base
+        val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+        val pass = prefs.getString("nc_pass", "").orEmpty()
+        val publicToken = publicTokenFor(prefs, token)
         val tokenEnc = URLEncoder.encode(token, "UTF-8").replace("+", "%20")
-        val urls = listOf(
-            "$server/index.php/apps/phonetrack/api/getlastpositions/$tokenEnc",
-            "$server/apps/phonetrack/api/getlastpositions/$tokenEnc"
-        )
-        var lastError = "no response"
-        for (url in urls) {
-            LogManager.add("GET $url")
-            val request = Request.Builder().url(url).build()
-            try {
-                client.newCall(request).execute().use { response ->
-                    LogManager.add("GET response: ${response.code}")
-                    if (!response.isSuccessful) {
-                        lastError = "HTTP ${response.code}"
-                        return@use
-                    }
-                    val json = JSONObject(response.body?.string() ?: return null)
-                    val session = when {
-                        json.has(token) -> json.getJSONObject(token)
-                        json.length() > 0 -> json.getJSONObject(json.keys().next())
-                        else -> return null
-                    }
-                    val devices = mutableMapOf<String, GeoPointData>()
-                    val keys = session.keys()
-                    while (keys.hasNext()) {
-                        val name = keys.next()
-                        val dev = session.getJSONObject(name)
-                        devices[name] = GeoPointData(
-                            lat = dev.getDouble("lat"),
-                            lon = dev.getDouble("lon"),
-                            timestamp = dev.optLong("timestamp", 0),
-                            accuracy = dev.optDouble("accuracy", 0.0)
-                        )
-                    }
-                    LogManager.add("GET parsed ${devices.size} devices")
-                    return devices
-                }
-            } catch (e: Exception) {
-                lastError = e.message ?: "error"
+        if (user.isNotBlank() && pass.isNotBlank()) {
+            val url = "$server/index.php/apps/phonetrack/api/getuserlastpositions/$tokenEnc"
+            val request = Request.Builder()
+                .url(url)
+                .header("Authorization", okhttp3.Credentials.basic(user, pass))
+                .header("OCS-APIRequest", "true")
+                .build()
+            LogManager.add("GET user last positions")
+            return executePositions(context, client, request, token)
+        }
+        if (!publicToken.isNullOrBlank()) {
+            val pubEnc = URLEncoder.encode(publicToken, "UTF-8").replace("+", "%20")
+            val url = "$server/index.php/apps/phonetrack/api/getlastpositions/$pubEnc"
+            LogManager.add("GET public last positions")
+            return executePositions(context, client, Request.Builder().url(url).build(), publicToken)
+        }
+        LogManager.add("Map skipped: public view token or Nextcloud login required")
+        return null
+    }
+
+    private fun publicTokenFor(prefs: android.content.SharedPreferences, loggingToken: String): String? {
+        val raw = prefs.getString("sessions", "[]") ?: "[]"
+        val arr = org.json.JSONArray(raw)
+        for (i in 0 until arr.length()) {
+            val session = arr.optJSONObject(i) ?: continue
+            if (session.optString("token") == loggingToken) {
+                val pub = session.optString("public_token")
+                if (pub.isNotBlank()) return pub
             }
         }
-        LogManager.add("GET failed: $lastError")
         return null
+    }
+
+    private fun executePositions(
+        context: Context,
+        client: okhttp3.OkHttpClient,
+        request: Request,
+        token: String
+    ): Map<String, GeoPointData>? {
+        return try {
+            client.newCall(request).execute().use { response ->
+                LogManager.add("GET response: ${response.code}")
+                if (response.code == 429) {
+                    noteRateLimit(context, response)
+                    return null
+                }
+                if (response.code == 404) {
+                    LogManager.add("Session is not public or the public token is wrong")
+                    return null
+                }
+                if (!response.isSuccessful) {
+                    LogManager.add("GET failed: HTTP ${response.code}")
+                    return null
+                }
+                val json = JSONObject(response.body?.string() ?: return null)
+                if (json.has("error")) {
+                    LogManager.add("GET failed: ${json.optString("error")}")
+                    return null
+                }
+                val session = when {
+                    json.has(token) -> json.getJSONObject(token)
+                    json.length() > 0 && json.opt(json.keys().next()) is JSONObject ->
+                        json.getJSONObject(json.keys().next())
+                    else -> return emptyMap()
+                }
+                val devices = mutableMapOf<String, GeoPointData>()
+                val keys = session.keys()
+                while (keys.hasNext()) {
+                    val name = keys.next()
+                    val dev = session.optJSONObject(name) ?: continue
+                    if (!dev.has("lat") || !dev.has("lon")) continue
+                    devices[name] = GeoPointData(
+                        lat = dev.getDouble("lat"),
+                        lon = dev.getDouble("lon"),
+                        timestamp = dev.optLong("timestamp", 0),
+                        accuracy = dev.optDouble("accuracy", 0.0)
+                    )
+                }
+                LogManager.add("GET parsed ${devices.size} devices")
+                devices
+            }
+        } catch (e: Exception) {
+            LogManager.add("GET failed: ${e.message}")
+            null
+        }
     }
 
     fun fetchSessionList(context: Context, baseUrl: String, user: String, password: String): Pair<List<RemoteSession>, String?> {
@@ -78,6 +141,10 @@ object PhoneTrackApi {
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string().orEmpty()
                     LogManager.add("GET response: ${response.code}")
+                    if (response.code == 429) {
+                        noteRateLimit(context, response)
+                        return emptyList<RemoteSession>() to "Server rate limit. Wait and try again."
+                    }
                     if (response.code == 401 || response.code == 403) {
                         return emptyList<RemoteSession>() to "Nextcloud rejected the username or app password"
                     }
@@ -122,7 +189,7 @@ object PhoneTrackApi {
                     val token = item.optString(1)
                     if (token.isNotBlank()) {
                         val name = item.optString(0).ifBlank { token.take(8) }
-                        out.add(RemoteSession(name, token))
+                        out.add(RemoteSession(name, token, item.optString(2)))
                     }
                 }
                 is JSONObject -> addObject(out, item)
@@ -149,10 +216,10 @@ object PhoneTrackApi {
     private fun addObject(out: MutableList<RemoteSession>, item: JSONObject) {
         val token = item.optString("token")
         if (token.isBlank()) return
-        out.add(RemoteSession(item.optString("name").ifBlank { token.take(8) }, token))
+        out.add(RemoteSession(item.optString("name").ifBlank { token.take(8) }, token, item.optString("publicviewtoken")))
     }
 }
 
 data class GeoPointData(val lat: Double, val lon: Double, val timestamp: Long, val accuracy: Double)
 
-data class RemoteSession(val name: String, val token: String)
+data class RemoteSession(val name: String, val token: String, val publicToken: String = "")

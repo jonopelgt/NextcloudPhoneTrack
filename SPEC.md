@@ -107,3 +107,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 14 (2026-11-01): The sessions list shows each session's name from the PhoneTrack server.
 - Rev 15 (2026-11-01): Friends page lists every saved session and indents the users reporting in that session.
 - Rev 16 (2026-11-01): A session turned off on the Sessions page is gray and unavailable on Friends, and its users are still listed.
+- Rev 17 (2026-11-01): Map positions use the logged-in user endpoint, or the public view token. The logging token is not sent to the public positions API, which was returning 404 and then HTTP 429. Rate limits pause requests, and buffered points are sent a few at a time.
