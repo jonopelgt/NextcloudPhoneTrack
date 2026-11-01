@@ -43,6 +43,21 @@ object CertHelper {
         return digest.joinToString(":") { "%02X".format(it) }
     }
 
+    private fun trustAllClient(): OkHttpClient {
+        val trustManager = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        }
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, arrayOf<TrustManager>(trustManager), null)
+        return OkHttpClient.Builder()
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            .hostnameVerifier(HostnameVerifier { _, _ -> true })
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
+
     fun buildClient(prefs: SharedPreferences): OkHttpClient {
         val accepted = getAcceptedHashes(prefs)
         return if (accepted.isEmpty()) {
@@ -72,9 +87,8 @@ object CertHelper {
     fun probeCertHash(url: String, callback: (String?) -> Unit) {
         Thread {
             try {
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .build()
+                // Trust-all client so self-signed certs can be probed
+                val client = trustAllClient()
                 val request = okhttp3.Request.Builder().url(url).build()
                 client.newCall(request).execute().use { response ->
                     val handshake = response.handshake
