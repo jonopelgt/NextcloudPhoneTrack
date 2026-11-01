@@ -62,11 +62,15 @@ class MainActivity : AppCompatActivity() {
         navView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_status -> {
-                    updateStatusText("Status page: Logging active if configured")
+                    updateStatusText("Connection Status: Logging active if configured")
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_sessions -> {
                     showSessions()
+                    drawerLayout.closeDrawers()
+                }
+                R.id.nav_about -> {
+                    Toast.makeText(this, "Nextcloud PhoneTrack\nRev 3\nLocation sharing via Nextcloud PhoneTrack", Toast.LENGTH_LONG).show()
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_map -> {
