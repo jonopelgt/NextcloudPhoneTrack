@@ -89,10 +89,8 @@ class MainActivity : AppCompatActivity() {
         map.setMultiTouchControls(true)
         map.setBuiltInZoomControls(true)
         map.controller.setZoom(12.0)
-        // Default center: Nashua, NH
         map.controller.setCenter(GeoPoint(42.7654, -71.4676))
 
-        // Detect user map interaction to switch to manual mode
         map.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_DOWN) {
                 autoCenter = false
@@ -229,25 +227,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSessions() {
         val sessions = loadSessions()
-        if (sessions.isEmpty()) {
-            AlertDialog.Builder(this)
-                .setTitle("Saved Sessions")
-                .setMessage("No sessions saved yet.")
-                .setPositiveButton("OK", null)
-                .show()
-            return
-        }
-        val items = sessions.map { "${it.getString("device")} @ ${it.getString("url")}" }.toTypedArray()
+        val items = if (sessions.isEmpty()) arrayOf("No sessions yet") else sessions.map { "${it.getString("device")} @ ${it.getString("url")}" }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("Saved Sessions")
+            .setTitle("Session Configs")
             .setItems(items) { _, which ->
-                val s = sessions[which]
-                etUrl.setText(s.getString("url"))
-                etToken.setText(s.getString("token"))
-                etDevice.setText(s.getString("device"))
+                if (sessions.isNotEmpty()) {
+                    val s = sessions[which]
+                    etUrl.setText(s.getString("url"))
+                    etToken.setText(s.getString("token"))
+                    etDevice.setText(s.getString("device"))
+                    formPanel.visibility = View.VISIBLE
+                    statusPanel.visibility = View.GONE
+                    Toast.makeText(this, "Opened session config", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNeutralButton("Add New") { _, _ ->
+                etUrl.setText("https://")
+                etToken.setText("")
+                etDevice.setText(android.os.Build.MODEL)
                 formPanel.visibility = View.VISIBLE
                 statusPanel.visibility = View.GONE
-                Toast.makeText(this, "Loaded session", Toast.LENGTH_SHORT).show()
             }
             .setPositiveButton("Close", null)
             .show()
