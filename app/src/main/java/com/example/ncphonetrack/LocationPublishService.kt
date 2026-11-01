@@ -131,6 +131,10 @@ class LocationPublishService : Service() {
     }
 
     private fun logUrl(): String {
+        val parsed = PhoneTrackUrl.parse(nextcloudUrl)
+        nextcloudUrl = parsed.base
+        val fromUrl = parsed.token
+        if (token.isBlank() && !fromUrl.isNullOrBlank()) token = fromUrl
         val encToken = URLEncoder.encode(token, "UTF-8").replace("+", "%20")
         val encDevice = URLEncoder.encode(deviceName, "UTF-8").replace("+", "%20")
         return "$nextcloudUrl/index.php/apps/phonetrack/logPost/$encToken/$encDevice"

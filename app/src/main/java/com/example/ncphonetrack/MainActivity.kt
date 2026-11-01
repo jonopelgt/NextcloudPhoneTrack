@@ -104,6 +104,7 @@ class MainActivity : AppCompatActivity() {
         etDevice.setText(prefs.getString("device", android.os.Build.MODEL))
         etPublish.setText(prefs.getInt("publish_interval_sec", 60).toString())
         etFetch.setText(prefs.getInt("fetch_interval_sec", 30).toString())
+        correctSavedServerUrl()
         refreshCertStatus(tvCertStatus)
 
         btnCert.setOnClickListener {
@@ -182,8 +183,16 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnSave.setOnClickListener {
-            val url = etUrl.text.toString().trim().removeSuffix("/")
-            val token = etToken.text.toString().trim()
+            val parsed = PhoneTrackUrl.parse(etUrl.text.toString())
+            val url = parsed.base
+            var token = etToken.text.toString().trim()
+            val fromUrl = parsed.token
+            if (token.isBlank() && !fromUrl.isNullOrBlank()) token = fromUrl
+            if (url != etUrl.text.toString().trim().removeSuffix("/")) {
+                etUrl.setText(url)
+                Toast.makeText(this, "Using Nextcloud server $url", Toast.LENGTH_LONG).show()
+            }
+            if (!fromUrl.isNullOrBlank() && etToken.text.toString().isBlank()) etToken.setText(token)
             val device = etDevice.text.toString().trim().ifEmpty { "Android" }
             if (!isValidBaseUrl(url)) {
                 Toast.makeText(this, "Enter a full URL starting with http:// or https://", Toast.LENGTH_LONG).show()
@@ -224,6 +233,40 @@ class MainActivity : AppCompatActivity() {
             }
             promptBackgroundOnce()
         }
+    }
+
+    private fun correctSavedServerUrl() {
+        val saved = prefs.getString("url", "") ?: ""
+        val parsed = PhoneTrackUrl.parse(saved)
+        val sessions = loadSessions()
+        val originalSessions = sessions.map { it.toString() }
+        val fixedSessions = sessions.map { session ->
+            val sessionParsed = PhoneTrackUrl.parse(session.optString("url"))
+            val sessionToken = sessionParsed.token
+            if (sessionParsed.base.isNotBlank() && sessionParsed.base != session.optString("url")) {
+                session.put("url", sessionParsed.base)
+                if (session.optString("token").isBlank() && !sessionToken.isNullOrBlank()) {
+                    session.put("token", sessionToken)
+                }
+            }
+            session
+        }
+        val urlChanged = parsed.base.isNotBlank() && parsed.base != saved
+        val sessionsChanged = fixedSessions.map { it.toString() } != originalSessions
+        if (!urlChanged && !sessionsChanged) return
+        val editor = prefs.edit()
+        if (urlChanged) {
+            editor.putString("url", parsed.base)
+            val fromUrl = parsed.token
+            if (prefs.getString("token", "").isNullOrBlank() && !fromUrl.isNullOrBlank()) {
+                editor.putString("token", fromUrl)
+                etToken.setText(fromUrl)
+            }
+            etUrl.setText(parsed.base)
+            LogManager.add("Corrected server URL to ${parsed.base}")
+        }
+        if (sessionsChanged) editor.putString("sessions", JSONArray(fixedSessions).toString())
+        editor.apply()
     }
 
     private fun refreshCertStatus(label: TextView) {

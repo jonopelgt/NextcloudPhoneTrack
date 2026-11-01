@@ -9,10 +9,11 @@ object PhoneTrackApi {
     fun getLastPositions(context: Context, baseUrl: String, token: String): Map<String, GeoPointData>? {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         val client = CertHelper.buildClient(prefs)
+        val server = PhoneTrackUrl.parse(baseUrl).base
         val tokenEnc = URLEncoder.encode(token, "UTF-8").replace("+", "%20")
         val urls = listOf(
-            "$baseUrl/apps/phonetrack/api/getlastpositions/$tokenEnc",
-            "$baseUrl/index.php/apps/phonetrack/api/getlastpositions/$tokenEnc"
+            "$server/index.php/apps/phonetrack/api/getlastpositions/$tokenEnc",
+            "$server/apps/phonetrack/api/getlastpositions/$tokenEnc"
         )
         var lastError = "no response"
         for (url in urls) {
