@@ -27,6 +27,11 @@ jobs:
         with:
           gradle-version: '8.5'
 
+      - name: Decode keystore
+        run: |
+          mkdir -p keystore
+          base64 -d keystore/debug.keystore.b64 > keystore/debug.keystore
+
       - name: Build with Gradle
         run: gradle assembleDebug --stacktrace
 
@@ -51,5 +56,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add distro/rev-$REV/
-          git diff --staged --quiet || git commit -m "ci: publish Rev $REV debug APK and SPEC to distro"
+          git diff --staged --quiet || git commit -m "ci: publish Rev $REV signed debug APK and SPEC to distro"
           git push
