@@ -10,6 +10,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -75,7 +76,11 @@ class MainActivity : AppCompatActivity() {
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_about -> {
-                    Toast.makeText(this, "Nextcloud PhoneTrack\nRev 4\nLocation sharing via Nextcloud PhoneTrack", Toast.LENGTH_LONG).show()
+                    AlertDialog.Builder(this)
+                        .setTitle("About Nextcloud PhoneTrack")
+                        .setMessage("cyberchilli LLC\nRevision 5\nLocation sharing via Nextcloud PhoneTrack")
+                        .setPositiveButton("OK", null)
+                        .show()
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_map -> {
