@@ -34,6 +34,7 @@ import java.util.TimerTask
 class MainActivity : AppCompatActivity() {
 
     private lateinit var map: MapView
+    private lateinit var etSessionName: EditText
     private lateinit var etUrl: EditText
     private lateinit var etToken: EditText
     private lateinit var etDevice: EditText
@@ -44,19 +45,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusPanel: LinearLayout
     private lateinit var tvStatusUrl: TextView
     private lateinit var tvStatusToken: TextView
+    private lateinit var tvCertStatus: TextView
+    private lateinit var btnProbeCert: Button
+    private lateinit var btnAcceptCert: Button
     private lateinit var tvLog: TextView
     private val LOCATION_PERMISSION_REQUEST = 1001
     private var logTimer: Timer? = null
     private var autoCenter = true
     private var fitAll = false
+    private var pendingCertHash: String? = null
 
-    private fun readVersion(): String = try {
-        assets.open("VERSION").bufferedReader().use { it.readText().trim() }
+    private fun getAppVersion(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
     } catch (e: Exception) { "unknown" }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val rev = readVersion()
+        val rev = getAppVersion()
         Configuration.getInstance().userAgentValue = "NextcloudPhoneTrack/$rev (cyberchilli LLC)"
         setContentView(R.layout.activity_main)
 
@@ -64,17 +69,22 @@ class MainActivity : AppCompatActivity() {
         drawerLayout = findViewById(R.id.drawer_layout)
         formPanel = findViewById(R.id.form_panel)
         statusPanel = findViewById(R.id.status_panel)
+        etSessionName = findViewById(R.id.etSessionName)
         etUrl = findViewById(R.id.etUrl)
         etToken = findViewById(R.id.etToken)
         etDevice = findViewById(R.id.etDevice)
         tvStatus = findViewById(R.id.tvStatus)
         tvStatusUrl = findViewById(R.id.tvStatusUrl)
         tvStatusToken = findViewById(R.id.tvStatusToken)
+        tvCertStatus = findViewById(R.id.tvCertStatus)
+        btnProbeCert = findViewById(R.id.btnProbeCert)
+        btnAcceptCert = findViewById(R.id.btnAcceptCert)
         tvLog = findViewById(R.id.tvLog)
         val btnSave = findViewById<Button>(R.id.btnSave)
         val btnMenu = findViewById<Button>(R.id.btnMenu)
         val navView: NavigationView = findViewById(R.id.nav_view)
 
+        etSessionName.setText(prefs.getString("session_name", ""))
         etUrl.setText(prefs.getString("url", "https://"))
         etToken.setText(prefs.getString("token", ""))
         etDevice.setText(prefs.getString("device", android.os.Build.MODEL))
@@ -89,7 +99,7 @@ class MainActivity : AppCompatActivity() {
         map.setMultiTouchControls(true)
         map.setBuiltInZoomControls(true)
         map.controller.setZoom(12.0)
-        map.controller.setCenter(GeoPoint(42.7654, -71.4676))
+        map.controller.setCenter(GeoPoint(42.7654, -71.4676)) // Nashua, NH
 
         map.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_DOWN) {
@@ -101,6 +111,38 @@ class MainActivity : AppCompatActivity() {
 
         btnMenu.setOnClickListener {
             drawerLayout.openDrawer(navView)
+        }
+
+        btnProbeCert.setOnClickListener {
+            val url = prefs.getString("url", "") ?: ""
+            if (url.isBlank()) {
+                Toast.makeText(this, "Set URL first", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            tvCertStatus.text = "Cert: Probing..."
+            CertHelper.probeCertHash(url) { hash ->
+                runOnUiThread {
+                    pendingCertHash = hash
+                    if (hash != null) {
+                        val accepted = CertHelper.getAcceptedHashes(prefs)
+                        val status = if (hash in accepted) "Accepted" else "Untrusted"
+                        tvCertStatus.text = "Cert: $status ($hash)"
+                        btnAcceptCert.isEnabled = hash !in accepted
+                    } else {
+                        tvCertStatus.text = "Cert: Probe failed"
+                        btnAcceptCert.isEnabled = false
+                    }
+                }
+            }
+        }
+
+        btnAcceptCert.setOnClickListener {
+            pendingCertHash?.let { hash ->
+                CertHelper.addAcceptedHash(prefs, hash)
+                tvCertStatus.text = "Cert: Accepted ($hash)"
+                btnAcceptCert.isEnabled = false
+                Toast.makeText(this, "Certificate accepted", Toast.LENGTH_SHORT).show()
+            }
         }
 
         navView.setNavigationItemSelectedListener { item ->
@@ -119,7 +161,7 @@ class MainActivity : AppCompatActivity() {
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_about -> {
-                    val version = readVersion()
+                    val version = getAppVersion()
                     AlertDialog.Builder(this)
                         .setTitle("About Nextcloud PhoneTrack")
                         .setMessage("cyberchilli LLC\nRevision $version\nLocation sharing via Nextcloud PhoneTrack")
@@ -138,6 +180,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         btnSave.setOnClickListener {
+            val name = etSessionName.text.toString().trim().ifEmpty { "Unnamed" }
             val url = etUrl.text.toString().trim().removeSuffix("/")
             val token = etToken.text.toString().trim()
             val device = etDevice.text.toString().trim().ifEmpty { "Android" }
@@ -146,13 +189,14 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             prefs.edit()
+                .putString("session_name", name)
                 .putString("url", url)
                 .putString("token", token)
                 .putString("device", device)
                 .apply()
-            saveSession(url, token, device)
+            saveSession(name, url, token, device)
             formPanel.visibility = View.GONE
-            LogManager.add("Configured URL=$url token=$token device=$device")
+            LogManager.add("Configured name=$name URL=$url token=$token device=$device")
             if (checkPermissions()) {
                 startLocationService(url, token, device)
                 startFetchingPositions(url, token, device)
@@ -179,6 +223,10 @@ class MainActivity : AppCompatActivity() {
         val token = prefs.getString("token", "") ?: ""
         tvStatusUrl.text = "URL: $url"
         tvStatusToken.text = "Token: $token"
+        val accepted = CertHelper.getAcceptedHashes(prefs)
+        tvCertStatus.text = if (accepted.isEmpty()) "Cert: None accepted" else "Cert: ${accepted.size} accepted"
+        btnAcceptCert.isEnabled = false
+        pendingCertHash = null
         refreshLog()
         startLogTimer()
     }
@@ -208,9 +256,10 @@ class MainActivity : AppCompatActivity() {
         LogManager.add(msg)
     }
 
-    private fun saveSession(url: String, token: String, device: String) {
+    private fun saveSession(name: String, url: String, token: String, device: String) {
         val sessions = loadSessions().toMutableList()
         val obj = JSONObject().apply {
+            put("name", name)
             put("url", url)
             put("token", token)
             put("device", device)
@@ -227,12 +276,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSessions() {
         val sessions = loadSessions()
-        val items = if (sessions.isEmpty()) arrayOf("No sessions yet") else sessions.map { "${it.getString("device")} @ ${it.getString("url")}" }.toTypedArray()
+        val items = if (sessions.isEmpty()) arrayOf("No sessions yet") else sessions.map { 
+            val name = it.optString("name", it.optString("device", "Unnamed"))
+            "$name @ ${it.getString("url")}"
+        }.toTypedArray()
         AlertDialog.Builder(this)
             .setTitle("Session Configs")
             .setItems(items) { _, which ->
                 if (sessions.isNotEmpty()) {
                     val s = sessions[which]
+                    etSessionName.setText(s.optString("name", ""))
                     etUrl.setText(s.getString("url"))
                     etToken.setText(s.getString("token"))
                     etDevice.setText(s.getString("device"))
@@ -242,6 +295,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNeutralButton("Add New") { _, _ ->
+                etSessionName.setText("")
                 etUrl.setText("https://")
                 etToken.setText("")
                 etDevice.setText(android.os.Build.MODEL)
