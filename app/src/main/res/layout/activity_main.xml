@@ -110,6 +110,7 @@
                     android:layout_height="wrap_content"
                     android:textSize="12sp"
                     android:fontFamily="monospace"
+                    android:textIsSelectable="true"
                     android:text="No messages yet" />
 
             </ScrollView>
