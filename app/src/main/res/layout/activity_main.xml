@@ -70,6 +70,52 @@
 
         </LinearLayout>
 
+        <LinearLayout
+            android:id="@+id/status_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:background="#CCFFFFFF"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvStatusUrl"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="URL: "
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvStatusToken"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Token: "
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Log (newest first):"
+                android:paddingTop="8dp" />
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="200dp">
+
+                <TextView
+                    android:id="@+id/tvLog"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textSize="12sp"
+                    android:fontFamily="monospace"
+                    android:text="No messages yet" />
+
+            </ScrollView>
+
+        </LinearLayout>
+
     </FrameLayout>
 
     <com.google.android.material.navigation.NavigationView
