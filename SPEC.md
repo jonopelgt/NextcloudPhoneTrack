@@ -1,4 +1,4 @@
-# Nextcloud PhoneTrack Android App — Specification (Rev 3)
+# Nextcloud PhoneTrack Android App — Specification (Rev 4)
 
 ## 1. Purpose
 Android application that connects to a self-hosted Nextcloud instance running the PhoneTrack app, publishes the device’s location to a PhoneTrack tracking session, and displays the last known positions of the local device and all other devices (“friends”) in the same session on a map.
@@ -11,6 +11,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Persistent configuration of sessions (URL, token, device) across restarts.
 - Foreground service for reliable location updates.
 - Revision-based distro packaging for each build.
+- All builds signed with the same fixed keystore.
 
 ## 3. Functional Requirements
 
@@ -61,7 +62,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Source snapshot or build notes placed in `distro/rev-N/`.
 - Root contains current source; distro/ holds historical revisions.
 - VERSION file tracks current revision.
-- All builds signed with consistent keystore for updateability.
+- All builds signed with the same consistent keystore (debugkey / android) for updateability.
 
 ## 4. Non-Functional Requirements
 - Min SDK 24, Target SDK 34.
@@ -89,4 +90,5 @@ Android application that connects to a self-hosted Nextcloud instance running th
 ## 7. Revision History
 - Rev 1 (2026-11-01): Initial MVP scaffold matching this specification.
 - Rev 2 (2026-11-01): Added navigation menu with Connection Status and Phone Track Sessions pages; persistent multi-session configs; status display. Built from updated requirements.
-- Rev 3 (2026-11-01): Menu updated to include About, Sessions, and Connection Status. Consistent signing key for updates. Triggered publish.
+- Rev 3 (2026-11-01): Menu updated to include About, Sessions, and Connection Status. Consistent signing key for updates.
+- Rev 4 (2026-11-01): Confirmed same fixed keystore used for all builds going forward.
