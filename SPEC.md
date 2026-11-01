@@ -8,7 +8,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Periodic fetch of last positions via public API.
 - Map display of all devices in the session.
 - Navigation drawer menu with About, Sessions, and Connection Status.
-- Persistent configuration of sessions (URL, token, device) across restarts.
+- Persistent configuration of sessions (name, URL, token, device) across restarts.
 - Foreground service for reliable location updates.
 - Revision-based distro packaging for each build.
 - All builds signed with the same fixed keystore.
@@ -17,12 +17,14 @@ Android application that connects to a self-hosted Nextcloud instance running th
 
 ### FR-1: Configuration
 - User can enter and save:
+  - Session name (required for identification in list)
   - Nextcloud base URL (https://example.com)
   - PhoneTrack session token
   - Device name (defaults to device model)
 - Values stored in SharedPreferences.
 - Validation of URL format and non-empty token.
-- Multiple sessions remembered; listed in menu.
+- Multiple sessions remembered; listed in menu with session name.
+- Sessions must have a name field.
 
 ### FR-2: Location Publishing
 - Foreground service requests high-accuracy location updates.
@@ -43,6 +45,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Use OSMDroid with OpenStreetMap tiles.
 - Multi-touch zoom/pan.
 - Distinct marker for own device.
+- Default location: Nashua, NH (42.7654, -71.4676).
 
 ### FR-5: Permissions & Lifecycle
 - Request fine location, coarse location, background location (Android 10+), notifications.
@@ -51,11 +54,11 @@ Android application that connects to a self-hosted Nextcloud instance running th
 
 ### FR-6: Menu
 - Navigation drawer menu with:
-  - About (app info, version, purpose)
-  - Sessions (list of saved PhoneTrack sessions)
-  - Connection Status (shows logging state, last update)
+  - About (app info, version matching VERSION/rev, purpose)
+  - Sessions (list of saved PhoneTrack sessions, must display session name)
+  - Connection Status (shows logging state, last update, certificate status with verify/accept)
   - Map
-- Sessions list displays saved configs.
+- Sessions list displays saved configs by name.
 
 ### FR-7: Revision Distribution
 - Each software update is tagged with a revision (rev-N).
@@ -63,6 +66,11 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Root contains current source; distro/ holds historical revisions.
 - VERSION file tracks current revision.
 - All builds signed with the same consistent keystore (debugkey / android) for updateability.
+
+### FR-8: Certificate Handling
+- Connection/status page shows site certificate status.
+- User can verify (probe) and accept certificates.
+- Accepted certificates (multiple) are stored persistently.
 
 ## 4. Non-Functional Requirements
 - Min SDK 24, Target SDK 34.
@@ -86,9 +94,14 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Menu provides access to About, Sessions, and Connection Status.
 - Distro folder contains rev-N snapshot matching VERSION.
 - Builds signed consistently for over-the-air style updates.
+- Sessions have and display a name field.
+- About shows revision matching VERSION.
+- Map defaults to Nashua NH.
+- Cert status shown; user can accept and store certs.
 
 ## 7. Revision History
 - Rev 1 (2026-11-01): Initial MVP scaffold matching this specification.
 - Rev 2 (2026-11-01): Added navigation menu with Connection Status and Phone Track Sessions pages; persistent multi-session configs; status display. Built from updated requirements.
 - Rev 3 (2026-11-01): Menu updated to include About, Sessions, and Connection Status. Consistent signing key for updates.
 - Rev 4 (2026-11-01): Confirmed same fixed keystore used for all builds going forward.
+- Rev 5 (2026-11-01): Added session name field, multi-cert storage, cert UI, about rev fix, Nashua map default.
