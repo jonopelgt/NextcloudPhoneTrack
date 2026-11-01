@@ -13,6 +13,3 @@
 .externalNativeBuild
 .cxx
 local.properties
-*.apk
-*.aab
-distro/**/*.apk
