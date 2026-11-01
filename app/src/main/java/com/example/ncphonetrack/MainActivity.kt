@@ -88,7 +88,9 @@ class MainActivity : AppCompatActivity() {
         map.setTileSource(httpsMapnik)
         map.setMultiTouchControls(true)
         map.setBuiltInZoomControls(true)
-        map.controller.setZoom(15.0)
+        map.controller.setZoom(12.0)
+        // Default center: Nashua, NH
+        map.controller.setCenter(GeoPoint(42.7654, -71.4676))
 
         // Detect user map interaction to switch to manual mode
         map.setOnTouchListener { _, event ->
