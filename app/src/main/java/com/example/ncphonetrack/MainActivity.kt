@@ -38,7 +38,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var formPanel: LinearLayout
+    private lateinit var statusPanel: LinearLayout
+    private lateinit var tvStatusUrl: TextView
+    private lateinit var tvStatusToken: TextView
+    private lateinit var tvLog: TextView
     private val LOCATION_PERMISSION_REQUEST = 1001
+    private var logTimer: Timer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,10 +53,14 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         drawerLayout = findViewById(R.id.drawer_layout)
         formPanel = findViewById(R.id.form_panel)
+        statusPanel = findViewById(R.id.status_panel)
         etUrl = findViewById(R.id.etUrl)
         etToken = findViewById(R.id.etToken)
         etDevice = findViewById(R.id.etDevice)
         tvStatus = findViewById(R.id.tvStatus)
+        tvStatusUrl = findViewById(R.id.tvStatusUrl)
+        tvStatusToken = findViewById(R.id.tvStatusToken)
+        tvLog = findViewById(R.id.tvLog)
         val btnSave = findViewById<Button>(R.id.btnSave)
         val btnMenu = findViewById<Button>(R.id.btnMenu)
         val navView: NavigationView = findViewById(R.id.nav_view)
@@ -73,10 +82,11 @@ class MainActivity : AppCompatActivity() {
             when (item.itemId) {
                 R.id.nav_configure -> {
                     formPanel.visibility = if (formPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                    statusPanel.visibility = View.GONE
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_status -> {
-                    updateStatusText("Connection Status: Logging active if configured")
+                    showStatusPanel()
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_sessions -> {
@@ -93,6 +103,8 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.nav_map -> {
                     formPanel.visibility = View.GONE
+                    statusPanel.visibility = View.GONE
+                    stopLogTimer()
                     drawerLayout.closeDrawers()
                 }
             }
@@ -114,6 +126,7 @@ class MainActivity : AppCompatActivity() {
                 .apply()
             saveSession(url, token, device)
             formPanel.visibility = View.GONE
+            LogManager.add("Configured URL=$url token=$token device=$device")
             if (checkPermissions()) {
                 startLocationService(url, token, device)
                 startFetchingPositions(url, token, device)
@@ -133,8 +146,40 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showStatusPanel() {
+        formPanel.visibility = View.GONE
+        statusPanel.visibility = View.VISIBLE
+        val url = prefs.getString("url", "") ?: ""
+        val token = prefs.getString("token", "") ?: ""
+        tvStatusUrl.text = "URL: $url"
+        tvStatusToken.text = "Token: $token"
+        refreshLog()
+        startLogTimer()
+    }
+
+    private fun refreshLog() {
+        tvLog.text = LogManager.getLogs().ifEmpty { "No messages yet" }
+    }
+
+    private fun startLogTimer() {
+        stopLogTimer()
+        logTimer = Timer().apply {
+            scheduleAtFixedRate(object : TimerTask() {
+                override fun run() {
+                    runOnUiThread { refreshLog() }
+                }
+            }, 0, 2000)
+        }
+    }
+
+    private fun stopLogTimer() {
+        logTimer?.cancel()
+        logTimer = null
+    }
+
     private fun updateStatusText(msg: String) {
         tvStatus.text = msg
+        LogManager.add(msg)
     }
 
     private fun saveSession(url: String, token: String, device: String) {
@@ -173,6 +218,7 @@ class MainActivity : AppCompatActivity() {
                 etToken.setText(s.getString("token"))
                 etDevice.setText(s.getString("device"))
                 formPanel.visibility = View.VISIBLE
+                statusPanel.visibility = View.GONE
                 Toast.makeText(this, "Loaded session", Toast.LENGTH_SHORT).show()
             }
             .setPositiveButton("Close", null)
@@ -242,5 +288,5 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onResume() { super.onResume(); map.onResume() }
-    override fun onPause() { super.onPause(); map.onPause() }
+    override fun onPause() { super.onPause(); map.onPause(); stopLogTimer() }
 }
