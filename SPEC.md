@@ -106,3 +106,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 13 (2026-11-01): Connection Status shows OK in green while position updates are succeeding, and Failed in red when they are not.
 - Rev 14 (2026-11-01): The sessions list shows each session's name from the PhoneTrack server.
 - Rev 15 (2026-11-01): Friends page lists every saved session and indents the users reporting in that session.
+- Rev 16 (2026-11-01): A session turned off on the Sessions page is gray and unavailable on Friends, and its users are still listed.

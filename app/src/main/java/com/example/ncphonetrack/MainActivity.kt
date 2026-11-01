@@ -561,21 +561,26 @@ class MainActivity : AppCompatActivity() {
                 val title = sessionLabel(session)
                 val positions = PhoneTrackApi.getLastPositions(this, session.optString("url"), session.optString("token"))
                 val users = positions?.keys?.sorted().orEmpty()
-                title to users
+                Triple(title, users, session.optBoolean("enabled", true))
             }
             runOnUiThread {
                 if (!dialog.isShowing) return@runOnUiThread
                 list.removeAllViews()
-                rows.forEach { (title, users) ->
+                rows.forEach { (title, users, enabled) ->
+                    val sessionColor = if (enabled) Color.BLACK else Color.parseColor("#9E9E9E")
+                    val userColor = if (enabled) Color.BLACK else Color.parseColor("#757575")
                     list.addView(TextView(this).apply {
-                        text = title
+                        text = if (enabled) title else "$title (unavailable)"
                         textSize = 16f
+                        setTextColor(sessionColor)
                         setTypeface(typeface, android.graphics.Typeface.BOLD)
                         setPadding(0, pad, 0, pad / 4)
+                        isEnabled = enabled
                     })
                     if (users.isEmpty()) {
                         list.addView(TextView(this).apply {
                             text = "No users reported"
+                            setTextColor(userColor)
                             setPadding(indent, 0, 0, pad / 2)
                         })
                     } else {
@@ -583,6 +588,7 @@ class MainActivity : AppCompatActivity() {
                             list.addView(TextView(this).apply {
                                 text = user
                                 textSize = 15f
+                                setTextColor(userColor)
                                 setPadding(indent, pad / 4, 0, pad / 4)
                             })
                         }
