@@ -146,8 +146,26 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSessions() {
         val sessions = loadSessions()
-        val names = sessions.mapIndexed { i, s -> "${s.getString("device")} @ ${s.getString("url")}" }
-        Toast.makeText(this, if (names.isEmpty()) "No sessions" else names.joinToString("\n"), Toast.LENGTH_LONG).show()
+        if (sessions.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("Saved Sessions")
+                .setMessage("No sessions saved yet.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+        val items = sessions.map { "${it.getString("device")} @ ${it.getString("url")}" }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Saved Sessions")
+            .setItems(items) { _, which ->
+                val s = sessions[which]
+                etUrl.setText(s.getString("url"))
+                etToken.setText(s.getString("token"))
+                etDevice.setText(s.getString("device"))
+                Toast.makeText(this, "Loaded session", Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton("Close", null)
+            .show()
     }
 
     private fun checkPermissions(): Boolean =
