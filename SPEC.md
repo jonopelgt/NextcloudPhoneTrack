@@ -56,6 +56,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - About (app info, version, purpose)
   - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
+  - Friends (each session, with that session's users indented below it)
   - Map
 - Sessions list displays saved configs. Each session has an enable switch. Hold a session to configure or delete it.
 
@@ -104,3 +105,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 12 (2026-11-01): Position updates use the Nextcloud username as the device id when that username is saved.
 - Rev 13 (2026-11-01): Connection Status shows OK in green while position updates are succeeding, and Failed in red when they are not.
 - Rev 14 (2026-11-01): The sessions list shows each session's name from the PhoneTrack server.
+- Rev 15 (2026-11-01): Friends page lists every saved session and indents the users reporting in that session.

@@ -161,6 +161,10 @@ class MainActivity : AppCompatActivity() {
                     showSessions()
                     drawerLayout.closeDrawers()
                 }
+                R.id.nav_friends -> {
+                    showFriends()
+                    drawerLayout.closeDrawers()
+                }
                 R.id.nav_about -> {
                     val version = readVersion()
                     AlertDialog.Builder(this)
@@ -520,6 +524,69 @@ class MainActivity : AppCompatActivity() {
                 if (error == null) {
                     mergeRemoteSessions(url, remote)
                     if (sessionsDialog?.isShowing == true) showSessions(reloadNames = false)
+                }
+            }
+        }.start()
+    }
+
+    private fun showFriends() {
+        val sessions = loadSessions()
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val indent = (28 * resources.displayMetrics.density).toInt()
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        if (sessions.isEmpty()) {
+            list.addView(TextView(this).apply {
+                text = "No sessions yet."
+                setPadding(0, pad, 0, pad)
+            })
+        } else {
+            list.addView(TextView(this).apply {
+                text = "Loading users…"
+                setPadding(0, pad, 0, pad)
+            })
+        }
+        val scroll = android.widget.ScrollView(this).apply { addView(list) }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Friends")
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .create()
+        dialog.show()
+        if (sessions.isEmpty()) return
+        Thread {
+            val rows = sessions.map { session ->
+                val title = sessionLabel(session)
+                val positions = PhoneTrackApi.getLastPositions(this, session.optString("url"), session.optString("token"))
+                val users = positions?.keys?.sorted().orEmpty()
+                title to users
+            }
+            runOnUiThread {
+                if (!dialog.isShowing) return@runOnUiThread
+                list.removeAllViews()
+                rows.forEach { (title, users) ->
+                    list.addView(TextView(this).apply {
+                        text = title
+                        textSize = 16f
+                        setTypeface(typeface, android.graphics.Typeface.BOLD)
+                        setPadding(0, pad, 0, pad / 4)
+                    })
+                    if (users.isEmpty()) {
+                        list.addView(TextView(this).apply {
+                            text = "No users reported"
+                            setPadding(indent, 0, 0, pad / 2)
+                        })
+                    } else {
+                        users.forEach { user ->
+                            list.addView(TextView(this).apply {
+                                text = user
+                                textSize = 15f
+                                setPadding(indent, pad / 4, 0, pad / 4)
+                            })
+                        }
+                    }
                 }
             }
         }.start()

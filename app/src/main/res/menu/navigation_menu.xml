@@ -9,6 +9,10 @@
         android:title="Sessions"
         android:icon="@android:drawable/ic_menu_agenda" />
     <item
+        android:id="@+id/nav_friends"
+        android:title="Friends"
+        android:icon="@android:drawable/ic_menu_myplaces" />
+    <item
         android:id="@+id/nav_about"
         android:title="About"
         android:icon="@android:drawable/ic_menu_help" />
