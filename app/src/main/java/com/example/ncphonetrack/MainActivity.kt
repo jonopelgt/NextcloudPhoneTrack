@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
@@ -22,7 +23,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
@@ -46,10 +47,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvLog: TextView
     private val LOCATION_PERMISSION_REQUEST = 1001
     private var logTimer: Timer? = null
+    private var autoCenter = true
+    private var fitAll = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Avoid OSM block on com.example.* User-Agents
         Configuration.getInstance().userAgentValue = "NextcloudPhoneTrack/5 (cyberchilli LLC)"
         setContentView(R.layout.activity_main)
 
@@ -73,7 +75,6 @@ class MainActivity : AppCompatActivity() {
         etDevice.setText(prefs.getString("device", android.os.Build.MODEL))
 
         map = findViewById(R.id.map)
-        // Custom HTTPS Mapnik source to avoid HTTP blocks
         val httpsMapnik = object : OnlineTileSourceBase("MapnikHTTPS", 0, 19, 256, ".png", arrayOf("https://tile.openstreetmap.org/")) {
             override fun getTileURLString(pMapTileIndex: Long): String {
                 return baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + imageFilenameEnding
@@ -81,7 +82,17 @@ class MainActivity : AppCompatActivity() {
         }
         map.setTileSource(httpsMapnik)
         map.setMultiTouchControls(true)
+        map.setBuiltInZoomControls(true)
         map.controller.setZoom(15.0)
+
+        // Detect user map interaction to switch to manual mode
+        map.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_DOWN) {
+                autoCenter = false
+                fitAll = false
+            }
+            false
+        }
 
         btnMenu.setOnClickListener {
             drawerLayout.openDrawer(navView)
@@ -281,14 +292,23 @@ class MainActivity : AppCompatActivity() {
             val positions = PhoneTrackApi.getLastPositions(url, token)
             runOnUiThread {
                 map.overlays.clear()
+                val points = mutableListOf<GeoPoint>()
+                var ownPoint: GeoPoint? = null
                 positions?.forEach { (name, data) ->
                     val point = GeoPoint(data.lat, data.lon)
+                    points.add(point)
                     val marker = Marker(map)
                     marker.position = point
                     marker.title = name
                     marker.snippet = "Acc: ${data.accuracy}m | Age: ${(System.currentTimeMillis()/1000 - data.timestamp)}s"
                     map.overlays.add(marker)
-                    if (name == ownDevice) map.controller.setCenter(point)
+                    if (name == ownDevice) ownPoint = point
+                }
+                if (autoCenter && ownPoint != null) {
+                    map.controller.setCenter(ownPoint)
+                } else if (fitAll && points.isNotEmpty()) {
+                    val bb = BoundingBox.fromGeoPoints(points)
+                    map.zoomToBoundingBox(bb, false)
                 }
                 map.invalidate()
                 updateStatusText("Map updated: ${positions?.size ?: 0} devices")
