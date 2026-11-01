@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
@@ -45,6 +46,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var statusPanel: LinearLayout
     private lateinit var tvStatusUrl: TextView
     private lateinit var tvStatusToken: TextView
+    private lateinit var tvQueueCount: TextView
+    private lateinit var tvPublishStatus: TextView
     private lateinit var tvCertStatus: TextView
     private lateinit var btnProbeCert: Button
     private lateinit var btnAcceptCert: Button
@@ -76,6 +79,8 @@ class MainActivity : AppCompatActivity() {
         tvStatus = findViewById(R.id.tvStatus)
         tvStatusUrl = findViewById(R.id.tvStatusUrl)
         tvStatusToken = findViewById(R.id.tvStatusToken)
+        tvQueueCount = findViewById(R.id.tvQueueCount)
+        tvPublishStatus = findViewById(R.id.tvPublishStatus)
         tvCertStatus = findViewById(R.id.tvCertStatus)
         btnProbeCert = findViewById(R.id.btnProbeCert)
         btnAcceptCert = findViewById(R.id.btnAcceptCert)
@@ -221,8 +226,10 @@ class MainActivity : AppCompatActivity() {
         statusPanel.visibility = View.VISIBLE
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
-        tvStatusUrl.text = "URL: $url"
+        val name = prefs.getString("session_name", "Current") ?: "Current"
+        tvStatusUrl.text = "Session: $name\nURL: $url"
         tvStatusToken.text = "Token: $token"
+        updateQueueAndStatus()
         val accepted = CertHelper.getAcceptedHashes(prefs)
         tvCertStatus.text = if (accepted.isEmpty()) "Cert: None accepted" else "Cert: ${accepted.size} accepted"
         btnAcceptCert.isEnabled = false
@@ -231,8 +238,17 @@ class MainActivity : AppCompatActivity() {
         startLogTimer()
     }
 
+    private fun updateQueueAndStatus() {
+        val queue = LocationPublishService.getQueueCount(this)
+        val status = LocationPublishService.getPublishStatus(this)
+        tvQueueCount.text = "Queued: $queue"
+        tvPublishStatus.text = "Status: $status"
+        tvPublishStatus.setTextColor(if (status == "OK") Color.GREEN else if (status == "Failed") Color.RED else Color.BLACK)
+    }
+
     private fun refreshLog() {
         tvLog.text = LogManager.getLogs().ifEmpty { "No messages yet" }
+        updateQueueAndStatus()
     }
 
     private fun startLogTimer() {
