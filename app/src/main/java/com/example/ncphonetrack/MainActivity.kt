@@ -19,6 +19,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.PopupMenu
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -405,34 +406,124 @@ class MainActivity : AppCompatActivity() {
         return (0 until arr.length()).map { arr.getJSONObject(it) }
     }
 
+    private var sessionsDialog: AlertDialog? = null
+
     private fun showSessions() {
         val sessions = loadSessions()
-        val items = if (sessions.isEmpty()) arrayOf("No sessions yet") else sessions.map { "${it.getString("device")} @ ${it.getString("url")}" }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("Session Configs")
-            .setItems(items) { _, which ->
-                if (sessions.isNotEmpty()) {
-                    val s = sessions[which]
-                    etUrl.setText(s.getString("url"))
-                    etToken.setText(s.getString("token"))
-                    etDevice.setText(s.getString("device"))
-                    etPublish.setText(prefs.getInt("publish_interval_sec", 60).toString())
-                    etFetch.setText(prefs.getInt("fetch_interval_sec", 30).toString())
-                    formPanel.visibility = View.VISIBLE
-                    statusPanel.visibility = View.GONE
-                    Toast.makeText(this, "Opened session config", Toast.LENGTH_SHORT).show()
-                }
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        if (sessions.isEmpty()) {
+            list.addView(TextView(this).apply {
+                text = "No sessions yet. Use Add New."
+                setPadding(0, pad, 0, pad)
+            })
+        } else {
+            list.addView(TextView(this).apply {
+                text = "Hold a session to configure or delete"
+                textSize = 12f
+                setPadding(0, 0, 0, pad / 2)
+            })
+            sessions.forEach { session ->
+                list.addView(TextView(this).apply {
+                    text = sessionLabel(session)
+                    textSize = 16f
+                    setPadding(0, pad, 0, pad)
+                    isLongClickable = true
+                    setOnLongClickListener { anchor ->
+                        showSessionHoldMenu(anchor, session)
+                        true
+                    }
+                })
             }
-            .setNeutralButton("Add New") { _, _ ->
-                etUrl.setText("https://")
-                etToken.setText("")
-                etDevice.setText(android.os.Build.MODEL)
-                etPublish.setText("60")
-                etFetch.setText("30")
-                formPanel.visibility = View.VISIBLE
-                statusPanel.visibility = View.GONE
-            }
+        }
+        val scroll = android.widget.ScrollView(this).apply { addView(list) }
+        sessionsDialog?.dismiss()
+        sessionsDialog = AlertDialog.Builder(this)
+            .setTitle("Sessions")
+            .setView(scroll)
+            .setNeutralButton("Add New") { _, _ -> openNewSessionForm() }
             .setPositiveButton("Close", null)
+            .create()
+        sessionsDialog?.show()
+    }
+
+    private fun sessionLabel(session: JSONObject): String {
+        val name = session.optString("name")
+        if (name.isNotBlank()) return name
+        val device = session.optString("device").ifBlank { "Session" }
+        val host = Uri.parse(session.optString("url")).host ?: session.optString("url")
+        return "$device @ $host"
+    }
+
+    private fun sameSession(a: JSONObject, url: String, token: String, device: String): Boolean {
+        return a.optString("url") == url && a.optString("token") == token && a.optString("device") == device
+    }
+
+    private fun showSessionHoldMenu(anchor: View, session: JSONObject) {
+        PopupMenu(this, anchor).apply {
+            menu.add("Configure")
+            menu.add("Delete")
+            setOnMenuItemClickListener { item ->
+                when (item.title.toString()) {
+                    "Configure" -> {
+                        sessionsDialog?.dismiss()
+                        openSessionForm(session)
+                    }
+                    "Delete" -> confirmDeleteSession(session)
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun openSessionForm(session: JSONObject) {
+        etUrl.setText(session.optString("url"))
+        etToken.setText(session.optString("token"))
+        etDevice.setText(session.optString("device"))
+        etPublish.setText(prefs.getInt("publish_interval_sec", 60).toString())
+        etFetch.setText(prefs.getInt("fetch_interval_sec", 30).toString())
+        formPanel.visibility = View.VISIBLE
+        statusPanel.visibility = View.GONE
+    }
+
+    private fun openNewSessionForm() {
+        etUrl.setText("https://")
+        etToken.setText("")
+        etDevice.setText(android.os.Build.MODEL)
+        etPublish.setText("60")
+        etFetch.setText("30")
+        formPanel.visibility = View.VISIBLE
+        statusPanel.visibility = View.GONE
+    }
+
+    private fun confirmDeleteSession(session: JSONObject) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete session?")
+            .setMessage(sessionLabel(session))
+            .setPositiveButton("Delete") { _, _ ->
+                val url = session.optString("url")
+                val token = session.optString("token")
+                val device = session.optString("device")
+                val remaining = loadSessions().filterNot { sameSession(it, url, token, device) }
+                val editor = prefs.edit().putString("sessions", JSONArray(remaining).toString())
+                val active = prefs.getString("url", "") == url &&
+                    prefs.getString("token", "") == token &&
+                    (prefs.getString("device", "") ?: "") == device
+                if (active) {
+                    editor.remove("url").remove("token")
+                    fetchTimer?.cancel()
+                    fetchTimer = null
+                    stopService(Intent(this, LocationPublishService::class.java))
+                    updateStatusText("Tracking stopped")
+                }
+                editor.apply()
+                showSessions()
+            }
+            .setNegativeButton("Cancel", null)
             .show()
     }
 

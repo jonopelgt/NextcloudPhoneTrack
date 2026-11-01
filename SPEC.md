@@ -56,7 +56,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
   - Map
-- Sessions list displays saved configs.
+- Sessions list displays saved configs. Hold a session to configure or delete it.
 
 ### FR-7: Revision Distribution
 - Each software update is tagged with a revision (rev-N).
@@ -97,3 +97,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 6 (2026-11-01): Configure screen can inspect the server certificate and accept a self-signed one by SHA-256 fingerprint, or forget a previously accepted certificate.
 - Rev 7 (2026-11-01): A pasted PhoneTrack page link is reduced to the Nextcloud server address before logging or fetching positions.
 - Rev 8 (2026-11-01): Configure is no longer a drawer item. Session setup is opened from Sessions.
+- Rev 9 (2026-11-01): Hold a session to open a menu with Configure and Delete.
