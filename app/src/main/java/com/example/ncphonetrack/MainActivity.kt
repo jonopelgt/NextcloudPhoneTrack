@@ -290,6 +290,15 @@ class MainActivity : AppCompatActivity() {
         return (0 until arr.length()).map { arr.getJSONObject(it) }
     }
 
+    private fun deleteSession(index: Int) {
+        val sessions = loadSessions().toMutableList()
+        if (index in sessions.indices) {
+            sessions.removeAt(index)
+            prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
+            Toast.makeText(this, "Session deleted", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun showSessions() {
         val sessions = loadSessions()
         val items = if (sessions.isEmpty()) arrayOf("No sessions yet") else sessions.map { 
@@ -300,14 +309,24 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Session Configs")
             .setItems(items) { _, which ->
                 if (sessions.isNotEmpty()) {
-                    val s = sessions[which]
-                    etSessionName.setText(s.optString("name", ""))
-                    etUrl.setText(s.getString("url"))
-                    etToken.setText(s.getString("token"))
-                    etDevice.setText(s.getString("device"))
-                    formPanel.visibility = View.VISIBLE
-                    statusPanel.visibility = View.GONE
-                    Toast.makeText(this, "Opened session config", Toast.LENGTH_SHORT).show()
+                    AlertDialog.Builder(this)
+                        .setTitle(items[which])
+                        .setItems(arrayOf("Open", "Delete")) { _, action ->
+                            if (action == 0) {
+                                val s = sessions[which]
+                                etSessionName.setText(s.optString("name", ""))
+                                etUrl.setText(s.getString("url"))
+                                etToken.setText(s.getString("token"))
+                                etDevice.setText(s.getString("device"))
+                                formPanel.visibility = View.VISIBLE
+                                statusPanel.visibility = View.GONE
+                                Toast.makeText(this, "Opened session config", Toast.LENGTH_SHORT).show()
+                            } else {
+                                deleteSession(which)
+                            }
+                        }
+                        .setNegativeButton("Cancel", null)
+                        .show()
                 }
             }
             .setNeutralButton("Add New") { _, _ ->
