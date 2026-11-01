@@ -295,7 +295,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateMapWithPositions(url: String, token: String, ownDevice: String) {
         Thread {
-            val positions = PhoneTrackApi.getLastPositions(url, token)
+            val positions = PhoneTrackApi.getLastPositions(this, url, token)
             runOnUiThread {
                 map.overlays.clear()
                 val points = mutableListOf<GeoPoint>()
