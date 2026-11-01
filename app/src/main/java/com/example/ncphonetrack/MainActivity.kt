@@ -219,7 +219,7 @@ class MainActivity : AppCompatActivity() {
 
         val savedUrl = prefs.getString("url", null)
         val savedToken = prefs.getString("token", null)
-        if (!savedUrl.isNullOrBlank() && !savedToken.isNullOrBlank() && isValidBaseUrl(savedUrl) && checkPermissions()) {
+        if (!savedUrl.isNullOrBlank() && !savedToken.isNullOrBlank() && isValidBaseUrl(savedUrl) && checkPermissions() && activeSessionEnabled()) {
             startTrackingFromPrefs()
             updateStatusText("Auto-started tracking")
             if (Build.VERSION.SDK_INT >= 33 &&
@@ -389,12 +389,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun saveSession(url: String, token: String, device: String) {
         val sessions = loadSessions().filterNot {
-            it.optString("url") == url && it.optString("token") == token && it.optString("device") == device
-        }.toMutableList()
+            sameSession(it, url, token, device)
+        }.onEach { it.put("enabled", false) }.toMutableList()
         val obj = JSONObject().apply {
             put("url", url)
             put("token", token)
             put("device", device)
+            put("enabled", true)
         }
         sessions.add(0, obj)
         prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
@@ -427,15 +428,33 @@ class MainActivity : AppCompatActivity() {
                 setPadding(0, 0, 0, pad / 2)
             })
             sessions.forEach { session ->
-                list.addView(TextView(this).apply {
+                val label = TextView(this).apply {
                     text = sessionLabel(session)
                     textSize = 16f
-                    setPadding(0, pad, 0, pad)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val toggle = androidx.appcompat.widget.SwitchCompat(this).apply {
+                    isChecked = session.optBoolean("enabled", true)
+                    contentDescription = "Enabled"
+                    setOnCheckedChangeListener { button, checked ->
+                        if (button.isPressed) setSessionEnabled(session, checked)
+                    }
+                }
+                list.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, pad / 2, 0, pad / 2)
                     isLongClickable = true
                     setOnLongClickListener { anchor ->
                         showSessionHoldMenu(anchor, session)
                         true
                     }
+                    label.setOnLongClickListener { anchor ->
+                        showSessionHoldMenu(anchor, session)
+                        true
+                    }
+                    addView(label)
+                    addView(toggle)
                 })
             }
         }
@@ -460,6 +479,47 @@ class MainActivity : AppCompatActivity() {
 
     private fun sameSession(a: JSONObject, url: String, token: String, device: String): Boolean {
         return a.optString("url") == url && a.optString("token") == token && a.optString("device") == device
+    }
+
+    private fun activeSessionEnabled(): Boolean {
+        val url = prefs.getString("url", "") ?: ""
+        val token = prefs.getString("token", "") ?: ""
+        val device = prefs.getString("device", "") ?: ""
+        val match = loadSessions().find { sameSession(it, url, token, device) } ?: return true
+        return match.optBoolean("enabled", true)
+    }
+
+    private fun isActiveSession(session: JSONObject): Boolean {
+        return prefs.getString("url", "") == session.optString("url") &&
+            prefs.getString("token", "") == session.optString("token") &&
+            (prefs.getString("device", "") ?: "") == session.optString("device")
+    }
+
+    private fun setSessionEnabled(session: JSONObject, enabled: Boolean) {
+        val url = session.optString("url")
+        val token = session.optString("token")
+        val device = session.optString("device")
+        val sessions = loadSessions()
+        sessions.forEach { item ->
+            if (sameSession(item, url, token, device)) item.put("enabled", enabled)
+            else if (enabled) item.put("enabled", false)
+        }
+        prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
+        if (enabled) {
+            prefs.edit().putString("url", url).putString("token", token).putString("device", device).apply()
+            startIfPermittedOrAsk()
+        } else if (isActiveSession(session)) {
+            stopTracking()
+        }
+        showSessions()
+    }
+
+    private fun stopTracking() {
+        fetchTimer?.cancel()
+        fetchTimer = null
+        stopService(Intent(this, LocationPublishService::class.java))
+        prefs.edit().remove("url").remove("token").apply()
+        updateStatusText("Tracking stopped")
     }
 
     private fun showSessionHoldMenu(anchor: View, session: JSONObject) {
@@ -510,10 +570,7 @@ class MainActivity : AppCompatActivity() {
                 val device = session.optString("device")
                 val remaining = loadSessions().filterNot { sameSession(it, url, token, device) }
                 val editor = prefs.edit().putString("sessions", JSONArray(remaining).toString())
-                val active = prefs.getString("url", "") == url &&
-                    prefs.getString("token", "") == token &&
-                    (prefs.getString("device", "") ?: "") == device
-                if (active) {
+                if (isActiveSession(session)) {
                     editor.remove("url").remove("token")
                     fetchTimer?.cancel()
                     fetchTimer = null
@@ -556,7 +613,7 @@ class MainActivity : AppCompatActivity() {
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
         val device = prefs.getString("device", "Android") ?: "Android"
-        if (!isValidBaseUrl(url) || token.isBlank()) return
+        if (!isValidBaseUrl(url) || token.isBlank() || !activeSessionEnabled()) return
         startLocationService(url, token, device)
         startFetchingPositions(url, token, device)
         updateStatusText("Tracking started")
