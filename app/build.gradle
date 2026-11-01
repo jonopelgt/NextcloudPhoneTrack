@@ -4,8 +4,9 @@ plugins {
 }
 
 def versionFile = rootProject.file('VERSION')
-def rev = versionFile.exists() ? versionFile.text.trim() : '1'
-def revInt = rev.isInteger() ? rev.toInteger() : 1
+def rev = versionFile.exists() ? versionFile.text.trim() : '0.1'
+def parts = rev.split('\\.')
+def revInt = parts.size() > 1 && parts[1].isInteger() ? parts[1].toInteger() : 1
 
 android {
     namespace 'com.example.ncphonetrack'
