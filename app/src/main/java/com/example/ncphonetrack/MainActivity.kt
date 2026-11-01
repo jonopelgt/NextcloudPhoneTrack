@@ -8,10 +8,15 @@ import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Button
 import android.widget.EditText
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.drawerlayout.widget.DrawerLayout
+import com.google.android.material.navigation.NavigationView
+import org.json.JSONArray
+import org.json.JSONObject
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
@@ -26,7 +31,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var etUrl: EditText
     private lateinit var etToken: EditText
     private lateinit var etDevice: EditText
+    private lateinit var tvStatus: TextView
     private lateinit var prefs: SharedPreferences
+    private lateinit var drawerLayout: DrawerLayout
     private val LOCATION_PERMISSION_REQUEST = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,10 +42,13 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        drawerLayout = findViewById(R.id.drawer_layout)
         etUrl = findViewById(R.id.etUrl)
         etToken = findViewById(R.id.etToken)
         etDevice = findViewById(R.id.etDevice)
+        tvStatus = findViewById(R.id.tvStatus)
         val btnSave = findViewById<Button>(R.id.btnSave)
+        val navView: NavigationView = findViewById(R.id.nav_view)
 
         etUrl.setText(prefs.getString("url", "https://"))
         etToken.setText(prefs.getString("token", ""))
@@ -48,6 +58,23 @@ class MainActivity : AppCompatActivity() {
         map.setTileSource(TileSourceFactory.MAPNIK)
         map.setMultiTouchControls(true)
         map.controller.setZoom(15.0)
+
+        navView.setNavigationItemSelectedListener { item ->
+            when (item.itemId) {
+                R.id.nav_status -> {
+                    updateStatusText("Status page: Logging active if configured")
+                    drawerLayout.closeDrawers()
+                }
+                R.id.nav_sessions -> {
+                    showSessions()
+                    drawerLayout.closeDrawers()
+                }
+                R.id.nav_map -> {
+                    drawerLayout.closeDrawers()
+                }
+            }
+            true
+        }
 
         btnSave.setOnClickListener {
             val url = etUrl.text.toString().trim().removeSuffix("/")
@@ -62,22 +89,51 @@ class MainActivity : AppCompatActivity() {
                 .putString("token", token)
                 .putString("device", device)
                 .apply()
+            saveSession(url, token, device)
             if (checkPermissions()) {
                 startLocationService(url, token, device)
                 startFetchingPositions(url, token, device)
+                updateStatusText("Tracking started")
             } else {
                 requestPermissions()
             }
         }
 
-        // Auto-start if already configured
         val savedUrl = prefs.getString("url", null)
         val savedToken = prefs.getString("token", null)
         if (!savedUrl.isNullOrBlank() && !savedToken.isNullOrBlank() && checkPermissions()) {
             val device = prefs.getString("device", "Android")!!
             startLocationService(savedUrl, savedToken, device)
             startFetchingPositions(savedUrl, savedToken, device)
+            updateStatusText("Auto-started tracking")
         }
+    }
+
+    private fun updateStatusText(msg: String) {
+        tvStatus.text = msg
+    }
+
+    private fun saveSession(url: String, token: String, device: String) {
+        val sessions = loadSessions().toMutableList()
+        val obj = JSONObject().apply {
+            put("url", url)
+            put("token", token)
+            put("device", device)
+        }
+        sessions.add(obj)
+        prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
+    }
+
+    private fun loadSessions(): List<JSONObject> {
+        val raw = prefs.getString("sessions", "[]") ?: "[]"
+        val arr = JSONArray(raw)
+        return (0 until arr.length()).map { arr.getJSONObject(it) }
+    }
+
+    private fun showSessions() {
+        val sessions = loadSessions()
+        val names = sessions.mapIndexed { i, s -> "${s.getString("device")} @ ${s.getString("url")}" }
+        Toast.makeText(this, if (names.isEmpty()) "No sessions" else names.joinToString("\n"), Toast.LENGTH_LONG).show()
     }
 
     private fun checkPermissions(): Boolean =
@@ -100,6 +156,7 @@ class MainActivity : AppCompatActivity() {
             if (url.isNotBlank() && token.isNotBlank()) {
                 startLocationService(url, token, device)
                 startFetchingPositions(url, token, device)
+                updateStatusText("Tracking started after permission")
             }
         }
     }
@@ -136,6 +193,7 @@ class MainActivity : AppCompatActivity() {
                     if (name == ownDevice) map.controller.setCenter(point)
                 }
                 map.invalidate()
+                updateStatusText("Map updated: ${positions?.size ?: 0} devices")
             }
         }.start()
     }
