@@ -1,14 +1,14 @@
-# Nextcloud PhoneTrack Android App — Specification (Rev 1)
+# Nextcloud PhoneTrack Android App — Specification (Rev 2)
 
 ## 1. Purpose
 Android application that connects to a self-hosted Nextcloud instance running the PhoneTrack app, publishes the device’s location to a PhoneTrack tracking session, and displays the last known positions of the local device and all other devices (“friends”) in the same session on a map.
 
-## 2. Scope (MVP)
+## 2. Scope
 - Background location publishing to PhoneTrack HTTP endpoint.
 - Periodic fetch of last positions via public API.
 - Map display of all devices in the session.
-- Simple configuration of Nextcloud URL, session token, and device name.
-- Persistent configuration across restarts.
+- Navigation drawer menu with Connection Status and Phone Track Sessions pages.
+- Persistent configuration of sessions (URL, token, device) across restarts.
 - Foreground service for reliable location updates.
 - Revision-based distro packaging for each build.
 
@@ -21,6 +21,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Device name (defaults to device model)
 - Values stored in SharedPreferences.
 - Validation of URL format and non-empty token.
+- Multiple sessions remembered; listed in menu.
 
 ### FR-2: Location Publishing
 - Foreground service requests high-accuracy location updates.
@@ -47,10 +48,18 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Survive process death via START_STICKY service.
 - Graceful handling of permission denial.
 
-### FR-6: Revision Distribution
+### FR-6: Menu & Status
+- Navigation drawer menu with:
+  - Connection Status (shows logging state, last update)
+  - Phone Track Sessions (list of saved sessions)
+  - Map
+- Sessions list displays saved configs; selection loads them.
+
+### FR-7: Revision Distribution
 - Each software update is tagged with a revision (rev-N).
 - Source snapshot or build notes placed in `distro/rev-N/`.
 - Root contains current source; distro/ holds historical revisions.
+- VERSION file tracks current revision.
 
 ## 4. Non-Functional Requirements
 - Min SDK 24, Target SDK 34.
@@ -60,8 +69,8 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Offline-tolerant (buffer positions).
 
 ## 5. Out of Scope (Future)
-- Full Nextcloud OAuth / app-password login and session listing.
-- Multiple simultaneous sessions.
+- Full Nextcloud OAuth / app-password login and dynamic session listing from server.
+- Multiple simultaneous active sessions.
 - Geofencing / proximity alerts.
 - Offline map tiles.
 - SMS remote control.
@@ -70,8 +79,10 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - App starts, requests permissions, starts tracking.
 - Positions appear on PhoneTrack web UI.
 - Other devices in the same session appear as markers.
-- Configuration survives app restart.
-- Distro folder contains rev-1 snapshot.
+- Configuration and sessions survive app restart.
+- Menu provides access to status and sessions list.
+- Distro folder contains rev-N snapshot matching VERSION.
 
 ## 7. Revision History
 - Rev 1 (2026-11-01): Initial MVP scaffold matching this specification.
+- Rev 2 (2026-11-01): Added navigation menu with Connection Status and Phone Track Sessions pages; persistent multi-session configs; status display. Built from updated requirements.

@@ -30,20 +30,26 @@ jobs:
       - name: Build with Gradle
         run: gradle assembleDebug --stacktrace
 
+      - name: Get revision
+        id: rev
+        run: echo "REV=$(cat VERSION)" >> $GITHUB_OUTPUT
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-rev1
+          name: app-debug-rev${{ steps.rev.outputs.REV }}
           path: app/build/outputs/apk/debug/*.apk
           retention-days: 30
 
       - name: Publish APK to distro
         if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: |
-          mkdir -p distro/rev-1
-          cp app/build/outputs/apk/debug/*.apk distro/rev-1/NextcloudPhoneTrack-rev1-debug.apk
+          REV=$(cat VERSION)
+          mkdir -p distro/rev-$REV
+          cp app/build/outputs/apk/debug/*.apk distro/rev-$REV/NextcloudPhoneTrack-rev$REV-debug.apk
+          cp SPEC.md distro/rev-$REV/SPEC.md
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add distro/rev-1/NextcloudPhoneTrack-rev1-debug.apk
-          git diff --staged --quiet || git commit -m "ci: publish Rev 1 debug APK to distro"
+          git add distro/rev-$REV/
+          git diff --staged --quiet || git commit -m "ci: publish Rev $REV debug APK and SPEC to distro"
           git push
