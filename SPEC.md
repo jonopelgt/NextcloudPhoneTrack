@@ -89,4 +89,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 ## 7. Revision History
 - Rev 1 (2026-11-01): Initial MVP scaffold matching this specification.
 - Rev 2 (2026-11-01): Added navigation menu with Connection Status and Phone Track Sessions pages; persistent multi-session configs; status display. Built from updated requirements.
-- Rev 3 (2026-11-01): Menu updated to include About, Sessions, and Connection Status. Consistent signing key for updates.
+- Rev 3 (2026-11-01): Menu updated to include About, Sessions, and Connection Status. Consistent signing key for updates. Triggered publish.
