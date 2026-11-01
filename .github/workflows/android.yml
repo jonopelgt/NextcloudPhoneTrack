@@ -23,6 +23,11 @@ jobs:
         with:
           gradle-version: '8.5'
 
+      - name: Sync VERSION to assets
+        run: |
+          mkdir -p app/src/main/assets
+          cp VERSION app/src/main/assets/VERSION
+
       - name: Decode keystore
         run: |
           mkdir -p keystore
