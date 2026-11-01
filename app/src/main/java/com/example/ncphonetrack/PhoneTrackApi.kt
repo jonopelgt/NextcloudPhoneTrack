@@ -10,9 +10,11 @@ object PhoneTrackApi {
 
     fun getLastPositions(baseUrl: String, token: String): Map<String, GeoPointData>? {
         val url = "$baseUrl/apps/phonetrack/api/getlastpositions/$token"
+        LogManager.add("GET $url")
         val request = Request.Builder().url(url).build()
         return try {
             client.newCall(request).execute().use { response ->
+                LogManager.add("GET response: ${response.code}")
                 if (!response.isSuccessful) return null
                 val json = JSONObject(response.body?.string() ?: return null)
                 val session = json.getJSONObject(token)
@@ -28,9 +30,11 @@ object PhoneTrackApi {
                         accuracy = dev.optDouble("accuracy", 0.0)
                     )
                 }
+                LogManager.add("GET parsed ${devices.size} devices")
                 devices
             }
         } catch (e: Exception) {
+            LogManager.add("GET failed: ${e.message}")
             null
         }
     }
