@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity() {
         etDevice = findViewById(R.id.etDevice)
         tvStatus = findViewById(R.id.tvStatus)
         val btnSave = findViewById<Button>(R.id.btnSave)
+        val btnMenu = findViewById<Button>(R.id.btnMenu)
         val navView: NavigationView = findViewById(R.id.nav_view)
 
         etUrl.setText(prefs.getString("url", "https://"))
@@ -58,6 +59,10 @@ class MainActivity : AppCompatActivity() {
         map.setTileSource(TileSourceFactory.MAPNIK)
         map.setMultiTouchControls(true)
         map.controller.setZoom(15.0)
+
+        btnMenu.setOnClickListener {
+            drawerLayout.openDrawer(navView)
+        }
 
         navView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
@@ -70,7 +75,7 @@ class MainActivity : AppCompatActivity() {
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_about -> {
-                    Toast.makeText(this, "Nextcloud PhoneTrack\nRev 3\nLocation sharing via Nextcloud PhoneTrack", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Nextcloud PhoneTrack\nRev 4\nLocation sharing via Nextcloud PhoneTrack", Toast.LENGTH_LONG).show()
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_map -> {
