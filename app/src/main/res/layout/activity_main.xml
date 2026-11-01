@@ -115,6 +115,16 @@
             android:visibility="gone">
 
             <TextView
+                android:id="@+id/tvConnection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingBottom="8dp"
+                android:text="Failed"
+                android:textColor="#C62828"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <TextView
                 android:id="@+id/tvStatusUrl"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

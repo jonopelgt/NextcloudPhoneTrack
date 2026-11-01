@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatusUrl: TextView
     private lateinit var tvStatusToken: TextView
     private lateinit var tvLoggingState: TextView
+    private lateinit var tvConnection: TextView
     private lateinit var tvLastUpdate: TextView
     private lateinit var tvBuffer: TextView
     private lateinit var tvLog: TextView
@@ -90,6 +91,7 @@ class MainActivity : AppCompatActivity() {
         tvStatusUrl = findViewById(R.id.tvStatusUrl)
         tvStatusToken = findViewById(R.id.tvStatusToken)
         tvLoggingState = findViewById(R.id.tvLoggingState)
+        tvConnection = findViewById(R.id.tvConnection)
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
         tvBuffer = findViewById(R.id.tvBuffer)
         tvLog = findViewById(R.id.tvLog)
@@ -358,12 +360,41 @@ class MainActivity : AppCompatActivity() {
             "Last update: ${age}s ago"
         }
         tvBuffer.text = "Buffered points: ${prefs.getInt("buffer_count", 0)}"
+        refreshConnectionStatus()
         refreshLog()
         startLogTimer()
     }
 
+    private fun refreshConnectionStatus() {
+        val result = prefs.getString("last_result", "") ?: ""
+        val intervalSec = prefs.getInt("publish_interval_sec", 60).coerceIn(5, 3600)
+        val storedOk = prefs.getLong("last_success_epoch", 0L)
+        val lastOk = if (storedOk > 0L) {
+            storedOk
+        } else if (result == "ok" || result == "buffer cleared") {
+            prefs.getLong("last_publish_epoch", 0L)
+        } else {
+            0L
+        }
+        val ageSec = if (lastOk <= 0L) Long.MAX_VALUE else (System.currentTimeMillis() - lastOk) / 1000
+        val latestFailed = result != "ok" && result != "buffer cleared"
+        val stale = ageSec > intervalSec * 2L
+        val ok = !latestFailed && !stale
+        tvLoggingState.text = "Logging: ${prefs.getString("logging_state", "idle") ?: "idle"} (${result.ifBlank { "none" }})"
+        tvLastUpdate.text = if (lastOk <= 0L) "Last update: never" else "Last update: ${ageSec}s ago"
+        tvBuffer.text = "Buffered points: ${prefs.getInt("buffer_count", 0)}"
+        if (ok) {
+            tvConnection.text = "OK"
+            tvConnection.setTextColor(Color.parseColor("#1B7F3A"))
+        } else {
+            tvConnection.text = "Failed"
+            tvConnection.setTextColor(Color.parseColor("#C62828"))
+        }
+    }
+
     private fun refreshLog() {
         tvLog.text = LogManager.getLogs().ifEmpty { "No messages yet" }
+        if (statusPanel.visibility == View.VISIBLE) refreshConnectionStatus()
     }
 
     private fun startLogTimer() {
@@ -388,6 +419,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun saveSession(url: String, token: String, device: String) {
+        val previous = loadSessions().find { sameSession(it, url, token, device) }
         val sessions = loadSessions().filterNot {
             sameSession(it, url, token, device)
         }.onEach { it.put("enabled", false) }.toMutableList()
@@ -396,6 +428,8 @@ class MainActivity : AppCompatActivity() {
             put("token", token)
             put("device", device)
             put("enabled", true)
+            val name = previous?.optString("name").orEmpty()
+            if (name.isNotBlank()) put("name", name)
         }
         sessions.add(0, obj)
         prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
@@ -408,8 +442,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var sessionsDialog: AlertDialog? = null
+    private var refreshingNames = false
 
-    private fun showSessions() {
+    private fun showSessions(reloadNames: Boolean = true) {
         val sessions = loadSessions()
         val pad = (16 * resources.displayMetrics.density).toInt()
         val list = LinearLayout(this).apply {
@@ -468,6 +503,26 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Close", null)
             .create()
         sessionsDialog?.show()
+        if (reloadNames) refreshSessionNames()
+    }
+
+    private fun refreshSessionNames() {
+        if (refreshingNames) return
+        val url = prefs.getString("nc_auth_url", null) ?: return
+        val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+        val pass = prefs.getString("nc_pass", "").orEmpty()
+        if (user.isBlank() || pass.isBlank() || !isValidBaseUrl(url)) return
+        refreshingNames = true
+        Thread {
+            val (remote, error) = PhoneTrackApi.fetchSessionList(this, url, user, pass)
+            runOnUiThread {
+                refreshingNames = false
+                if (error == null) {
+                    mergeRemoteSessions(url, remote)
+                    if (sessionsDialog?.isShowing == true) showSessions(reloadNames = false)
+                }
+            }
+        }.start()
     }
 
     private fun promptLoadSessions() {
@@ -536,9 +591,7 @@ class MainActivity : AppCompatActivity() {
         val sessions = loadSessions().toMutableList()
         var added = 0
         remote.forEach { item ->
-            val existing = sessions.find {
-                it.optString("token") == item.token && PhoneTrackUrl.parse(it.optString("url")).base == baseUrl
-            }
+            val existing = sessions.find { it.optString("token") == item.token }
             if (existing == null) {
                 sessions.add(JSONObject().apply {
                     put("name", item.name)
@@ -548,8 +601,9 @@ class MainActivity : AppCompatActivity() {
                     put("enabled", false)
                 })
                 added += 1
-            } else if (item.name.isNotBlank()) {
-                existing.put("name", item.name)
+            } else {
+                if (item.name.isNotBlank()) existing.put("name", item.name)
+                if (existing.optString("url").isBlank()) existing.put("url", baseUrl)
             }
         }
         prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
@@ -559,9 +613,7 @@ class MainActivity : AppCompatActivity() {
     private fun sessionLabel(session: JSONObject): String {
         val name = session.optString("name")
         if (name.isNotBlank()) return name
-        val device = session.optString("device").ifBlank { "Session" }
-        val host = Uri.parse(session.optString("url")).host ?: session.optString("url")
-        return "$device @ $host"
+        return "Unnamed session"
     }
 
     private fun sameSession(a: JSONObject, url: String, token: String, device: String): Boolean {

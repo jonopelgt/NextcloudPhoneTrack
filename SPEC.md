@@ -102,3 +102,5 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 10 (2026-11-01): Each session on the sessions page has an enable switch. Only one session is enabled at a time. Turning it off stops sharing.
 - Rev 11 (2026-11-01): Sessions page can load the available PhoneTrack session list for a Nextcloud user.
 - Rev 12 (2026-11-01): Position updates use the Nextcloud username as the device id when that username is saved.
+- Rev 13 (2026-11-01): Connection Status shows OK in green while position updates are succeeding, and Failed in red when they are not.
+- Rev 14 (2026-11-01): The sessions list shows each session's name from the PhoneTrack server.

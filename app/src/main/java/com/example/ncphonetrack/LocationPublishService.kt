@@ -247,11 +247,15 @@ class LocationPublishService : Service() {
     }
 
     private fun recordResult(result: String) {
-        prefs.edit()
-            .putLong("last_publish_epoch", System.currentTimeMillis())
+        val editor = prefs.edit()
             .putString("last_result", result)
             .putString("logging_state", "tracking")
-            .apply()
+        if (result == "ok" || result == "buffer cleared") {
+            val now = System.currentTimeMillis()
+            editor.putLong("last_success_epoch", now)
+            editor.putLong("last_publish_epoch", now)
+        }
+        editor.apply()
     }
 
     private fun createNotificationChannel() {
