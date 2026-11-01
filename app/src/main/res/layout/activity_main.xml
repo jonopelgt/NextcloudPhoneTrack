@@ -43,7 +43,7 @@
             android:id="@+id/btnSave"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Save & Start Tracking" />
+            android:text="Save and Start Tracking" />
 
         <TextView
             android:id="@+id/tvStatus"
