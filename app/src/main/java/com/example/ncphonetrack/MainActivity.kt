@@ -150,11 +150,6 @@ class MainActivity : AppCompatActivity() {
 
         navView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
-                R.id.nav_configure -> {
-                    formPanel.visibility = if (formPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-                    statusPanel.visibility = View.GONE
-                    drawerLayout.closeDrawers()
-                }
                 R.id.nav_status -> {
                     showStatusPanel()
                     drawerLayout.closeDrawers()
