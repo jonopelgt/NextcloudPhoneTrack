@@ -1,10 +1,6 @@
 name: Android CI
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:
@@ -47,7 +43,6 @@ jobs:
           retention-days: 30
 
       - name: Publish APK to distro
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: |
           REV=$(cat VERSION)
           mkdir -p distro/rev-$REV
