@@ -102,6 +102,27 @@
                 android:textStyle="bold" />
 
             <TextView
+                android:id="@+id/tvCertStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Cert: Not checked"
+                android:textStyle="bold"
+                android:paddingTop="8dp" />
+
+            <Button
+                android:id="@+id/btnProbeCert"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Verify Certificate" />
+
+            <Button
+                android:id="@+id/btnAcceptCert"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Accept Certificate"
+                android:enabled="false" />
+
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Log (newest first):"
