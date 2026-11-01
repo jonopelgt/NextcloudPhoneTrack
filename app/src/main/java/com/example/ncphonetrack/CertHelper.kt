@@ -3,6 +3,7 @@ package com.example.ncphonetrack
 import android.content.Context
 import android.content.SharedPreferences
 import okhttp3.OkHttpClient
+import org.json.JSONArray
 import java.security.MessageDigest
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
@@ -13,18 +14,27 @@ import javax.net.ssl.X509TrustManager
 
 object CertHelper {
     private const val PREFS = "nc_phonetrack"
-    private const val KEY_ACCEPTED_HASH = "accepted_cert_hash"
+    private const val KEY_ACCEPTED_HASHES = "accepted_cert_hashes"
 
-    fun getAcceptedHash(prefs: SharedPreferences): String? =
-        prefs.getString(KEY_ACCEPTED_HASH, null)
+    fun getAcceptedHashes(prefs: SharedPreferences): Set<String> {
+        val raw = prefs.getString(KEY_ACCEPTED_HASHES, "[]") ?: "[]"
+        return try {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { arr.getString(it) }.toSet()
+        } catch (e: Exception) {
+            emptySet()
+        }
+    }
 
-    fun setAcceptedHash(prefs: SharedPreferences, hash: String) {
-        prefs.edit().putString(KEY_ACCEPTED_HASH, hash).apply()
-        LogManager.add("Accepted cert hash: $hash")
+    fun addAcceptedHash(prefs: SharedPreferences, hash: String) {
+        val current = getAcceptedHashes(prefs).toMutableSet()
+        current.add(hash)
+        prefs.edit().putString(KEY_ACCEPTED_HASHES, JSONArray(current.toList()).toString()).apply()
+        LogManager.add("Accepted cert hash: $hash (total: ${current.size})")
     }
 
     fun clearAccepted(prefs: SharedPreferences) {
-        prefs.edit().remove(KEY_ACCEPTED_HASH).apply()
+        prefs.edit().remove(KEY_ACCEPTED_HASHES).apply()
     }
 
     fun sha256Fingerprint(cert: X509Certificate): String {
@@ -34,8 +44,8 @@ object CertHelper {
     }
 
     fun buildClient(prefs: SharedPreferences): OkHttpClient {
-        val accepted = getAcceptedHash(prefs)
-        return if (accepted == null) {
+        val accepted = getAcceptedHashes(prefs)
+        return if (accepted.isEmpty()) {
             OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).build()
         } else {
             val trustManager = object : X509TrustManager {
@@ -43,8 +53,8 @@ object CertHelper {
                 override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
                     if (chain.isNullOrEmpty()) throw java.security.cert.CertificateException("Empty chain")
                     val hash = sha256Fingerprint(chain[0])
-                    if (hash != accepted) {
-                        throw java.security.cert.CertificateException("Cert hash mismatch: $hash")
+                    if (hash !in accepted) {
+                        throw java.security.cert.CertificateException("Cert hash not accepted: $hash")
                     }
                 }
                 override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
