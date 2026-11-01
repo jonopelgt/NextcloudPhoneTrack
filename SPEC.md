@@ -1,4 +1,4 @@
-# Nextcloud PhoneTrack Android App — Specification (Rev 5)
+# Nextcloud PhoneTrack Android App — Specification (Rev 6)
 
 ## 1. Purpose
 Android application that connects to a self-hosted Nextcloud instance running the PhoneTrack app, publishes the device’s location to a PhoneTrack tracking session, and displays the last known positions of the local device and all other devices (“friends”) in the same session on a map.
@@ -23,6 +23,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Values stored in SharedPreferences.
 - Validation of URL format and non-empty token.
 - Multiple sessions remembered; listed in menu.
+- User can accept a self-signed HTTPS certificate after reviewing its SHA-256 fingerprint. The accepted fingerprint is stored and used for later publish and fetch calls. The user can forget it and return to the Android trust store.
 
 ### FR-2: Location Publishing
 - Foreground service requests high-accuracy location updates.
@@ -93,3 +94,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 3 (2026-11-01): Menu updated to include About, Sessions, and Connection Status. Consistent signing key for updates.
 - Rev 4 (2026-11-01): Confirmed same fixed keystore used for all builds going forward.
 - Rev 5 (2026-11-01): Closed remaining Rev 4 gaps. URL format is validated. Publish interval (default 60 s) and map refresh (default 30 s) are configurable. Failed log posts are buffered and retried when the network returns. Own device uses a distinct marker. Fine, coarse, background, and notification permissions are requested, with a clear message if location is denied. The foreground service reloads saved config after process death. Publishes and fetches use the accepted server certificate.
+- Rev 6 (2026-11-01): Configure screen can inspect the server certificate and accept a self-signed one by SHA-256 fingerprint, or forget a previously accepted certificate.

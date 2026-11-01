@@ -41,6 +41,26 @@
                 android:hint="Nextcloud URL (https://...)"
                 android:inputType="textUri" />
 
+            <TextView
+                android:id="@+id/tvCertStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="4dp"
+                android:text="Certificate: Android trust store"
+                android:textSize="12sp" />
+
+            <Button
+                android:id="@+id/btnCert"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Accept self-signed certificate" />
+
+            <Button
+                android:id="@+id/btnForgetCert"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Forget accepted certificate" />
+
             <EditText
                 android:id="@+id/etToken"
                 android:layout_width="match_parent"

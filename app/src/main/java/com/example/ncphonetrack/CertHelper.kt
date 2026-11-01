@@ -60,22 +60,73 @@ object CertHelper {
     }
 
     fun probeCertHash(url: String, callback: (String?) -> Unit) {
+        inspect(url) { probe -> callback(probe.cert?.hash) }
+    }
+
+    fun inspect(url: String, callback: (CertProbe) -> Unit) {
         Thread {
+            if (!url.startsWith("https://")) {
+                callback(CertProbe(CertTrust.FAILED, null, "Only an https:// address has a certificate"))
+                return@Thread
+            }
+            val request = okhttp3.Request.Builder().url(url).build()
             try {
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(10, TimeUnit.SECONDS)
-                    .build()
-                val request = okhttp3.Request.Builder().url(url).build()
-                client.newCall(request).execute().use { response ->
-                    val handshake = response.handshake
-                    val cert = handshake?.peerCertificates?.firstOrNull() as? X509Certificate
-                    val hash = cert?.let { sha256Fingerprint(it) }
-                    callback(hash)
+                OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).build()
+                    .newCall(request).execute().use { response ->
+                        val cert = leaf(response.handshake?.peerCertificates)
+                        callback(CertProbe(CertTrust.TRUSTED, cert, "already trusted"))
+                    }
+            } catch (e: javax.net.ssl.SSLException) {
+                val cert = captureUntrusted(url)
+                if (cert == null) {
+                    callback(CertProbe(CertTrust.FAILED, null, e.message ?: "TLS failed"))
+                } else {
+                    callback(CertProbe(CertTrust.UNTRUSTED, cert, e.message ?: "untrusted certificate"))
                 }
             } catch (e: Exception) {
                 LogManager.add("Cert probe failed: ${e.message}")
-                callback(null)
+                callback(CertProbe(CertTrust.FAILED, null, e.message ?: "connection failed"))
             }
         }.start()
     }
+
+    private fun leaf(certs: List<java.security.cert.Certificate>?): ServerCert? {
+        val cert = certs?.firstOrNull() as? X509Certificate ?: return null
+        return ServerCert(sha256Fingerprint(cert), cert.subjectX500Principal.name, cert.issuerX500Principal.name)
+    }
+
+    private fun captureUntrusted(url: String): ServerCert? {
+        return try {
+            var captured: X509Certificate? = null
+            val trustAll = object : X509TrustManager {
+                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                    captured = chain?.firstOrNull()
+                }
+                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+            }
+            val ssl = SSLContext.getInstance("TLS")
+            ssl.init(null, arrayOf<TrustManager>(trustAll), java.security.SecureRandom())
+            val client = OkHttpClient.Builder()
+                .sslSocketFactory(ssl.socketFactory, trustAll)
+                .hostnameVerifier(HostnameVerifier { _, _ -> true })
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .build()
+            client.newCall(okhttp3.Request.Builder().url(url).build()).execute().use { response ->
+                leaf(response.handshake?.peerCertificates) ?: captured?.let {
+                    ServerCert(sha256Fingerprint(it), it.subjectX500Principal.name, it.issuerX500Principal.name)
+                }
+            }
+        } catch (e: Exception) {
+            LogManager.add("Untrusted cert capture failed: ${e.message}")
+            null
+        }
+    }
 }
+
+data class ServerCert(val hash: String, val subject: String, val issuer: String)
+
+enum class CertTrust { TRUSTED, UNTRUSTED, FAILED }
+
+data class CertProbe(val trust: CertTrust, val cert: ServerCert?, val message: String)
+

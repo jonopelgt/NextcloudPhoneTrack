@@ -92,7 +92,10 @@ class MainActivity : AppCompatActivity() {
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
         tvBuffer = findViewById(R.id.tvBuffer)
         tvLog = findViewById(R.id.tvLog)
+        val tvCertStatus = findViewById<TextView>(R.id.tvCertStatus)
         val btnSave = findViewById<Button>(R.id.btnSave)
+        val btnCert = findViewById<Button>(R.id.btnCert)
+        val btnForgetCert = findViewById<Button>(R.id.btnForgetCert)
         val btnMenu = findViewById<Button>(R.id.btnMenu)
         val navView: NavigationView = findViewById(R.id.nav_view)
 
@@ -101,6 +104,24 @@ class MainActivity : AppCompatActivity() {
         etDevice.setText(prefs.getString("device", android.os.Build.MODEL))
         etPublish.setText(prefs.getInt("publish_interval_sec", 60).toString())
         etFetch.setText(prefs.getInt("fetch_interval_sec", 30).toString())
+        refreshCertStatus(tvCertStatus)
+
+        btnCert.setOnClickListener {
+            val url = etUrl.text.toString().trim().removeSuffix("/")
+            if (!isValidBaseUrl(url)) {
+                Toast.makeText(this, "Enter the Nextcloud URL first", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            tvCertStatus.text = "Checking certificate…"
+            CertHelper.inspect(url) { probe ->
+                runOnUiThread { showCertProbe(probe, tvCertStatus) }
+            }
+        }
+        btnForgetCert.setOnClickListener {
+            CertHelper.clearAccepted(prefs)
+            refreshCertStatus(tvCertStatus)
+            Toast.makeText(this, "Forgot the accepted certificate", Toast.LENGTH_SHORT).show()
+        }
 
         map = findViewById(R.id.map)
         val httpsMapnik = object : OnlineTileSourceBase("MapnikHTTPS", 0, 19, 256, ".png", arrayOf("https://tile.openstreetmap.org/")) {
@@ -203,6 +224,53 @@ class MainActivity : AppCompatActivity() {
             }
             promptBackgroundOnce()
         }
+    }
+
+    private fun refreshCertStatus(label: TextView) {
+        val hash = CertHelper.getAcceptedHash(prefs)
+        label.text = if (hash.isNullOrBlank()) {
+            "Certificate: Android trust store"
+        } else {
+            "Accepted certificate:\n$hash"
+        }
+    }
+
+    private fun showCertProbe(probe: CertProbe, label: TextView) {
+        refreshCertStatus(label)
+        val cert = probe.cert
+        when (probe.trust) {
+            CertTrust.TRUSTED -> {
+                AlertDialog.Builder(this)
+                    .setTitle("Certificate already trusted")
+                    .setMessage(certMessage(cert, "Android already trusts this server. You do not need to accept it."))
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+            CertTrust.UNTRUSTED -> {
+                if (cert == null) {
+                    Toast.makeText(this, "Could not read the server certificate", Toast.LENGTH_LONG).show()
+                    return
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("Accept self-signed certificate?")
+                    .setMessage(certMessage(cert, "Android does not trust this certificate. Accept it only if the fingerprint matches your Nextcloud server. Later requests will trust this certificate only."))
+                    .setPositiveButton("Accept") { _, _ ->
+                        CertHelper.setAcceptedHash(prefs, cert.hash)
+                        refreshCertStatus(label)
+                        Toast.makeText(this, "Certificate accepted", Toast.LENGTH_SHORT).show()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+            CertTrust.FAILED -> {
+                Toast.makeText(this, probe.message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun certMessage(cert: ServerCert?, intro: String): String {
+        if (cert == null) return intro
+        return "$intro\n\nSubject: ${cert.subject}\nIssuer: ${cert.issuer}\nSHA-256:\n${cert.hash}"
     }
 
     private fun isValidBaseUrl(url: String): Boolean {
