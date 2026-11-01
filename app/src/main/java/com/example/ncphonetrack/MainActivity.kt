@@ -6,8 +6,10 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -35,6 +37,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatus: TextView
     private lateinit var prefs: SharedPreferences
     private lateinit var drawerLayout: DrawerLayout
+    private lateinit var formPanel: LinearLayout
     private val LOCATION_PERMISSION_REQUEST = 1001
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +47,7 @@ class MainActivity : AppCompatActivity() {
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         drawerLayout = findViewById(R.id.drawer_layout)
+        formPanel = findViewById(R.id.form_panel)
         etUrl = findViewById(R.id.etUrl)
         etToken = findViewById(R.id.etToken)
         etDevice = findViewById(R.id.etDevice)
@@ -67,6 +71,10 @@ class MainActivity : AppCompatActivity() {
 
         navView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
+                R.id.nav_configure -> {
+                    formPanel.visibility = if (formPanel.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                    drawerLayout.closeDrawers()
+                }
                 R.id.nav_status -> {
                     updateStatusText("Connection Status: Logging active if configured")
                     drawerLayout.closeDrawers()
@@ -84,6 +92,7 @@ class MainActivity : AppCompatActivity() {
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_map -> {
+                    formPanel.visibility = View.GONE
                     drawerLayout.closeDrawers()
                 }
             }
@@ -104,6 +113,7 @@ class MainActivity : AppCompatActivity() {
                 .putString("device", device)
                 .apply()
             saveSession(url, token, device)
+            formPanel.visibility = View.GONE
             if (checkPermissions()) {
                 startLocationService(url, token, device)
                 startFetchingPositions(url, token, device)
@@ -162,6 +172,7 @@ class MainActivity : AppCompatActivity() {
                 etUrl.setText(s.getString("url"))
                 etToken.setText(s.getString("token"))
                 etDevice.setText(s.getString("device"))
+                formPanel.visibility = View.VISIBLE
                 Toast.makeText(this, "Loaded session", Toast.LENGTH_SHORT).show()
             }
             .setPositiveButton("Close", null)
