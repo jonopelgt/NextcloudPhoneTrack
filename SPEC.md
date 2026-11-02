@@ -44,7 +44,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 ### FR-4: Map
 - Use OSMDroid with OpenStreetMap tiles.
 - Multi-touch zoom/pan.
-- Distinct marker for own device.
+- Distinct marker for own device. Each person has a selectable color, shown on the map and on Friends. This phone's user defaults to blue. Each other person defaults to a different color. A chosen color is kept.
 
 ### FR-5: Permissions & Lifecycle
 - Request fine location, coarse location, background location (Android 10+), notifications.
@@ -56,7 +56,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - About (app info, version, purpose)
   - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
-  - Friends (each session, with that session's users indented below it). A session turned off says disabled. A session whose users cannot be loaded says unavailable.
+  - Friends (each session, with that session's users indented below it). A session turned off says disabled. A session whose users cannot be loaded says unavailable. Each person has a color that can be changed. This phone's user defaults to blue. Other people default to colors that are different from each other and from blue.
   - Settings (Nextcloud server, username, and app password, with a button to clear the login, and a section listing accepted self-signed certificates). A server address without http:// or https:// is saved as https://.
 - If login fails because the server certificate is not trusted, the app shows that certificate for review and does not continue until the user accepts or cancels.
   - Map
@@ -131,3 +131,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 32 (2026-11-02): The map shows a No active sessions banner when every session is turned off. It stacks with the other map banners.
 - Rev 33 (2026-11-02): Deleting a session deletes it on the PhoneTrack server for the logged-in account, then removes it from the phone.
 - Rev 34 (2026-11-02): The map zoom keys are high contrast. Each tap changes the zoom by a quarter level.
+- Rev 35 (2026-11-02): Each person has a selectable color. This phone's user defaults to blue. Other people default to unique colors. Not built yet.
