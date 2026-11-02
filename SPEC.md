@@ -60,7 +60,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Settings (Nextcloud server, username, and app password, with a button to clear the login, and a section listing accepted self-signed certificates). A server address without http:// or https:// is saved as https://.
 - If login fails because the server certificate is not trusted, the app shows that certificate for review and does not continue until the user accepts or cancels.
   - Map
-- The main map shows a bottom overlay that says Not connected when the server connection is down. The overlay hides while a position update or map refresh is succeeding. If every session is turned off, that overlay says No active sessions instead, and it stacks with the other map banners.
+- The main map shows a bottom overlay that says Not connected when the server connection is down, and also when the active session's status is Failed. The overlay hides while that session's position updates are succeeding. If every session is turned off, that overlay says No active sessions instead, and it stacks with the other map banners.
 - If the Nextcloud login has not been verified, the map also shows a Not logged in banner stacked with any other banner. A Settings button on the right opens the Settings page.
 - Connection Status lists every saved session with Off, OK, or Failed. OK is green while that session's position updates are succeeding. Failed is red when they are not. A session that is turned off shows Off. Tapping the map closes Connection Status and returns to the map.
 - Sessions list displays saved configs. Each session has an enable switch. New session opens a full-screen builder that creates the session on the PhoneTrack server and shares it with the selected Nextcloud users. Sharing is chosen from a search list: typing filters the users, and selecting one adds that person. Selected people are shown and can be removed. The new session is saved turned off until the user enables it.
@@ -140,3 +140,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 38 (2026-11-02): The session builder has a Local view section for this phone only. Position age-out defaults to 15 minutes and fades a map marker with age until it vanishes at that time.
 - Rev 39 (2026-11-02): Each device on Friends and in the session builder has a tracks switch. Tracks are off until turned on. When on, earlier positions are small dots in that device's color, each faded by its own age until the age-out time.
 - Rev 40 (2026-11-02): Tapping a device on the map opens its status bubble. The bubble fades out after 5 seconds. Not built yet.
+- Rev 41 (2026-11-02): If the active session's status is Failed, the map status banner says Not connected. Not built yet.
