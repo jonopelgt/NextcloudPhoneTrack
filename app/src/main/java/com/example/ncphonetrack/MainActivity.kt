@@ -714,7 +714,7 @@ class MainActivity : AppCompatActivity() {
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val url = PhoneTrackUrl.parse(urlField.text.toString()).base
+                val url = PhoneTrackUrl.loginBase(urlField.text.toString())
                 val user = userField.text.toString().trim()
                 val pass = passField.text.toString()
                 if (!isValidBaseUrl(url) || user.isBlank() || pass.isBlank()) {
@@ -817,7 +817,7 @@ class MainActivity : AppCompatActivity() {
             .create()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val url = PhoneTrackUrl.parse(urlField.text.toString()).base
+                val url = PhoneTrackUrl.loginBase(urlField.text.toString())
                 val user = userField.text.toString().trim()
                 val pass = passField.text.toString()
                 if (!isValidBaseUrl(url) || user.isBlank() || pass.isBlank()) {

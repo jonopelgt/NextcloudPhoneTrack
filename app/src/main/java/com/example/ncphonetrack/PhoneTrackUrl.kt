@@ -17,4 +17,14 @@ object PhoneTrackUrl {
         }
         return Parsed(if (base.isBlank()) trimmed else base, token)
     }
+
+    fun loginBase(raw: String): String {
+        val trimmed = raw.trim()
+        val withScheme = if (trimmed.startsWith("https://", true) || trimmed.startsWith("http://", true)) {
+            trimmed
+        } else {
+            "https://$trimmed"
+        }
+        return parse(withScheme).base
+    }
 }
