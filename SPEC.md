@@ -56,10 +56,10 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Map
   - Friends (each session, with that session's users indented below it). A session turned off says disabled. A session whose users cannot be loaded says unavailable. Each person has a color that can be changed. This phone's user defaults to blue. Other people default to colors that are different from each other and from blue. Each device has a tracks switch. Tracks are off until turned on.
   - Location (position update mode and location spoof). This page is separate from Settings.
+  - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
   - Settings (Nextcloud server, username, and app password, with a button to clear the login, and a section listing accepted self-signed certificates). A server address without http:// or https:// is saved as https://.
   - About (app info, version, purpose)
-  - Sessions (list of saved PhoneTrack sessions)
 - If login fails because the server certificate is not trusted, the app shows that certificate for review and does not continue until the user accepts or cancels.
 - The main map shows a bottom overlay that says Not connected when the server connection is down, and also when the active session's status is Failed. The overlay hides while that session's position updates are succeeding. If every session is turned off, that overlay says No active sessions instead, and it stacks with the other map banners.
 - If the Nextcloud login has not been verified, the map also shows a Not logged in banner stacked with any other banner. A Settings button on the right opens the Settings page. Removing an accepted self-signed certificate clears the verified login, and the map shows the Not logged in banner.
@@ -154,6 +154,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 53 (2026-11-02): Turning a device's tracks switch on must show that device's earlier positions on the map. They are not showing.
 - Rev 54 (2026-11-02): Tapping a track dot opens a bubble that shows that point's age. The bubble fades out after 5 seconds. Not built yet.
 - Rev 55 (2026-11-02): The All zoom key zooms to the last observed device, the one with the newest position, and follows that device. Not built yet.
+- Rev 56 (2026-11-02): In the drawer, Sessions is directly under Location and above Connection Status. Not built yet.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
