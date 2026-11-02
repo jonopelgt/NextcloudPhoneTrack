@@ -64,6 +64,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - If the Nextcloud login has not been verified, the map also shows a Not logged in banner stacked with any other banner. A Settings button on the right opens the Settings page.
 - Connection Status lists every saved session with Off, OK, or Failed. OK is green while that session's position updates are succeeding. Failed is red when they are not. A session that is turned off shows Off. Tapping the map closes Connection Status and returns to the map.
 - Sessions list displays saved configs. Each session has an enable switch. New session opens a full-screen builder that creates the session on the PhoneTrack server and shares it with the selected Nextcloud users. Sharing is chosen from a search list: typing filters the users, and selecting one adds that person. Selected people are shown and can be removed. The new session is saved turned off until the user enables it.
+- The session builder also shows a public switch. When the session is public, an accordion directly under that switch shows the public URL. When it is not public, that accordion is hidden. It shows a switch labeled so it is clear this enables or disables the session on the server. Auto purge is a dropdown whose options run from 1 second to 1 day. The builder lists each device in the session with its name and color, and the color can be changed.
 - Hold a session to open the session builder for that session, or to delete it. Delete removes the session from the PhoneTrack server for the logged-in account, then removes it from this phone. If the server refuses, the session stays. The old session configuration form is not used.
 
 ### FR-7: Revision Distribution
@@ -133,3 +134,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 34 (2026-11-02): The map zoom keys are high contrast. Each tap changes the zoom by a quarter level.
 - Rev 35 (2026-11-02): Each person has a selectable color. This phone's user defaults to blue. Other people default to unique colors. Not built yet.
 - Rev 36 (2026-11-02): The session builder shares with people chosen from a search list that filters as you type. Selected people can be removed. Not built yet.
+- Rev 37 (2026-11-02): The session builder shows a public switch, and the public URL in an accordion directly under it when public. It has a server enabled/disabled switch, an auto-purge dropdown from 1 second to 1 day, and each device's name and selectable color. Not built yet.
