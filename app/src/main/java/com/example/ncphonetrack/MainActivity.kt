@@ -115,8 +115,8 @@ class MainActivity : AppCompatActivity() {
         btnZoomIn = findViewById(R.id.btnZoomIn)
         btnZoomOut = findViewById(R.id.btnZoomOut)
         btnGroupView = findViewById(R.id.btnGroupView)
-        btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 1.0) }
-        btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 1.0) }
+        btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
+        btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
         btnGroupView.setOnClickListener { enterGroupView() }
         refreshZoomKeys()
         refreshMapBanner()
@@ -1159,6 +1159,7 @@ class MainActivity : AppCompatActivity() {
                 put("url", baseUrl)
                 put("token", created.token)
                 put("public_token", created.publicToken)
+                if (created.id > 0) put("id", created.id)
                 put("device", prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty { android.os.Build.MODEL })
                 put("enabled", false)
             })
@@ -1169,22 +1170,40 @@ class MainActivity : AppCompatActivity() {
     private fun confirmDeleteSession(session: JSONObject) {
         AlertDialog.Builder(this)
             .setTitle("Delete session?")
-            .setMessage(sessionLabel(session))
+            .setMessage("${sessionLabel(session)} will be deleted from the PhoneTrack server.")
             .setPositiveButton("Delete") { _, _ ->
-                val url = session.optString("url")
-                val token = session.optString("token")
-                val device = session.optString("device")
-                val remaining = loadSessions().filterNot { sameSession(it, url, token, device) }
-                val editor = prefs.edit().putString("sessions", JSONArray(remaining).toString())
-                if (isActiveSession(session)) {
-                    editor.remove("url").remove("token")
-                    fetchTimer?.cancel()
-                    fetchTimer = null
-                    stopService(Intent(this, LocationPublishService::class.java))
-                    updateStatusText("Tracking stopped")
+                val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+                val pass = prefs.getString("nc_pass", "").orEmpty()
+                val server = prefs.getString("nc_auth_url", "")?.trim().orEmpty().ifBlank { session.optString("url") }
+                if (user.isBlank() || pass.isBlank() || !isValidBaseUrl(server)) {
+                    Toast.makeText(this, "Log in from Settings before deleting a session", Toast.LENGTH_LONG).show()
+                    showSettings()
+                    return@setPositiveButton
                 }
-                editor.apply()
-                showSessions()
+                Toast.makeText(this, "Deleting session…", Toast.LENGTH_SHORT).show()
+                Thread {
+                    val error = PhoneTrackApi.deleteRemoteSession(
+                        this, server, user, pass, session.optString("token"), session.optInt("id", 0)
+                    )
+                    runOnUiThread {
+                        if (error != null) {
+                            AlertDialog.Builder(this)
+                                .setTitle("Session not deleted")
+                                .setMessage(error)
+                                .setPositiveButton("OK", null)
+                                .show()
+                            return@runOnUiThread
+                        }
+                        val url = session.optString("url")
+                        val token = session.optString("token")
+                        val device = session.optString("device")
+                        val remaining = loadSessions().filterNot { sameSession(it, url, token, device) }
+                        prefs.edit().putString("sessions", JSONArray(remaining).toString()).apply()
+                        if (isActiveSession(session)) stopTracking()
+                        refreshMapBanner()
+                        showSessions()
+                    }
+                }.start()
             }
             .setNegativeButton("Cancel", null)
             .show()

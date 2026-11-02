@@ -326,6 +326,69 @@ object PhoneTrackApi {
         }
     }
 
+    fun deleteRemoteSession(
+        context: Context,
+        baseUrl: String,
+        user: String,
+        password: String,
+        token: String,
+        sessionId: Int
+    ): String? {
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val client = CertHelper.buildClient(prefs)
+        val server = PhoneTrackUrl.parse(baseUrl).base
+        val auth = okhttp3.Credentials.basic(user, password)
+        if (sessionId > 0 && deleteById(client, "$server/index.php/apps/phonetrack/session/$sessionId", auth) == null) {
+            return null
+        }
+        return try {
+            val request = Request.Builder()
+                .url("$server/index.php/apps/phonetrack/deleteSession")
+                .post(okhttp3.FormBody.Builder().add("token", token).build())
+                .header("Authorization", auth)
+                .header("OCS-APIRequest", "true")
+                .build()
+            client.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                LogManager.add("POST deleteSession ${response.code} $text")
+                if (response.code == 401 || response.code == 403) {
+                    return "Nextcloud rejected the username or app password"
+                }
+                val done = Regex(""""done"\s*:\s*(\d+)""").find(text)?.groupValues?.get(1)?.toIntOrNull()
+                when {
+                    response.isSuccessful && (done == null || done == 1 || done == 2) -> null
+                    done == 2 -> null
+                    else -> "Could not delete the session from the server"
+                }
+            }
+        } catch (e: Exception) {
+            e.message ?: "Could not delete the session from the server"
+        }
+    }
+
+    private fun deleteById(client: okhttp3.OkHttpClient, url: String, auth: String): String? {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .delete()
+                .header("Authorization", auth)
+                .header("OCS-APIRequest", "true")
+                .build()
+            client.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                LogManager.add("DELETE session ${response.code}")
+                when {
+                    response.isSuccessful -> null
+                    response.code == 401 || response.code == 403 -> "auth"
+                    text.contains("session_not_found") -> "not_found"
+                    else -> "failed"
+                }
+            }
+        } catch (e: Exception) {
+            "failed"
+        }
+    }
+
     private fun postShare(
         client: okhttp3.OkHttpClient,
         url: String,

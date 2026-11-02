@@ -38,7 +38,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Every 30 s (configurable) GET:
   `https://{base}/apps/phonetrack/api/getlastpositions/{token}`
 - Parse JSON and render markers for every device in the enabled session. Turning that session off removes its markers. A position response that arrives after the session is turned off is discarded.
-- The map has three follow modes. Group, also called session zoom, is the default: it uses the closest zoom that still shows every user in the enabled session. Tapping a session on the Sessions page selects that session and sets session zoom. User follow starts when that person is tapped on Friends or on their map marker, and transparent + and − keys change the zoom without leaving follow. Manual starts when the map is panned or pinched, and the map then stays where it was left. A transparent All key returns to session zoom.
+- The map has three follow modes. Group, also called session zoom, is the default: it uses the closest zoom that still shows every user in the enabled session. Tapping a session on the Sessions page selects that session and sets session zoom. User follow starts when that person is tapped on Friends or on their map marker. The + and − keys are high contrast and each step changes the zoom by a quarter level without leaving follow. Manual starts when the map is panned or pinched, and the map then stays where it was left. An All key returns to session zoom.
 - Show device name, accuracy, and age of fix on marker info.
 
 ### FR-4: Map
@@ -64,7 +64,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - If the Nextcloud login has not been verified, the map also shows a Not logged in banner stacked with any other banner. A Settings button on the right opens the Settings page.
 - Connection Status lists every saved session with Off, OK, or Failed. OK is green while that session's position updates are succeeding. Failed is red when they are not. A session that is turned off shows Off. Tapping the map closes Connection Status and returns to the map.
 - Sessions list displays saved configs. Each session has an enable switch. New session opens a full-screen builder that creates the session on the PhoneTrack server and shares it with the Nextcloud usernames entered. The new session is saved turned off until the user enables it.
-- Hold a session to open the session builder for that session, or to delete it. The old session configuration form is not used.
+- Hold a session to open the session builder for that session, or to delete it. Delete removes the session from the PhoneTrack server for the logged-in account, then removes it from this phone. If the server refuses, the session stays. The old session configuration form is not used.
 
 ### FR-7: Revision Distribution
 - Each software update is tagged with a revision (rev-N).
@@ -129,3 +129,5 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 30 (2026-11-02): Tapping a session on the Sessions page turns that session on if needed and sets the map to session zoom.
 - Rev 31 (2026-11-02): Tapping the map while Connection Status is open closes that page and returns to the map.
 - Rev 32 (2026-11-02): The map shows a No active sessions banner when every session is turned off. It stacks with the other map banners.
+- Rev 33 (2026-11-02): Deleting a session deletes it on the PhoneTrack server for the logged-in account, then removes it from the phone.
+- Rev 34 (2026-11-02): The map zoom keys are high contrast. Each tap changes the zoom by a quarter level.
