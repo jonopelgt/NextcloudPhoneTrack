@@ -82,8 +82,16 @@ object PhoneTrackApi {
                     return null
                 }
                 if (!response.isSuccessful) {
+                    if (response.code == 401 || response.code == 403) {
+                        context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+                            .edit().putBoolean("credentials_verified", false).apply()
+                    }
                     LogManager.add("GET failed: HTTP ${response.code}")
                     return null
+                }
+                if (request.header("Authorization") != null) {
+                    context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+                        .edit().putBoolean("credentials_verified", true).apply()
                 }
                 val json = JSONObject(response.body?.string() ?: return null)
                 if (json.has("error")) {
@@ -146,6 +154,7 @@ object PhoneTrackApi {
                         return emptyList<RemoteSession>() to "Server rate limit. Wait and try again."
                     }
                     if (response.code == 401 || response.code == 403) {
+                        prefs.edit().putBoolean("credentials_verified", false).apply()
                         return emptyList<RemoteSession>() to "Nextcloud rejected the username or app password"
                     }
                     if (!response.isSuccessful) {
@@ -153,7 +162,10 @@ object PhoneTrackApi {
                         return@use
                     }
                     val parsed = parseSessionList(body)
-                    if (parsed != null) return parsed to null
+                    if (parsed != null) {
+                        prefs.edit().putBoolean("credentials_verified", true).apply()
+                        return parsed to null
+                    }
                     lastError = "Response was not a session list"
                 }
             } catch (e: Exception) {

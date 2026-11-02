@@ -57,6 +57,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvLoggingState: TextView
     private lateinit var tvConnection: TextView
     private lateinit var tvMapBanner: TextView
+    private lateinit var loginBanner: android.view.View
     private lateinit var tvLastUpdate: TextView
     private lateinit var tvBuffer: TextView
     private lateinit var tvLog: TextView
@@ -94,6 +95,8 @@ class MainActivity : AppCompatActivity() {
         tvLoggingState = findViewById(R.id.tvLoggingState)
         tvConnection = findViewById(R.id.tvConnection)
         tvMapBanner = findViewById(R.id.tvMapBanner)
+        loginBanner = findViewById(R.id.loginBanner)
+        findViewById<Button>(R.id.btnLoginSettings).setOnClickListener { showSettings() }
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
         tvBuffer = findViewById(R.id.tvBuffer)
         tvLog = findViewById(R.id.tvLog)
@@ -418,7 +421,9 @@ class MainActivity : AppCompatActivity() {
         val mapFresh = now - prefs.getLong("last_map_ok", 0L) <= intervalSec * 2L * 1000
         val connected = loggedIn && !PhoneTrackApi.rateLimited(this) && (publishFresh || mapFresh)
         val mapVisible = formPanel.visibility != View.VISIBLE && statusPanel.visibility != View.VISIBLE
+        val verified = prefs.getBoolean("credentials_verified", false)
         tvMapBanner.visibility = if (!connected && mapVisible) View.VISIBLE else View.GONE
+        loginBanner.visibility = if (!verified && mapVisible) View.VISIBLE else View.GONE
     }
 
     private fun refreshLog() {
@@ -664,12 +669,29 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Server, username, and app password are required", Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
-                prefs.edit().putString("nc_auth_url", url).putString("nc_user", user).putString("nc_pass", pass).apply()
-                Toast.makeText(this, "Login saved", Toast.LENGTH_SHORT).show()
+                prefs.edit()
+                    .putString("nc_auth_url", url)
+                    .putString("nc_user", user)
+                    .putString("nc_pass", pass)
+                    .putBoolean("credentials_verified", false)
+                    .apply()
+                Toast.makeText(this, "Checking login…", Toast.LENGTH_SHORT).show()
                 refreshMapBanner()
+                Thread {
+                    val (_, error) = PhoneTrackApi.fetchSessionList(this, url, user, pass)
+                    runOnUiThread {
+                        if (error == null) {
+                            prefs.edit().putBoolean("credentials_verified", true).apply()
+                            Toast.makeText(this, "Login verified", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                        }
+                        refreshMapBanner()
+                    }
+                }.start()
             }
             .setNeutralButton("Clear") { _, _ ->
-                prefs.edit().remove("nc_auth_url").remove("nc_user").remove("nc_pass").apply()
+                prefs.edit().remove("nc_auth_url").remove("nc_user").remove("nc_pass").putBoolean("credentials_verified", false).apply()
                 Toast.makeText(this, "Login cleared", Toast.LENGTH_SHORT).show()
                 refreshMapBanner()
             }

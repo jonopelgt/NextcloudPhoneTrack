@@ -24,19 +24,54 @@
             android:text="Menu"
             android:elevation="4dp" />
 
-        <TextView
-            android:id="@+id/tvMapBanner"
+        <LinearLayout
+            android:id="@+id/mapBanners"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:background="#C62828"
-            android:gravity="center"
-            android:padding="14dp"
-            android:text="Not connected"
-            android:textColor="#FFFFFF"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:elevation="6dp" />
+            android:orientation="vertical"
+            android:elevation="6dp">
+
+            <TextView
+                android:id="@+id/tvMapBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#C62828"
+                android:gravity="center"
+                android:padding="14dp"
+                android:text="Not connected"
+                android:textColor="#FFFFFF"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/loginBanner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#37474F"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="14dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="6dp"
+                android:paddingBottom="6dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Not logged in"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnLoginSettings"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Settings" />
+            </LinearLayout>
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/form_panel"
