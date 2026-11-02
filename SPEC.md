@@ -151,6 +151,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 50 (2026-11-02): The position update mode is a control at the top right of the map. Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a plane. Tapping it opens a small window of the other modes. Not built yet.
 - Rev 51 (2026-11-02): The Location settings menu uses those same mode icons. Not built yet.
 - Rev 52 (2026-11-02): The drawer order from the top is Map, Friends, Location, Connection Status, Settings, About, then Sessions. Not built yet.
+- Rev 53 (2026-11-02): Turning a device's tracks switch on must show that device's earlier positions on the map. They are not showing. Not fixed yet.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
