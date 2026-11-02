@@ -66,6 +66,7 @@ class MainActivity : AppCompatActivity() {
     private val BACKGROUND_PERMISSION_REQUEST = 1002
     private var logTimer: Timer? = null
     private var fetchTimer: Timer? = null
+    private var mapEpoch = 0
     private var autoCenter = true
     private var fitAll = false
     private var ownMarkerIcon: BitmapDrawable? = null
@@ -975,11 +976,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopTracking() {
+        mapEpoch += 1
         fetchTimer?.cancel()
         fetchTimer = null
         stopService(Intent(this, LocationPublishService::class.java))
         prefs.edit().remove("url").remove("token").apply()
+        clearMap()
         updateStatusText("Tracking stopped")
+    }
+
+    private fun clearMap() {
+        if (!::map.isInitialized) return
+        map.overlays.clear()
+        map.invalidate()
     }
 
     private fun showSessionHoldMenu(anchor: View, session: JSONObject) {
@@ -1218,19 +1227,22 @@ class MainActivity : AppCompatActivity() {
 
     private fun startFetchingPositions(url: String, token: String, device: String) {
         fetchTimer?.cancel()
+        mapEpoch += 1
+        val epoch = mapEpoch
         val seconds = prefs.getInt("fetch_interval_sec", 30).coerceIn(5, 3600)
         fetchTimer = Timer()
         fetchTimer?.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
-                runOnUiThread { updateMapWithPositions(url, token, device) }
+                runOnUiThread { updateMapWithPositions(url, token, device, epoch) }
             }
         }, 0, seconds * 1000L)
     }
 
-    private fun updateMapWithPositions(url: String, token: String, ownDevice: String) {
+    private fun updateMapWithPositions(url: String, token: String, ownDevice: String, epoch: Int) {
         Thread {
             val positions = PhoneTrackApi.getLastPositions(this, url, token)
             runOnUiThread {
+                if (epoch != mapEpoch) return@runOnUiThread
                 if (positions == null) {
                     updateStatusText("Map update failed")
                     refreshMapBanner()

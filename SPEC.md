@@ -37,7 +37,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 ### FR-3: Position Retrieval & Display
 - Every 30 s (configurable) GET:
   `https://{base}/apps/phonetrack/api/getlastpositions/{token}`
-- Parse JSON and render markers for every device.
+- Parse JSON and render markers for every device in the enabled session. Turning that session off removes its markers. A position response that arrives after the session is turned off is discarded.
 - Center map on own device when available.
 - Show device name, accuracy, and age of fix on marker info.
 
@@ -120,3 +120,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 23 (2026-11-02): Settings treats a server address with no scheme as https://.
 - Rev 24 (2026-11-02): New session on the Sessions page creates a PhoneTrack session and shares it with the usernames entered. The map menu control is a transparent hamburger. Settings opens full screen. Sessions no longer has a From server button.
 - Rev 25 (2026-11-02): The sessions list stays open while it loads names or a session is turned on or off. It no longer closes and reopens.
+- Rev 26 (2026-11-02): Turning off the session that is on the map clears its markers. A late position response does not put them back.
