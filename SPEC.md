@@ -161,10 +161,10 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 60 (2026-11-02): The Connection Status log shows the latest message at the bottom. Auto-scroll stops when the user leaves the bottom and starts again when the user scrolls back to the bottom.
 - Rev 61 (2026-11-02): The location popup lists every mode and shows each mode's icon.
 - Rev 62 (2026-11-02): The Manual position mode icon is a wrench.
-- Rev 63 (2026-11-02): Selecting a new location mode updates the mode control on the map immediately. It does not. Not fixed yet.
-- Rev 64 (2026-11-02): Switching into location spoof and switching out of it each ask the user to confirm. Not built yet.
-- Rev 65 (2026-11-02): Turning a device's tracks switch off removes that device's dots from the map immediately. They do not. Not fixed yet.
-- Rev 66 (2026-11-02): The location mode control opens on a long press. A short tap does not open it. Not built yet.
+- Rev 63 (2026-11-02): Selecting a new location mode updates the mode control on the map immediately. It does not.
+- Rev 64 (2026-11-02): Switching into location spoof and switching out of it each ask the user to confirm.
+- Rev 65 (2026-11-02): Turning a device's tracks switch off removes that device's dots from the map immediately. They do not.
+- Rev 66 (2026-11-02): The location mode control opens on a long press. A short tap does not open it.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.

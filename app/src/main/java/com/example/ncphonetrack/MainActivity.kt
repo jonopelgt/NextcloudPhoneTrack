@@ -138,7 +138,13 @@ class MainActivity : AppCompatActivity() {
         btnPositionMode = findViewById(R.id.btnPositionMode)
         modePicker = findViewById(R.id.modePicker)
         refreshModeButton()
-        btnPositionMode.setOnClickListener { toggleModePicker() }
+        btnPositionMode.setOnClickListener {
+            if (modePicker.visibility == View.VISIBLE) modePicker.visibility = View.GONE
+        }
+        btnPositionMode.setOnLongClickListener {
+            toggleModePicker()
+            true
+        }
         btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
         btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
         btnGroupView.setOnClickListener { zoomToLastObserved() }
@@ -152,7 +158,7 @@ class MainActivity : AppCompatActivity() {
         val longPress = Runnable {
             if (dragged || statusPanel.visibility == View.VISIBLE) return@Runnable
             val geo = map.projection.fromPixels(downX.toInt(), downY.toInt())
-            activateSpoof(geo.latitude, geo.longitude)
+            activateSpoofAt(geo.latitude, geo.longitude)
         }
         map.setOnTouchListener { _, event ->
             when (event.actionMasked) {
@@ -396,6 +402,15 @@ class MainActivity : AppCompatActivity() {
         val tracks = loadJsonPref("device_tracks")
         tracks.put(colorKey(token, name), on)
         prefs.edit().putString("device_tracks", tracks.toString()).apply()
+        if (!on && ::map.isInitialized) {
+            map.overlays.removeAll { marker ->
+                val dot = marker as? Marker ?: return@removeAll false
+                dot.title == "Track" && (dot.relatedObject as? String)?.equals(name, true) == true
+            }
+            map.invalidate()
+        } else if (on && fetchUrl.isNotBlank()) {
+            updateMapWithPositions(fetchUrl, fetchToken, fetchDevice, mapEpoch)
+        }
     }
 
     private fun ageOutMinutes(token: String): Int {
@@ -1694,7 +1709,14 @@ class MainActivity : AppCompatActivity() {
         ContextCompat.startForegroundService(this, intent)
     }
 
+    private var fetchUrl = ""
+    private var fetchToken = ""
+    private var fetchDevice = ""
+
     private fun startFetchingPositions(url: String, token: String, device: String) {
+        fetchUrl = url
+        fetchToken = token
+        fetchDevice = device
         fetchTimer?.cancel()
         mapEpoch += 1
         val epoch = mapEpoch
@@ -1745,6 +1767,7 @@ class MainActivity : AppCompatActivity() {
                         dot.icon = iconFor(color, 16, alpha)
                         dot.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         val seenAt = point.timestamp
+                        dot.relatedObject = name
                         dot.setOnMarkerClickListener { clicked, _ ->
                             clicked.snippet = "Age: ${(System.currentTimeMillis() / 1000 - seenAt)}s"
                             showStatusBubble(clicked)
@@ -1879,15 +1902,33 @@ class MainActivity : AppCompatActivity() {
             positionModes.forEach { item ->
                 modeList.addView(modeChoice(item, item == selectedMode) {
                     selectedMode = item
+                    setPositionMode(item)
                     renderModes()
                 })
             }
         }
         renderModes()
+        var spoofAdjusting = false
         val spoof = androidx.appcompat.widget.SwitchCompat(this).apply {
             text = "Location spoof"
             isChecked = prefs.getBoolean("spoof_enabled", false)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setOnCheckedChangeListener { _, checked ->
+                if (spoofAdjusting) return@setOnCheckedChangeListener
+                spoofAdjusting = true
+                isChecked = !checked
+                spoofAdjusting = false
+                val message = if (checked) "Turn on location spoof?" else "Turn off location spoof?"
+                confirmChoice(message) {
+                    spoofAdjusting = true
+                    isChecked = checked
+                    spoofAdjusting = false
+                    prefs.edit().putBoolean("spoof_enabled", checked).apply()
+                    if (checked) addSpoofMarker() else removeSpoofMarker()
+                    refreshModeButton()
+                    if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+                }
+            }
         }
         val spoofIcon = android.widget.ImageView(this).apply {
             setImageResource(R.drawable.ic_mode_spy)
@@ -1947,6 +1988,7 @@ class MainActivity : AppCompatActivity() {
                     .apply()
                 dialog.dismiss()
                 refreshModeButton()
+                if (!spoof.isChecked) removeSpoofMarker()
                 if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
             }
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -1997,9 +2039,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshModeButton() {
         if (!::btnPositionMode.isInitialized) return
-        val icon = if (prefs.getBoolean("spoof_enabled", false)) R.drawable.ic_mode_spy else modeIcon(currentPositionMode())
-        btnPositionMode.setImageResource(icon)
-        btnPositionMode.contentDescription = if (prefs.getBoolean("spoof_enabled", false)) "Location spoof" else modeLabel(currentPositionMode())
+        btnPositionMode.setImageResource(modeIcon(currentPositionMode()))
+        btnPositionMode.contentDescription = modeLabel(currentPositionMode())
+        btnPositionMode.invalidate()
     }
 
     private fun toggleModePicker() {
@@ -2042,6 +2084,20 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun confirmChoice(message: String, onYes: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setMessage(message)
+            .setPositiveButton("Yes") { _, _ -> onYes() }
+            .setNegativeButton("No", null)
+            .show()
+    }
+
+    private fun activateSpoofAt(lat: Double, lon: Double) {
+        val on = prefs.getBoolean("spoof_enabled", false)
+        val message = if (on) "Move location spoof to this point?" else "Turn on location spoof at this point?"
+        confirmChoice(message) { activateSpoof(lat, lon) }
+    }
+
     private fun setPositionMode(mode: String) {
         prefs.edit().putString("position_mode", mode).apply()
         refreshModeButton()
@@ -2065,6 +2121,12 @@ class MainActivity : AppCompatActivity() {
         map.invalidate()
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
         Toast.makeText(this, "Spoofing %.5f, %.5f".format(lat, lon), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun removeSpoofMarker() {
+        if (!::map.isInitialized) return
+        map.overlays.removeAll { (it as? Marker)?.title == "Spoof" }
+        map.invalidate()
     }
 
     private fun addSpoofMarker() {
