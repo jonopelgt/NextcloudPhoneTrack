@@ -57,6 +57,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
   - Friends (each session, with that session's users indented below it)
+  - Settings (Nextcloud server, username, and app password, with a button to clear the login)
   - Map
 - Sessions list displays saved configs. Each session has an enable switch. Hold a session to configure or delete it.
 
@@ -108,3 +109,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 15 (2026-11-01): Friends page lists every saved session and indents the users reporting in that session.
 - Rev 16 (2026-11-01): A session turned off on the Sessions page is gray and unavailable on Friends, and its users are still listed.
 - Rev 17 (2026-11-01): Map positions use the logged-in user endpoint, or the public view token. The logging token is not sent to the public positions API, which was returning 404 and then HTTP 429. Rate limits pause requests, and buffered points are sent a few at a time.
+- Rev 18 (2026-11-02): Settings page in the menu stores the Nextcloud login and can clear it.

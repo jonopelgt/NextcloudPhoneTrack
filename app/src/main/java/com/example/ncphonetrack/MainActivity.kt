@@ -165,6 +165,10 @@ class MainActivity : AppCompatActivity() {
                     showFriends()
                     drawerLayout.closeDrawers()
                 }
+                R.id.nav_settings -> {
+                    showSettings()
+                    drawerLayout.closeDrawers()
+                }
                 R.id.nav_about -> {
                     val version = readVersion()
                     AlertDialog.Builder(this)
@@ -598,6 +602,55 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }.start()
+    }
+
+    private fun showSettings() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, 0, pad, 0)
+        }
+        val width = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        val urlField = EditText(this).apply {
+            hint = "Nextcloud server"
+            setText(prefs.getString("nc_auth_url", "") ?: "")
+            layoutParams = width
+        }
+        val userField = EditText(this).apply {
+            hint = "Nextcloud username"
+            setText(prefs.getString("nc_user", "") ?: "")
+            layoutParams = width
+        }
+        val passField = EditText(this).apply {
+            hint = "Nextcloud app password"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setText(prefs.getString("nc_pass", "") ?: "")
+            layoutParams = width
+        }
+        box.addView(urlField)
+        box.addView(userField)
+        box.addView(passField)
+        AlertDialog.Builder(this)
+            .setTitle("Settings")
+            .setMessage("Nextcloud login used to load sessions and map positions.")
+            .setView(box)
+            .setPositiveButton("Save") { _, _ ->
+                val url = PhoneTrackUrl.parse(urlField.text.toString()).base
+                val user = userField.text.toString().trim()
+                val pass = passField.text.toString()
+                if (!isValidBaseUrl(url) || user.isBlank() || pass.isBlank()) {
+                    Toast.makeText(this, "Server, username, and app password are required", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                prefs.edit().putString("nc_auth_url", url).putString("nc_user", user).putString("nc_pass", pass).apply()
+                Toast.makeText(this, "Login saved", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("Clear") { _, _ ->
+                prefs.edit().remove("nc_auth_url").remove("nc_user").remove("nc_pass").apply()
+                Toast.makeText(this, "Login cleared", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun promptLoadSessions() {
