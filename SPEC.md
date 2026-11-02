@@ -60,7 +60,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Settings (Nextcloud server, username, and app password, with a button to clear the login, and a section listing accepted self-signed certificates). A server address without http:// or https:// is saved as https://.
 - If login fails because the server certificate is not trusted, the app shows that certificate for review and does not continue until the user accepts or cancels.
   - Map
-- The main map shows a bottom overlay that says Not connected when the server connection is down. The overlay hides while a position update or map refresh is succeeding.
+- The main map shows a bottom overlay that says Not connected when the server connection is down. The overlay hides while a position update or map refresh is succeeding. If every session is turned off, that overlay says No active sessions instead, and it stacks with the other map banners.
 - If the Nextcloud login has not been verified, the map also shows a Not logged in banner stacked with any other banner. A Settings button on the right opens the Settings page.
 - Connection Status lists every saved session with Off, OK, or Failed. OK is green while that session's position updates are succeeding. Failed is red when they are not. A session that is turned off shows Off. Tapping the map closes Connection Status and returns to the map.
 - Sessions list displays saved configs. Each session has an enable switch. New session opens a full-screen builder that creates the session on the PhoneTrack server and shares it with the Nextcloud usernames entered. The new session is saved turned off until the user enables it.
@@ -128,3 +128,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 29 (2026-11-02): The map defaults to group view. Tapping a person follows that person, with transparent zoom keys. Panning or pinching switches to manual. All returns to group view.
 - Rev 30 (2026-11-02): Tapping a session on the Sessions page turns that session on if needed and sets the map to session zoom.
 - Rev 31 (2026-11-02): Tapping the map while Connection Status is open closes that page and returns to the map.
+- Rev 32 (2026-11-02): The map shows a No active sessions banner when every session is turned off. It stacks with the other map banners.

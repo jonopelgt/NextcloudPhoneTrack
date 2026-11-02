@@ -52,6 +52,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvConnection: TextView
     private lateinit var sessionStatusList: LinearLayout
     private lateinit var tvMapBanner: TextView
+    private lateinit var noSessionBanner: TextView
     private lateinit var loginBanner: android.view.View
     private lateinit var tvLastUpdate: TextView
     private lateinit var tvBuffer: TextView
@@ -89,6 +90,7 @@ class MainActivity : AppCompatActivity() {
         tvConnection = findViewById(R.id.tvConnection)
         sessionStatusList = findViewById(R.id.sessionStatusList)
         tvMapBanner = findViewById(R.id.tvMapBanner)
+        noSessionBanner = findViewById(R.id.tvNoSessionBanner)
         loginBanner = findViewById(R.id.loginBanner)
         findViewById<Button>(R.id.btnLoginSettings).setOnClickListener { showSettings() }
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
@@ -418,7 +420,9 @@ class MainActivity : AppCompatActivity() {
         val connected = loggedIn && !PhoneTrackApi.rateLimited(this) && (publishFresh || mapFresh)
         val mapVisible = statusPanel.visibility != View.VISIBLE
         val verified = prefs.getBoolean("credentials_verified", false)
-        tvMapBanner.visibility = if (!connected && mapVisible) View.VISIBLE else View.GONE
+        val noneActive = loadSessions().none { it.optBoolean("enabled", true) }
+        noSessionBanner.visibility = if (noneActive && mapVisible) View.VISIBLE else View.GONE
+        tvMapBanner.visibility = if (!connected && !noneActive && mapVisible) View.VISIBLE else View.GONE
         loginBanner.visibility = if (!verified && mapVisible) View.VISIBLE else View.GONE
     }
 
@@ -981,6 +985,7 @@ class MainActivity : AppCompatActivity() {
             stopTracking()
         }
         if (sessionsDialog?.isShowing == true) syncSessionSwitches() else showSessions(reloadNames = false)
+        refreshMapBanner()
     }
 
     private fun syncSessionSwitches() {
@@ -1004,6 +1009,7 @@ class MainActivity : AppCompatActivity() {
         prefs.edit().remove("url").remove("token").apply()
         clearMap()
         updateStatusText("Tracking stopped")
+        refreshMapBanner()
     }
 
     private fun clearMap() {
