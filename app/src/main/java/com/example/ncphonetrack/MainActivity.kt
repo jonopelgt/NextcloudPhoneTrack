@@ -480,15 +480,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var sessionsDialog: AlertDialog? = null
+    private var sessionsList: LinearLayout? = null
     private var refreshingNames = false
 
     private fun showSessions(reloadNames: Boolean = true) {
         val sessions = loadSessions()
         val pad = (16 * resources.displayMetrics.density).toInt()
-        val list = LinearLayout(this).apply {
+        val list = sessionsList ?: LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad / 2, pad, 0)
-        }
+        }.also { sessionsList = it }
+        list.removeAllViews()
         if (sessions.isEmpty()) {
             list.addView(TextView(this).apply {
                 text = "No sessions yet. Use New session."
@@ -531,15 +533,20 @@ class MainActivity : AppCompatActivity() {
                 })
             }
         }
-        val scroll = android.widget.ScrollView(this).apply { addView(list) }
-        sessionsDialog?.dismiss()
-        sessionsDialog = AlertDialog.Builder(this)
-            .setTitle("Sessions")
-            .setView(scroll)
-            .setNeutralButton("New session") { _, _ -> openNewSessionForm() }
-            .setPositiveButton("Close", null)
-            .create()
-        sessionsDialog?.show()
+        if (sessionsDialog?.isShowing != true) {
+            val scroll = android.widget.ScrollView(this).apply { addView(list) }
+            sessionsDialog = AlertDialog.Builder(this)
+                .setTitle("Sessions")
+                .setView(scroll)
+                .setNeutralButton("New session") { _, _ -> openNewSessionForm() }
+                .setPositiveButton("Close", null)
+                .create()
+            sessionsDialog?.setOnDismissListener {
+                sessionsDialog = null
+                sessionsList = null
+            }
+            sessionsDialog?.show()
+        }
         if (reloadNames) refreshSessionNames()
     }
 
@@ -555,8 +562,10 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 refreshingNames = false
                 if (error == null) {
+                    val before = prefs.getString("sessions", "")
                     mergeRemoteSessions(url, remote)
-                    if (sessionsDialog?.isShowing == true) showSessions(reloadNames = false)
+                    val after = prefs.getString("sessions", "")
+                    if (before != after && sessionsDialog?.isShowing == true) showSessions(reloadNames = false)
                 }
             }
         }.start()
@@ -949,7 +958,20 @@ class MainActivity : AppCompatActivity() {
         } else if (isActiveSession(session)) {
             stopTracking()
         }
-        showSessions()
+        if (sessionsDialog?.isShowing == true) syncSessionSwitches() else showSessions(reloadNames = false)
+    }
+
+    private fun syncSessionSwitches() {
+        val list = sessionsList ?: return
+        val sessions = loadSessions()
+        var index = 0
+        for (i in 0 until list.childCount) {
+            val row = list.getChildAt(i) as? LinearLayout ?: continue
+            val toggle = row.getChildAt(1) as? android.widget.CompoundButton ?: continue
+            val enabled = sessions.getOrNull(index)?.optBoolean("enabled", true) ?: continue
+            index += 1
+            if (toggle.isChecked != enabled) toggle.isChecked = enabled
+        }
     }
 
     private fun stopTracking() {

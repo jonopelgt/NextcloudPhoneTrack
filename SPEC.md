@@ -119,3 +119,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 22 (2026-11-02): Settings lists accepted self-signed certificates. Login that needs one shows the certificate for review before it is accepted.
 - Rev 23 (2026-11-02): Settings treats a server address with no scheme as https://.
 - Rev 24 (2026-11-02): New session on the Sessions page creates a PhoneTrack session and shares it with the usernames entered. The map menu control is a transparent hamburger. Settings opens full screen. Sessions no longer has a From server button.
+- Rev 25 (2026-11-02): The sessions list stays open while it loads names or a session is turned on or off. It no longer closes and reopens.
