@@ -230,10 +230,11 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Log (newest first):"
+                android:text="Log"
                 android:paddingTop="8dp" />
 
             <ScrollView
+                android:id="@+id/logScroll"
                 android:layout_width="match_parent"
                 android:layout_height="200dp">
 

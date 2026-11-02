@@ -6,8 +6,8 @@ object LogManager {
 
     fun add(message: String) {
         synchronized(logs) {
-            logs.add(0, "${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())} $message")
-            if (logs.size > MAX_LOGS) logs.removeAt(logs.size - 1)
+            logs.add("${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())} $message")
+            if (logs.size > MAX_LOGS) logs.removeAt(0)
         }
     }
 

@@ -57,6 +57,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvLastUpdate: TextView
     private lateinit var tvBuffer: TextView
     private lateinit var tvLog: TextView
+    private lateinit var logScroll: android.widget.ScrollView
+    private var followLogBottom = true
+    private var logScrollProgrammatic = false
     private val LOCATION_PERMISSION_REQUEST = 1001
     private val BACKGROUND_PERMISSION_REQUEST = 1002
     private var logTimer: Timer? = null
@@ -106,6 +109,12 @@ class MainActivity : AppCompatActivity() {
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
         tvBuffer = findViewById(R.id.tvBuffer)
         tvLog = findViewById(R.id.tvLog)
+        logScroll = findViewById(R.id.logScroll)
+        logScroll.setOnScrollChangeListener { view, _, scrollY, _, _ ->
+            if (logScrollProgrammatic) return@setOnScrollChangeListener
+            val child = (view as android.widget.ScrollView).getChildAt(0) ?: return@setOnScrollChangeListener
+            followLogBottom = scrollY + view.height >= child.height - 24
+        }
         val btnMenu = findViewById<ImageButton>(R.id.btnMenu)
         val navView: NavigationView = findViewById(R.id.nav_view)
 
@@ -553,6 +562,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshLog() {
         tvLog.text = LogManager.getLogs().ifEmpty { "No messages yet" }
+        if (followLogBottom) {
+            logScroll.post {
+                logScrollProgrammatic = true
+                logScroll.fullScroll(View.FOCUS_DOWN)
+                logScroll.post { logScrollProgrammatic = false }
+            }
+        }
         refreshMapBanner()
         if (statusPanel.visibility == View.VISIBLE) refreshConnectionStatus()
     }
@@ -1993,8 +2009,8 @@ class MainActivity : AppCompatActivity() {
         }
         val current = currentPositionMode()
         modePicker.removeAllViews()
-        positionModes.filter { it != current }.forEach { mode ->
-            modePicker.addView(modeChoice(mode, false) {
+        positionModes.forEach { mode ->
+            modePicker.addView(modeChoice(mode, mode == current) {
                 setPositionMode(mode)
                 modePicker.visibility = View.GONE
             })
