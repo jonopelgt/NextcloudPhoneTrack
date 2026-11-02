@@ -389,6 +389,219 @@ object PhoneTrackApi {
         }
     }
 
+    fun searchUsers(context: Context, baseUrl: String, user: String, password: String): Pair<List<Pair<String, String>>, String?> {
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val client = CertHelper.buildClient(prefs)
+        val server = PhoneTrackUrl.parse(baseUrl).base
+        val auth = okhttp3.Credentials.basic(user, password)
+        return try {
+            val request = Request.Builder()
+                .url("$server/index.php/apps/phonetrack/getUserList")
+                .post(okhttp3.FormBody.Builder().build())
+                .header("Authorization", auth)
+                .header("OCS-APIRequest", "true")
+                .build()
+            client.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                if (response.code == 401 || response.code == 403) {
+                    return emptyList<Pair<String, String>>() to "Nextcloud rejected the username or app password"
+                }
+                if (!response.isSuccessful) return emptyList<Pair<String, String>>() to "HTTP ${response.code}"
+                val root = unwrap(text) ?: return emptyList<Pair<String, String>>() to "Could not read the user list"
+                val users = root.optJSONObject("users") ?: root
+                val out = mutableListOf<Pair<String, String>>()
+                val keys = users.keys()
+                while (keys.hasNext()) {
+                    val id = keys.next()
+                    if (id == "users") continue
+                    val value = users.opt(id)
+                    val label = if (value is String) value else id
+                    if (id.isNotBlank() && id != user) out.add(id to label)
+                }
+                out.sortedBy { it.second.lowercase() } to null
+            }
+        } catch (e: Exception) {
+            emptyList<Pair<String, String>>() to (e.message ?: "Could not load users")
+        }
+    }
+
+    fun fetchSessionDetail(
+        context: Context,
+        baseUrl: String,
+        user: String,
+        password: String,
+        token: String
+    ): SessionDetail? {
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val client = CertHelper.buildClient(prefs)
+        val server = PhoneTrackUrl.parse(baseUrl).base
+        val auth = okhttp3.Credentials.basic(user, password)
+        val request = Request.Builder()
+            .url("$server/index.php/apps/phonetrack/sessions")
+            .header("Authorization", auth)
+            .header("OCS-APIRequest", "true")
+            .build()
+        return try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return null
+                val root = unwrap(response.body?.string().orEmpty()) ?: return null
+                val keys = root.keys()
+                while (keys.hasNext()) {
+                    val item = root.optJSONObject(keys.next()) ?: continue
+                    if (item.optString("token") != token) continue
+                    val devices = mutableListOf<RemoteDevice>()
+                    val rawDevices = item.optJSONObject("devices")
+                    if (rawDevices != null) {
+                        val deviceKeys = rawDevices.keys()
+                        while (deviceKeys.hasNext()) {
+                            val key = deviceKeys.next()
+                            val device = rawDevices.optJSONObject(key) ?: continue
+                            val name = device.optString("name")
+                            if (name.isBlank()) continue
+                            devices.add(RemoteDevice(device.optInt("id", key.toIntOrNull() ?: 0), name, device.optString("color")))
+                        }
+                    }
+                    return SessionDetail(
+                        id = item.optInt("id"),
+                        name = item.optString("name"),
+                        token = token,
+                        publicToken = item.optString("publicviewtoken"),
+                        isPublic = item.optInt("public", 0) == 1 || item.optBoolean("public", false),
+                        serverEnabled = item.optInt("enabled", 1) == 1 || item.optBoolean("enabled", true),
+                        autoPurge = item.optString("autopurge", "no").ifBlank { "no" },
+                        devices = devices.sortedBy { it.name.lowercase() }
+                    )
+                }
+                null
+            }
+        } catch (e: Exception) {
+            LogManager.add("Session detail failed: ${e.message}")
+            null
+        }
+    }
+
+    fun updateRemoteSession(
+        context: Context,
+        baseUrl: String,
+        user: String,
+        password: String,
+        sessionId: Int,
+        isPublic: Boolean?,
+        serverEnabled: Boolean?,
+        autoPurge: String?
+    ): String? {
+        if (sessionId <= 0) return "This session has no server id yet"
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val client = CertHelper.buildClient(prefs)
+        val server = PhoneTrackUrl.parse(baseUrl).base
+        val auth = okhttp3.Credentials.basic(user, password)
+        val body = okhttp3.FormBody.Builder()
+        if (isPublic != null) body.add("public", if (isPublic) "1" else "0")
+        if (serverEnabled != null) body.add("enabled", if (serverEnabled) "1" else "0")
+        if (autoPurge != null) body.add("autopurge", autoPurge)
+        return try {
+            val request = Request.Builder()
+                .url("$server/index.php/apps/phonetrack/session/$sessionId")
+                .put(body.build())
+                .header("Authorization", auth)
+                .header("OCS-APIRequest", "true")
+                .build()
+            client.newCall(request).execute().use { response ->
+                LogManager.add("PUT session ${response.code}")
+                if (response.isSuccessful) null else "Could not update the session (HTTP ${response.code})"
+            }
+        } catch (e: Exception) {
+            e.message ?: "Could not update the session"
+        }
+    }
+
+    fun updateDeviceColor(
+        context: Context,
+        baseUrl: String,
+        user: String,
+        password: String,
+        sessionId: Int,
+        deviceId: Int,
+        color: String
+    ): String? {
+        if (sessionId <= 0 || deviceId <= 0) return null
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val client = CertHelper.buildClient(prefs)
+        val server = PhoneTrackUrl.parse(baseUrl).base
+        val auth = okhttp3.Credentials.basic(user, password)
+        val hex = color.removePrefix("#")
+        return try {
+            val request = Request.Builder()
+                .url("$server/index.php/apps/phonetrack/session/$sessionId/device/$deviceId")
+                .put(okhttp3.FormBody.Builder().add("color", hex).build())
+                .header("Authorization", auth)
+                .header("OCS-APIRequest", "true")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) null else "Could not save the color (HTTP ${response.code})"
+            }
+        } catch (e: Exception) {
+            e.message
+        }
+    }
+
+    fun getTrackPoints(
+        context: Context,
+        baseUrl: String,
+        token: String,
+        ageOutMin: Int
+    ): Map<String, List<TrackPoint>> {
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+        val pass = prefs.getString("nc_pass", "").orEmpty()
+        if (user.isBlank() || pass.isBlank()) return emptyMap()
+        val client = CertHelper.buildClient(prefs)
+        val server = PhoneTrackUrl.parse(baseUrl).base
+        val tokenEnc = URLEncoder.encode(token, "UTF-8").replace("+", "%20")
+        val tsmin = System.currentTimeMillis() / 1000 - ageOutMin.coerceAtLeast(1) * 60
+        val url = "$server/index.php/apps/phonetrack/api/getuserpositions/$tokenEnc?limit=500&tsmin=$tsmin"
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .header("Authorization", okhttp3.Credentials.basic(user, pass))
+                .header("OCS-APIRequest", "true")
+                .build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return emptyMap()
+                val root = unwrap(response.body?.string().orEmpty()) ?: return emptyMap()
+                val session = when {
+                    root.optJSONObject(token) != null -> root.getJSONObject(token)
+                    root.keys().asSequence().any { key -> root.optJSONObject(key)?.has("points") == true } -> root
+                    else -> return emptyMap()
+                }
+                val out = mutableMapOf<String, List<TrackPoint>>()
+                val names = session.keys()
+                while (names.hasNext()) {
+                    val name = names.next()
+                    val dev = session.optJSONObject(name) ?: continue
+                    val points = dev.optJSONArray("points") ?: continue
+                    val list = mutableListOf<TrackPoint>()
+                    for (i in 0 until points.length()) {
+                        val point = points.optJSONObject(i) ?: continue
+                        if (!point.has("lat") || !point.has("lon")) continue
+                        list.add(TrackPoint(point.getDouble("lat"), point.getDouble("lon"), point.optLong("timestamp")))
+                    }
+                    if (list.isNotEmpty()) out[name] = list
+                }
+                out
+            }
+        } catch (e: Exception) {
+            LogManager.add("Tracks failed: ${e.message}")
+            emptyMap()
+        }
+    }
+
+    private fun unwrap(text: String): JSONObject? {
+        val root = runCatching { JSONObject(text) }.getOrNull() ?: return null
+        val data = if (root.has("ocs")) root.getJSONObject("ocs").opt("data") else root
+        return data as? JSONObject
+    }
+
     private fun postShare(
         client: okhttp3.OkHttpClient,
         url: String,
@@ -437,6 +650,21 @@ object PhoneTrackApi {
 }
 
 data class GeoPointData(val lat: Double, val lon: Double, val timestamp: Long, val accuracy: Double)
+
+data class TrackPoint(val lat: Double, val lon: Double, val timestamp: Long)
+
+data class RemoteDevice(val id: Int, val name: String, val color: String)
+
+data class SessionDetail(
+    val id: Int,
+    val name: String,
+    val token: String,
+    val publicToken: String,
+    val isPublic: Boolean,
+    val serverEnabled: Boolean,
+    val autoPurge: String,
+    val devices: List<RemoteDevice>
+)
 
 data class RemoteSession(val name: String, val token: String, val publicToken: String = "")
 

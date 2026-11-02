@@ -133,8 +133,8 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 32 (2026-11-02): The map shows a No active sessions banner when every session is turned off. It stacks with the other map banners.
 - Rev 33 (2026-11-02): Deleting a session deletes it on the PhoneTrack server for the logged-in account, then removes it from the phone.
 - Rev 34 (2026-11-02): The map zoom keys are high contrast. Each tap changes the zoom by a quarter level.
-- Rev 35 (2026-11-02): Each person has a selectable color. This phone's user defaults to blue. Other people default to unique colors. Not built yet.
-- Rev 36 (2026-11-02): The session builder shares with people chosen from a search list that filters as you type. Selected people can be removed. Not built yet.
-- Rev 37 (2026-11-02): The session builder shows a public switch, and the public URL in an accordion directly under it when public. It has a server enabled/disabled switch, an auto-purge dropdown of off, daily, weekly, or monthly, and each device's name and selectable color. Not built yet.
-- Rev 38 (2026-11-02): The session builder has a Local view section for this phone only. Position age-out defaults to 15 minutes and fades a map marker with age until it vanishes at that time. Not built yet.
-- Rev 39 (2026-11-02): Each device on Friends and in the session builder has a tracks switch. Tracks are off until turned on. When on, earlier positions are small dots in that device's color, each faded by its own age until the age-out time. Not built yet.
+- Rev 35 (2026-11-02): Each person has a selectable color. This phone's user defaults to blue. Other people default to unique colors.
+- Rev 36 (2026-11-02): The session builder shares with people chosen from a search list that filters as you type. Selected people can be removed.
+- Rev 37 (2026-11-02): The session builder shows a public switch, and the public URL in an accordion directly under it when public. It has a server enabled/disabled switch, an auto-purge dropdown of off, daily, weekly, or monthly, and each device's name and selectable color.
+- Rev 38 (2026-11-02): The session builder has a Local view section for this phone only. Position age-out defaults to 15 minutes and fades a map marker with age until it vanishes at that time.
+- Rev 39 (2026-11-02): Each device on Friends and in the session builder has a tracks switch. Tracks are off until turned on. When on, earlier positions are small dots in that device's color, each faded by its own age until the age-out time.

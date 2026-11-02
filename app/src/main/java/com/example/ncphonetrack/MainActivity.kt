@@ -68,8 +68,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnZoomIn: TextView
     private lateinit var btnZoomOut: TextView
     private lateinit var btnGroupView: TextView
-    private var ownMarkerIcon: BitmapDrawable? = null
-    private var friendMarkerIcon: BitmapDrawable? = null
+    private val iconCache = mutableMapOf<String, BitmapDrawable>()
+    private val colorChoices = listOf(
+        "#1565C0", "#E65100", "#2E7D32", "#6A1B9A", "#C62828",
+        "#00838F", "#F9A825", "#AD1457", "#6D4C41", "#455A64"
+    )
 
     private fun readVersion(): String = try {
         assets.open("VERSION").bufferedReader().use { it.readText().trim() }
@@ -288,18 +291,101 @@ class MainActivity : AppCompatActivity() {
         return n
     }
 
-    private fun markerIcon(color: Int): BitmapDrawable {
-        val size = (36 * resources.displayMetrics.density).toInt().coerceAtLeast(36)
+    private fun markerIcon(color: Int, diameterDp: Int, alpha: Float): BitmapDrawable {
+        val size = (diameterDp * resources.displayMetrics.density).toInt().coerceAtLeast(8)
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        paint.color = color
+        val a = (alpha.coerceIn(0f, 1f) * 255).toInt()
+        paint.color = Color.argb(a, Color.red(color), Color.green(color), Color.blue(color))
         canvas.drawCircle(size / 2f, size / 2f, size / 2.6f, paint)
-        paint.color = Color.WHITE
+        paint.color = Color.argb(a, 255, 255, 255)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = size / 8f
         canvas.drawCircle(size / 2f, size / 2f, size / 2.6f, paint)
         return BitmapDrawable(resources, bmp)
+    }
+
+    private fun iconFor(color: Int, diameterDp: Int, alpha: Float): BitmapDrawable {
+        val bucket = (alpha * 20).toInt().coerceIn(1, 20)
+        val key = "$color:$diameterDp:$bucket"
+        return iconCache.getOrPut(key) { markerIcon(color, diameterDp, bucket / 20f) }
+    }
+
+    private fun colorKey(token: String, name: String) = "$token|$name"
+
+    private fun loadJsonPref(key: String): JSONObject =
+        runCatching { JSONObject(prefs.getString(key, "{}") ?: "{}") }.getOrDefault(JSONObject())
+
+    private fun savedColor(token: String, name: String): String? =
+        loadJsonPref("friend_colors").optString(colorKey(token, name)).ifBlank { null }
+
+    private fun personColor(token: String, name: String, ownName: String, others: List<String>, serverColor: String? = null): Int {
+        val saved = savedColor(token, name)
+        val hex = when {
+            !saved.isNullOrBlank() -> saved
+            !serverColor.isNullOrBlank() -> serverColor
+            name == ownName || name == prefs.getString("nc_user", "")?.trim() -> "#1565C0"
+            else -> colorChoices.drop(1)[others.indexOf(name).coerceAtLeast(0) % (colorChoices.size - 1)]
+        }
+        return parseHex(hex)
+    }
+
+    private fun parseHex(hex: String): Int {
+        val raw = hex.trim().removePrefix("#")
+        return runCatching { Color.parseColor("#$raw") }.getOrDefault(Color.parseColor("#1565C0"))
+    }
+
+    private fun savePersonColor(token: String, name: String, hex: String) {
+        val colors = loadJsonPref("friend_colors")
+        colors.put(colorKey(token, name), if (hex.startsWith("#")) hex else "#$hex")
+        prefs.edit().putString("friend_colors", colors.toString()).apply()
+    }
+
+    private fun tracksOn(token: String, name: String): Boolean =
+        loadJsonPref("device_tracks").optBoolean(colorKey(token, name), false)
+
+    private fun saveTracks(token: String, name: String, on: Boolean) {
+        val tracks = loadJsonPref("device_tracks")
+        tracks.put(colorKey(token, name), on)
+        prefs.edit().putString("device_tracks", tracks.toString()).apply()
+    }
+
+    private fun ageOutMinutes(token: String): Int {
+        val session = loadSessions().find { it.optString("token") == token }
+        val minutes = session?.optInt("age_out_min", 15) ?: 15
+        return minutes.coerceIn(1, 7 * 24 * 60)
+    }
+
+    private fun ageAlpha(timestampSec: Long, ageOutMin: Int): Float {
+        if (timestampSec <= 0L) return 1f
+        val age = System.currentTimeMillis() / 1000.0 - timestampSec
+        val window = ageOutMin * 60.0
+        return (1.0 - age / window).toFloat().coerceIn(0f, 1f)
+    }
+
+    private fun pickColor(onPick: (String) -> Unit) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (12 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        val dialog = AlertDialog.Builder(this).setTitle("Color").setView(box).setNegativeButton("Cancel", null).create()
+        colorChoices.forEach { hex ->
+            box.addView(TextView(this).apply {
+                text = " "
+                setBackgroundColor(parseHex(hex))
+                val h = (36 * resources.displayMetrics.density).toInt()
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, h).apply {
+                    bottomMargin = (8 * resources.displayMetrics.density).toInt()
+                }
+                setOnClickListener {
+                    dialog.dismiss()
+                    onPick(hex)
+                }
+            })
+        }
+        dialog.show()
     }
 
     private fun showMap() {
@@ -616,7 +702,15 @@ class MainActivity : AppCompatActivity() {
                 val title = sessionLabel(session)
                 val positions = PhoneTrackApi.getLastPositions(this, session.optString("url"), session.optString("token"))
                 val points = positions?.mapValues { (_, data) -> GeoPoint(data.lat, data.lon) }.orEmpty()
-                FriendRow(title, points.keys.sorted(), session.optBoolean("enabled", true), positions != null, points)
+                FriendRow(
+                    title,
+                    session.optString("token"),
+                    session.optString("device"),
+                    points.keys.sorted(),
+                    session.optBoolean("enabled", true),
+                    positions != null,
+                    points
+                )
             }
             runOnUiThread {
                 if (!dialog.isShowing) return@runOnUiThread
@@ -644,13 +738,27 @@ class MainActivity : AppCompatActivity() {
                             setPadding(indent, 0, 0, pad / 2)
                         })
                     } else {
+                        val others = row.users.filter { it != row.ownName && it != prefs.getString("nc_user", "")?.trim() }
                         row.users.forEach { user ->
-                            list.addView(TextView(this).apply {
+                            val color = personColor(row.token, user, row.ownName, others)
+                            val chip = View(this).apply {
+                                val d = (22 * resources.displayMetrics.density).toInt()
+                                layoutParams = LinearLayout.LayoutParams(d, d).apply {
+                                    marginEnd = pad / 2
+                                }
+                                setBackgroundColor(color)
+                                setOnClickListener {
+                                    pickColor { hex ->
+                                        savePersonColor(row.token, user, hex)
+                                        setBackgroundColor(parseHex(hex))
+                                    }
+                                }
+                            }
+                            val nameView = TextView(this).apply {
                                 text = user
                                 textSize = 15f
                                 setTextColor(userColor)
-                                setPadding(indent, pad / 4, 0, pad / 4)
-                                isClickable = true
+                                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                                 setOnClickListener {
                                     dialog.dismiss()
                                     statusPanel.visibility = View.GONE
@@ -658,6 +766,19 @@ class MainActivity : AppCompatActivity() {
                                     enterUserTrack(user)
                                     refreshMapBanner()
                                 }
+                            }
+                            val track = android.widget.Switch(this).apply {
+                                text = "Tracks"
+                                isChecked = tracksOn(row.token, user)
+                                setOnCheckedChangeListener { _, on -> saveTracks(row.token, user, on) }
+                            }
+                            list.addView(LinearLayout(this).apply {
+                                orientation = LinearLayout.HORIZONTAL
+                                gravity = android.view.Gravity.CENTER_VERTICAL
+                                setPadding(indent, pad / 4, 0, pad / 4)
+                                addView(chip)
+                                addView(nameView)
+                                addView(track)
                             })
                         }
                     }
@@ -1056,57 +1177,261 @@ class MainActivity : AppCompatActivity() {
             setText(existing?.optString("name").orEmpty())
             layoutParams = width
         }
-        val shareField = EditText(this).apply {
-            hint = "Share with Nextcloud usernames, separated by commas"
+        val searchField = EditText(this).apply {
+            hint = "Search friends"
+            layoutParams = width
+        }
+        val resultsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val selectedBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val selected = mutableListOf<String>()
+        var directory = emptyList<Pair<String, String>>()
+        fun renderSelected() {
+            selectedBox.removeAllViews()
+            selected.forEach { id ->
+                selectedBox.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    addView(TextView(this@MainActivity).apply {
+                        text = id
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(Button(this@MainActivity).apply {
+                        text = "Remove"
+                        setOnClickListener {
+                            selected.remove(id)
+                            renderSelected()
+                        }
+                    })
+                })
+            }
+        }
+        fun renderResults() {
+            resultsBox.removeAllViews()
+            val query = searchField.text.toString().trim().lowercase()
+            if (query.isEmpty()) return
+            val matches = directory.filter { (id, label) ->
+                id !in selected && (id.lowercase().contains(query) || label.lowercase().contains(query))
+            }.take(8)
+            if (matches.isEmpty()) {
+                resultsBox.addView(TextView(this).apply { text = "No matching users" })
+                return
+            }
+            matches.forEach { (id, label) ->
+                resultsBox.addView(TextView(this).apply {
+                    text = if (label.isBlank() || label == id) id else "$label ($id)"
+                    textSize = 16f
+                    setPadding(0, pad / 3, 0, pad / 3)
+                    setOnClickListener {
+                        selected.add(id)
+                        searchField.setText("")
+                        renderSelected()
+                        renderResults()
+                    }
+                })
+            }
+        }
+        searchField.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) { renderResults() }
+        })
+        val publicSwitch = android.widget.Switch(this).apply {
+            text = "Public"
+            layoutParams = width
+        }
+        val publicUrl = TextView(this).apply {
+            text = "The public URL is available after the session is created."
+            setPadding(pad, pad / 2, pad, pad / 2)
+        }
+        val publicAccordion = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            addView(TextView(this@MainActivity).apply {
+                text = "Public URL"
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+            addView(publicUrl)
+        }
+        publicSwitch.setOnCheckedChangeListener { _, checked ->
+            publicAccordion.visibility = if (checked) View.VISIBLE else View.GONE
+        }
+        val serverSwitch = android.widget.Switch(this).apply {
+            text = "Enabled on server"
+            isChecked = true
+            layoutParams = width
+        }
+        val purgeValues = listOf("no", "day", "week", "month")
+        val purge = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                listOf("Don't purge", "Daily", "Weekly", "Monthly")
+            )
+            layoutParams = width
+        }
+        val devicesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val ageField = EditText(this).apply {
+            hint = "Position age-out minutes"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText((existing?.optInt("age_out_min", 15) ?: 15).toString())
             layoutParams = width
         }
         box.addView(nameField)
-        box.addView(shareField)
+        box.addView(TextView(this).apply {
+            text = "Friends"
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad, 0, pad / 4)
+        })
+        box.addView(searchField)
+        box.addView(resultsBox)
+        box.addView(selectedBox)
+        box.addView(publicSwitch)
+        box.addView(publicAccordion)
+        box.addView(serverSwitch)
+        box.addView(TextView(this).apply {
+            text = "Auto purge"
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad, 0, pad / 4)
+        })
+        box.addView(purge)
+        box.addView(TextView(this).apply {
+            text = "Devices"
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad, 0, pad / 4)
+        })
+        box.addView(devicesBox)
+        box.addView(TextView(this).apply {
+            text = "Local view"
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad, 0, pad / 4)
+        })
+        box.addView(ageField)
+        var sessionId = existing?.optInt("id", 0) ?: 0
+        var publicToken = existing?.optString("public_token").orEmpty()
         val creating = existing == null
+        val scroll = android.widget.ScrollView(this).apply { addView(box) }
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
             .setTitle(if (creating) "New session" else "Session")
-            .setMessage(
-                if (creating) "Creates the session on the server, then shares it with each username."
-                else "Share this session with Nextcloud users."
-            )
-            .setView(box)
+            .setView(scroll)
             .setPositiveButton(if (creating) "Create" else "Save", null)
             .setNegativeButton("Cancel", null)
             .create()
+        fun showDevices(detail: SessionDetail?) {
+            devicesBox.removeAllViews()
+            val devices = detail?.devices.orEmpty()
+            if (devices.isEmpty()) {
+                devicesBox.addView(TextView(this).apply { text = "No devices have reported yet." })
+                return
+            }
+            val own = existing?.optString("device").orEmpty()
+            val others = devices.map { it.name }.filter { it != own && it != user }
+            devices.forEach { device ->
+                val color = personColor(existing?.optString("token").orEmpty(), device.name, own, others, device.color)
+                val chip = View(this).apply {
+                    val d = (22 * resources.displayMetrics.density).toInt()
+                    layoutParams = LinearLayout.LayoutParams(d, d).apply { marginEnd = pad / 2 }
+                    setBackgroundColor(color)
+                    setOnClickListener {
+                        pickColor { hex ->
+                            val token = existing?.optString("token").orEmpty()
+                            if (token.isNotBlank()) savePersonColor(token, device.name, hex)
+                            setBackgroundColor(parseHex(hex))
+                            Thread {
+                                PhoneTrackApi.updateDeviceColor(this@MainActivity, server, user, pass, sessionId, device.id, hex)
+                            }.start()
+                        }
+                    }
+                }
+                val track = android.widget.Switch(this).apply {
+                    text = "Tracks"
+                    isChecked = tracksOn(existing?.optString("token").orEmpty(), device.name)
+                    setOnCheckedChangeListener { _, on ->
+                        val token = existing?.optString("token").orEmpty()
+                        if (token.isNotBlank()) saveTracks(token, device.name, on)
+                    }
+                }
+                devicesBox.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, pad / 4, 0, pad / 4)
+                    addView(chip)
+                    addView(TextView(this@MainActivity).apply {
+                        text = device.name
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(track)
+                })
+            }
+        }
         dialog.setOnShowListener {
             dialog.window?.setLayout(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT
             )
             dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))
+            Thread {
+                val (users, _) = PhoneTrackApi.searchUsers(this, server, user, pass)
+                val detail = existing?.optString("token")?.takeIf { it.isNotBlank() }?.let {
+                    PhoneTrackApi.fetchSessionDetail(this, server, user, pass, it)
+                }
+                runOnUiThread {
+                    if (!dialog.isShowing) return@runOnUiThread
+                    directory = users
+                    renderResults()
+                    if (detail != null) {
+                        sessionId = detail.id
+                        if (detail.publicToken.isNotBlank()) publicToken = detail.publicToken
+                        publicSwitch.isChecked = detail.isPublic
+                        serverSwitch.isChecked = detail.serverEnabled
+                        val index = purgeValues.indexOf(detail.autoPurge).coerceAtLeast(0)
+                        purge.setSelection(index)
+                        if (detail.publicToken.isNotBlank()) {
+                            publicUrl.text = PhoneTrackUrl.parse(server).base +
+                                "/index.php/apps/phonetrack/publicSessionWatch/${detail.publicToken}"
+                        }
+                        showDevices(detail)
+                    } else {
+                        showDevices(null)
+                    }
+                }
+            }.start()
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = nameField.text.toString().trim()
-                val shares = shareField.text.toString().split(",", " ").map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                val age = ageField.text.toString().trim().toIntOrNull()?.coerceIn(1, 7 * 24 * 60) ?: 15
+                val purgeValue = purgeValues[purge.selectedItemPosition]
                 if (name.isBlank()) {
                     Toast.makeText(this, "Session name is required", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
                 dialog.dismiss()
+                val shares = selected.toList()
                 if (existing != null) {
                     val token = existing.optString("token")
                     val sessions = loadSessions()
                     sessions.forEach { item ->
-                        if (item.optString("token") == token) item.put("name", name)
+                        if (item.optString("token") == token) {
+                            item.put("name", name)
+                            item.put("age_out_min", age)
+                            if (sessionId > 0) item.put("id", sessionId)
+                            if (publicToken.isNotBlank()) item.put("public_token", publicToken)
+                        }
                     }
                     prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
-                    if (shares.isEmpty()) {
-                        showSessions()
-                        return@setOnClickListener
-                    }
-                    Toast.makeText(this, "Sharing session…", Toast.LENGTH_SHORT).show()
-                    val target = CreatedSession(0, name, token, existing.optString("public_token"))
+                    Toast.makeText(this, "Saving session…", Toast.LENGTH_SHORT).show()
+                    val target = CreatedSession(sessionId, name, token, publicToken)
                     Thread {
-                        val notes = shares.map { shareWith ->
+                        val notes = mutableListOf<String>()
+                        PhoneTrackApi.updateRemoteSession(
+                            this, server, user, pass, sessionId,
+                            publicSwitch.isChecked, serverSwitch.isChecked, purgeValue
+                        )?.let { notes.add(it) }
+                        shares.forEach { shareWith ->
                             val shareError = PhoneTrackApi.shareRemoteSession(this, server, user, pass, target, shareWith)
-                            if (shareError == null) "Shared with $shareWith" else shareError
+                            notes.add(if (shareError == null) "Shared with $shareWith" else shareError)
                         }
                         runOnUiThread {
-                            AlertDialog.Builder(this)
+                            if (notes.isEmpty()) showSessions()
+                            else AlertDialog.Builder(this)
                                 .setTitle("Session")
                                 .setMessage(notes.joinToString("\n"))
                                 .setPositiveButton("OK") { _, _ -> showSessions() }
@@ -1120,6 +1445,10 @@ class MainActivity : AppCompatActivity() {
                     val (created, error) = PhoneTrackApi.createRemoteSession(this, server, user, pass, name)
                     val notes = mutableListOf<String>()
                     if (created != null) {
+                        PhoneTrackApi.updateRemoteSession(
+                            this, server, user, pass, created.id,
+                            publicSwitch.isChecked, serverSwitch.isChecked, purgeValue
+                        )?.let { notes.add(it) }
                         shares.forEach { shareWith ->
                             val shareError = PhoneTrackApi.shareRemoteSession(this, server, user, pass, created, shareWith)
                             notes.add(if (shareError == null) "Shared with $shareWith" else shareError)
@@ -1130,6 +1459,11 @@ class MainActivity : AppCompatActivity() {
                             Toast.makeText(this, error ?: "Could not create the session", Toast.LENGTH_LONG).show()
                         } else {
                             rememberCreatedSession(server, created)
+                            val sessions = loadSessions()
+                            sessions.forEach { item ->
+                                if (item.optString("token") == created.token) item.put("age_out_min", age)
+                            }
+                            prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
                             val summary = buildString {
                                 append("Created ")
                                 append(created.name)
@@ -1310,6 +1644,9 @@ class MainActivity : AppCompatActivity() {
     private fun updateMapWithPositions(url: String, token: String, ownDevice: String, epoch: Int) {
         Thread {
             val positions = PhoneTrackApi.getLastPositions(this, url, token)
+            val ageOut = ageOutMinutes(token)
+            val tracked = positions?.keys?.filter { tracksOn(token, it) }.orEmpty()
+            val tracks = if (tracked.isNotEmpty()) PhoneTrackApi.getTrackPoints(this, url, token, ageOut) else emptyMap()
             runOnUiThread {
                 if (epoch != mapEpoch) return@runOnUiThread
                 if (positions == null) {
@@ -1320,10 +1657,27 @@ class MainActivity : AppCompatActivity() {
                 prefs.edit().putLong("last_map_ok", System.currentTimeMillis()).apply()
                 refreshMapBanner()
                 map.overlays.clear()
-                if (ownMarkerIcon == null) ownMarkerIcon = markerIcon(Color.parseColor("#1565C0"))
-                if (friendMarkerIcon == null) friendMarkerIcon = markerIcon(Color.parseColor("#E65100"))
                 lastPoints.clear()
+                val others = positions.keys.filter { it != ownDevice }.sorted()
+                tracked.forEach { name ->
+                    val color = personColor(token, name, ownDevice, others)
+                    val history = tracks[name].orEmpty().sortedBy { it.timestamp }
+                    val prior = if (history.size > 1) history.dropLast(1) else emptyList()
+                    prior.forEach { point ->
+                        val alpha = ageAlpha(point.timestamp, ageOut)
+                        if (alpha <= 0.05f) return@forEach
+                        val dot = Marker(map)
+                        dot.position = GeoPoint(point.lat, point.lon)
+                        dot.icon = iconFor(color, 12, alpha)
+                        dot.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                        dot.infoWindow = null
+                        dot.setOnMarkerClickListener { _, _ -> true }
+                        map.overlays.add(dot)
+                    }
+                }
                 positions.forEach { (name, data) ->
+                    val alpha = ageAlpha(data.timestamp, ageOut)
+                    if (alpha <= 0.05f) return@forEach
                     val point = GeoPoint(data.lat, data.lon)
                     lastPoints[name] = point
                     val marker = Marker(map)
@@ -1331,7 +1685,7 @@ class MainActivity : AppCompatActivity() {
                     val mine = name == ownDevice
                     marker.title = if (mine) "You · $name" else name
                     marker.snippet = "Acc: ${data.accuracy}m | Age: ${(System.currentTimeMillis()/1000 - data.timestamp)}s"
-                    marker.icon = if (mine) ownMarkerIcon else friendMarkerIcon
+                    marker.icon = iconFor(personColor(token, name, ownDevice, others), 28, alpha)
                     marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                     marker.setOnMarkerClickListener { _, _ ->
                         enterUserTrack(name)
@@ -1409,6 +1763,8 @@ private enum class MapFollow { GROUP, USER, MANUAL }
 
 private data class FriendRow(
     val title: String,
+    val token: String,
+    val ownName: String,
     val users: List<String>,
     val enabled: Boolean,
     val reachable: Boolean,
