@@ -69,6 +69,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnZoomOut: TextView
     private lateinit var btnGroupView: TextView
     private lateinit var mapControls: View
+    private lateinit var btnPositionMode: ImageButton
+    private lateinit var modePicker: LinearLayout
     private var pickFollowOnNextMap = false
     private var bubbleToken = 0
     private val zoomOverlays = mutableListOf<LinearLayout>()
@@ -123,6 +125,10 @@ class MainActivity : AppCompatActivity() {
         btnZoomOut = findViewById(R.id.btnZoomOut)
         btnGroupView = findViewById(R.id.btnGroupView)
         mapControls = findViewById(R.id.mapControls)
+        btnPositionMode = findViewById(R.id.btnPositionMode)
+        modePicker = findViewById(R.id.modePicker)
+        refreshModeButton()
+        btnPositionMode.setOnClickListener { toggleModePicker() }
         btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
         btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
         btnGroupView.setOnClickListener { enterGroupView() }
@@ -139,6 +145,7 @@ class MainActivity : AppCompatActivity() {
                     downX = event.x
                     downY = event.y
                     dragged = false
+                    modePicker.visibility = View.GONE
                 }
                 MotionEvent.ACTION_POINTER_DOWN -> if (statusPanel.visibility != View.VISIBLE) enterManual()
                 MotionEvent.ACTION_MOVE -> {
@@ -1687,14 +1694,19 @@ class MainActivity : AppCompatActivity() {
                 val others = positions.keys.filter { it != ownDevice }.sorted()
                 tracked.forEach { name ->
                     val color = personColor(token, name, ownDevice, others)
-                    val history = tracks[name].orEmpty().sortedBy { it.timestamp }
-                    val prior = if (history.size > 1) history.dropLast(1) else emptyList()
-                    prior.forEach { point ->
+                    val history = tracks[name]
+                        ?: tracks.entries.firstOrNull { it.key.equals(name, true) }?.value
+                        ?: emptyList()
+                    val current = positions[name]
+                    history.forEach { point ->
+                        if (current != null && kotlin.math.abs(point.lat - current.lat) < 0.00005 && kotlin.math.abs(point.lon - current.lon) < 0.00005) {
+                            return@forEach
+                        }
                         val alpha = ageAlpha(point.timestamp, ageOut)
                         if (alpha <= 0.05f) return@forEach
                         val dot = Marker(map)
                         dot.position = GeoPoint(point.lat, point.lon)
-                        dot.icon = iconFor(color, 12, alpha)
+                        dot.icon = iconFor(color, 16, alpha)
                         dot.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         dot.infoWindow = null
                         dot.setOnMarkerClickListener { _, _ -> true }
@@ -1793,33 +1805,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pinZoomControls(dialog: AlertDialog) {
-        dialog.window?.decorView?.post {
-            val decor = dialog.window?.decorView as? android.widget.FrameLayout ?: return@post
-            if (decor.findViewWithTag<View>("zoom_overlay") != null) return@post
-            val margin = (8 * resources.displayMetrics.density).toInt()
-            val column = LinearLayout(this).apply {
-                tag = "zoom_overlay"
-                orientation = LinearLayout.VERTICAL
-                val zoomIn = zoomKey("+") { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
-                val zoomOut = zoomKey("−") { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
-                val all = zoomKey("All") { enterGroupView() }
-                addView(zoomIn)
-                addView(zoomOut)
-                addView(all)
-                zoomIn.tag = "in"
-                zoomOut.tag = "out"
-                all.tag = "all"
-            }
-            val params = android.widget.FrameLayout.LayoutParams(
-                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
-                android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
-            )
-            params.marginEnd = margin
-            decor.addView(column, params)
-            zoomOverlays.add(column)
-            refreshZoomKeys()
-        }
+        if (dialog.isShowing) return
     }
 
     private fun zoomKey(label: String, onClick: () -> Unit): TextView {
@@ -1844,14 +1830,18 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, 0)
         }
-        val modes = listOf("quiet", "manual", "significant", "move")
-        val labels = listOf("Quiet", "Manual", "Significant", "Move")
-        val current = prefs.getString("position_mode", "move") ?: "move"
-        val mode = android.widget.Spinner(this).apply {
-            adapter = android.widget.ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, labels)
-            setSelection(modes.indexOf(current).coerceAtLeast(0))
-            layoutParams = width
+        var selectedMode = currentPositionMode()
+        val modeList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun renderModes() {
+            modeList.removeAllViews()
+            positionModes.forEach { item ->
+                modeList.addView(modeChoice(item, item == selectedMode) {
+                    selectedMode = item
+                    renderModes()
+                })
+            }
         }
+        renderModes()
         val spoof = androidx.appcompat.widget.SwitchCompat(this).apply {
             text = "Location spoof"
             isChecked = prefs.getBoolean("spoof_enabled", false)
@@ -1873,10 +1863,10 @@ class MainActivity : AppCompatActivity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         })
         box.addView(TextView(this).apply {
-            text = "Quiet sends nothing. Manual sends when you tap Send now. Significant sends after a real move. Move sends on the normal interval."
+            text = "Off sends nothing. Manual sends when you tap Send now. Significant sends after a real move. Move sends on the normal interval. Rapid sends every second."
             setPadding(0, pad / 4, 0, pad / 2)
         })
-        box.addView(mode)
+        box.addView(modeList)
         box.addView(spoof)
         box.addView(lat)
         box.addView(lon)
@@ -1896,12 +1886,13 @@ class MainActivity : AppCompatActivity() {
             pinZoomControls(dialog)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 prefs.edit()
-                    .putString("position_mode", modes[mode.selectedItemPosition])
+                    .putString("position_mode", selectedMode)
                     .putBoolean("spoof_enabled", spoof.isChecked)
                     .putString("spoof_lat", lat.text.toString().trim())
                     .putString("spoof_lon", lon.text.toString().trim())
                     .apply()
                 dialog.dismiss()
+                refreshModeButton()
                 if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
             }
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
@@ -1930,6 +1921,77 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    private val positionModes = listOf("manual", "quiet", "significant", "move", "rapid")
+
+    private fun currentPositionMode(): String = prefs.getString("position_mode", "move") ?: "move"
+
+    private fun modeLabel(mode: String): String = when (mode) {
+        "quiet" -> "Off"
+        "manual" -> "Manual"
+        "significant" -> "Significant"
+        "rapid" -> "Rapid"
+        else -> "Move"
+    }
+
+    private fun modeIcon(mode: String): Int = when (mode) {
+        "quiet" -> R.drawable.ic_mode_off
+        "manual" -> R.drawable.ic_mode_manual
+        "significant" -> R.drawable.ic_mode_walk
+        "rapid" -> R.drawable.ic_mode_plane
+        else -> R.drawable.ic_mode_car
+    }
+
+    private fun refreshModeButton() {
+        if (!::btnPositionMode.isInitialized) return
+        btnPositionMode.setImageResource(modeIcon(currentPositionMode()))
+    }
+
+    private fun toggleModePicker() {
+        if (modePicker.visibility == View.VISIBLE) {
+            modePicker.visibility = View.GONE
+            return
+        }
+        val current = currentPositionMode()
+        modePicker.removeAllViews()
+        positionModes.filter { it != current }.forEach { mode ->
+            modePicker.addView(modeChoice(mode, false) {
+                setPositionMode(mode)
+                modePicker.visibility = View.GONE
+            })
+        }
+        modePicker.visibility = View.VISIBLE
+        modePicker.bringToFront()
+        btnPositionMode.bringToFront()
+    }
+
+    private fun modeChoice(mode: String, selected: Boolean, onClick: () -> Unit): LinearLayout {
+        val pad = (10 * resources.displayMetrics.density).toInt()
+        val iconSize = (28 * resources.displayMetrics.density).toInt()
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(pad, pad, pad * 2, pad)
+            if (selected) setBackgroundColor(Color.parseColor("#E3F2FD"))
+            addView(android.widget.ImageView(this@MainActivity).apply {
+                setImageResource(modeIcon(mode))
+                layoutParams = LinearLayout.LayoutParams(iconSize, iconSize)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = modeLabel(mode)
+                setPadding(pad, 0, 0, 0)
+                textSize = 16f
+                setTextColor(Color.parseColor("#111111"))
+            })
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun setPositionMode(mode: String) {
+        prefs.edit().putString("position_mode", mode).apply()
+        refreshModeButton()
+        if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+    }
+
     private fun enterManual() {
         if (mapFollow == MapFollow.MANUAL) return
         mapFollow = MapFollow.MANUAL
@@ -1953,16 +2015,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshZoomKeys() {
         val tracking = mapFollow == MapFollow.USER
-        btnZoomIn.visibility = if (tracking) View.VISIBLE else View.GONE
-        btnZoomOut.visibility = if (tracking) View.VISIBLE else View.GONE
-        btnGroupView.visibility = if (mapFollow == MapFollow.GROUP) View.GONE else View.VISIBLE
-        zoomOverlays.removeAll { !it.isAttachedToWindow }
-        zoomOverlays.forEach { column ->
-            column.findViewWithTag<View>("in")?.visibility = if (tracking) View.VISIBLE else View.GONE
-            column.findViewWithTag<View>("out")?.visibility = if (tracking) View.VISIBLE else View.GONE
-            column.findViewWithTag<View>("all")?.visibility = if (mapFollow == MapFollow.GROUP) View.GONE else View.VISIBLE
-        }
+        val mapContext = !::statusPanel.isInitialized || statusPanel.visibility != View.VISIBLE
+        mapControls.visibility = if (mapContext) View.VISIBLE else View.GONE
+        btnZoomIn.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
+        btnZoomOut.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
+        btnGroupView.visibility = if (mapContext && mapFollow != MapFollow.GROUP) View.VISIBLE else View.GONE
         if (::mapControls.isInitialized) mapControls.bringToFront()
+        if (::btnPositionMode.isInitialized) btnPositionMode.bringToFront()
     }
 
     private fun applyMapFollow(points: List<GeoPoint>) {

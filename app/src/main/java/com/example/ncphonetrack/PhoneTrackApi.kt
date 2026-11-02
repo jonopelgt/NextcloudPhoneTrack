@@ -567,33 +567,73 @@ object PhoneTrackApi {
                 .header("OCS-APIRequest", "true")
                 .build()
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return emptyMap()
-                val root = unwrap(response.body?.string().orEmpty()) ?: return emptyMap()
-                val session = when {
-                    root.optJSONObject(token) != null -> root.getJSONObject(token)
-                    root.keys().asSequence().any { key -> root.optJSONObject(key)?.has("points") == true } -> root
-                    else -> return emptyMap()
+                if (!response.isSuccessful) {
+                    LogManager.add("Tracks HTTP ${response.code}")
+                    return emptyMap()
+                }
+                val text = response.body?.string().orEmpty()
+                val root = unwrap(text) ?: run {
+                    LogManager.add("Tracks response was not a session")
+                    return emptyMap()
+                }
+                val session = trackSession(root, token) ?: run {
+                    LogManager.add("Tracks session was missing")
+                    return emptyMap()
                 }
                 val out = mutableMapOf<String, List<TrackPoint>>()
                 val names = session.keys()
                 while (names.hasNext()) {
                     val name = names.next()
-                    val dev = session.optJSONObject(name) ?: continue
-                    val points = dev.optJSONArray("points") ?: continue
-                    val list = mutableListOf<TrackPoint>()
-                    for (i in 0 until points.length()) {
-                        val point = points.optJSONObject(i) ?: continue
-                        if (!point.has("lat") || !point.has("lon")) continue
-                        list.add(TrackPoint(point.getDouble("lat"), point.getDouble("lon"), point.optLong("timestamp")))
+                    val list = when (val value = session.opt(name)) {
+                        is org.json.JSONArray -> readTrackPoints(value)
+                        is JSONObject -> readTrackPoints(value.optJSONArray("points"))
+                        else -> emptyList()
                     }
                     if (list.isNotEmpty()) out[name] = list
                 }
+                LogManager.add("Tracks parsed ${out.values.sumOf { it.size }} points")
                 out
             }
         } catch (e: Exception) {
             LogManager.add("Tracks failed: ${e.message}")
             emptyMap()
         }
+    }
+
+    private fun trackSession(root: JSONObject, token: String): JSONObject? {
+        root.optJSONObject(token)?.let { return it }
+        val keys = root.keys()
+        while (keys.hasNext()) {
+            val child = root.optJSONObject(keys.next()) ?: continue
+            if (looksLikeTrackSession(child)) return child
+        }
+        return if (looksLikeTrackSession(root)) root else null
+    }
+
+    private fun looksLikeTrackSession(obj: JSONObject): Boolean {
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            when (val value = obj.opt(keys.next())) {
+                is org.json.JSONArray -> return true
+                is JSONObject -> if (value.has("points")) return true
+            }
+        }
+        return false
+    }
+
+    private fun readTrackPoints(points: org.json.JSONArray?): List<TrackPoint> {
+        if (points == null) return emptyList()
+        val list = mutableListOf<TrackPoint>()
+        for (i in 0 until points.length()) {
+            val point = points.optJSONObject(i) ?: continue
+            val lat = point.optDouble("lat", Double.NaN)
+            val lon = point.optDouble("lon", Double.NaN)
+            if (lat.isNaN() || lon.isNaN()) continue
+            var timestamp = point.optLong("timestamp")
+            if (timestamp > 10_000_000_000L) timestamp /= 1000
+            list.add(TrackPoint(lat, lon, timestamp))
+        }
+        return list
     }
 
     private fun unwrap(text: String): JSONObject? {

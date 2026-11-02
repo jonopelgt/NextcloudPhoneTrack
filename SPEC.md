@@ -145,13 +145,13 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 40 (2026-11-02): Tapping a device on the map opens its status bubble. The bubble fades out after 5 seconds.
 - Rev 41 (2026-11-02): If the active session's status is Failed, the map status banner says Not connected.
 - Rev 42 (2026-11-02): The map zoom controls stay above every context window.
-- Rev 47 (2026-11-02): The zoom controls are visible only while the map is the selected context. They are hidden for every other context window. Not built yet.
-- Rev 48 (2026-11-02): Position update mode includes Rapid, which sends a position every second. Not built yet.
-- Rev 49 (2026-11-02): The position update mode that sends nothing is labeled Off. Not built yet.
-- Rev 50 (2026-11-02): The position update mode is a control at the top right of the map. Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a plane. Tapping it opens a small window of the other modes. Not built yet.
-- Rev 51 (2026-11-02): The Location settings menu uses those same mode icons. Not built yet.
-- Rev 52 (2026-11-02): The drawer order from the top is Map, Friends, Location, Connection Status, Settings, About, then Sessions. Not built yet.
-- Rev 53 (2026-11-02): Turning a device's tracks switch on must show that device's earlier positions on the map. They are not showing. Not fixed yet.
+- Rev 47 (2026-11-02): The zoom controls are visible only while the map is the selected context. They are hidden for every other context window.
+- Rev 48 (2026-11-02): Position update mode includes Rapid, which sends a position every second.
+- Rev 49 (2026-11-02): The position update mode that sends nothing is labeled Off.
+- Rev 50 (2026-11-02): The position update mode is a control at the top right of the map. Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a plane. Tapping it opens a small window of the other modes.
+- Rev 51 (2026-11-02): The Location settings menu uses those same mode icons.
+- Rev 52 (2026-11-02): The drawer order from the top is Map, Friends, Location, Connection Status, Settings, About, then Sessions.
+- Rev 53 (2026-11-02): Turning a device's tracks switch on must show that device's earlier positions on the map. They are not showing.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.

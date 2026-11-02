@@ -89,24 +89,31 @@ class LocationPublishService : Service() {
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
         val mode = prefs.getString("position_mode", "move") ?: "move"
         if (mode == "quiet" || mode == "manual") {
-            prefs.edit().putString("logging_state", mode).apply()
-            LogManager.add(if (mode == "quiet") "Position updates are quiet" else "Position updates are manual")
+            prefs.edit().putString("logging_state", if (mode == "quiet") "off" else "manual").apply()
+            LogManager.add(if (mode == "quiet") "Position updates are off" else "Position updates are manual")
             return
         }
 
-        val locationRequest = if (mode == "significant") {
-            LocationRequest.create().apply {
+        val locationRequest = when (mode) {
+            "significant" -> LocationRequest.create().apply {
                 interval = 5 * 60 * 1000L
                 fastestInterval = 60 * 1000L
                 smallestDisplacement = 100f
                 priority = LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY
             }
-        } else {
-            val interval = publishIntervalMs()
-            LocationRequest.create().apply {
-                this.interval = interval
-                fastestInterval = interval
+            "rapid" -> LocationRequest.create().apply {
+                interval = 1000L
+                fastestInterval = 1000L
+                smallestDisplacement = 0f
                 priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+            }
+            else -> {
+                val interval = publishIntervalMs()
+                LocationRequest.create().apply {
+                    this.interval = interval
+                    fastestInterval = interval
+                    priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+                }
             }
         }
 
@@ -119,7 +126,11 @@ class LocationPublishService : Service() {
 
         try {
             fusedLocationClient.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
-            LogManager.add(if (mode == "significant") "Significant location updates" else "Location updates every ${publishIntervalMs() / 1000}s")
+            LogManager.add(when (mode) {
+                "significant" -> "Significant location updates"
+                "rapid" -> "Location updates every 1s"
+                else -> "Location updates every ${publishIntervalMs() / 1000}s"
+            })
         } catch (e: SecurityException) {
             LogManager.add("Location permission missing")
             prefs.edit().putString("logging_state", "permission denied").apply()
