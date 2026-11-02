@@ -82,10 +82,6 @@ object PhoneTrackApi {
                     return null
                 }
                 if (!response.isSuccessful) {
-                    if (response.code == 401 || response.code == 403) {
-                        context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
-                            .edit().putBoolean("credentials_verified", false).apply()
-                    }
                     LogManager.add("GET failed: HTTP ${response.code}")
                     return null
                 }

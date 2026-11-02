@@ -657,31 +657,40 @@ class MainActivity : AppCompatActivity() {
         box.addView(urlField)
         box.addView(userField)
         box.addView(passField)
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Settings")
             .setMessage("Nextcloud login used to load sessions and map positions.")
             .setView(box)
-            .setPositiveButton("Save") { _, _ ->
+            .setPositiveButton("Save", null)
+            .setNeutralButton("Clear") { _, _ ->
+                prefs.edit().remove("nc_auth_url").remove("nc_user").remove("nc_pass").putBoolean("credentials_verified", false).commit()
+                Toast.makeText(this, "Login cleared", Toast.LENGTH_SHORT).show()
+                refreshMapBanner()
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val url = PhoneTrackUrl.parse(urlField.text.toString()).base
                 val user = userField.text.toString().trim()
                 val pass = passField.text.toString()
                 if (!isValidBaseUrl(url) || user.isBlank() || pass.isBlank()) {
                     Toast.makeText(this, "Server, username, and app password are required", Toast.LENGTH_LONG).show()
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
                 prefs.edit()
                     .putString("nc_auth_url", url)
                     .putString("nc_user", user)
                     .putString("nc_pass", pass)
-                    .putBoolean("credentials_verified", false)
-                    .apply()
+                    .commit()
+                dialog.dismiss()
                 Toast.makeText(this, "Checking login…", Toast.LENGTH_SHORT).show()
                 refreshMapBanner()
                 Thread {
                     val (_, error) = PhoneTrackApi.fetchSessionList(this, url, user, pass)
                     runOnUiThread {
                         if (error == null) {
-                            prefs.edit().putBoolean("credentials_verified", true).apply()
+                            prefs.edit().putBoolean("credentials_verified", true).commit()
                             Toast.makeText(this, "Login verified", Toast.LENGTH_SHORT).show()
                         } else {
                             Toast.makeText(this, error, Toast.LENGTH_LONG).show()
@@ -690,13 +699,8 @@ class MainActivity : AppCompatActivity() {
                     }
                 }.start()
             }
-            .setNeutralButton("Clear") { _, _ ->
-                prefs.edit().remove("nc_auth_url").remove("nc_user").remove("nc_pass").putBoolean("credentials_verified", false).apply()
-                Toast.makeText(this, "Login cleared", Toast.LENGTH_SHORT).show()
-                refreshMapBanner()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+        }
+        dialog.show()
     }
 
     private fun promptLoadSessions() {
@@ -729,20 +733,24 @@ class MainActivity : AppCompatActivity() {
         box.addView(urlField)
         box.addView(userField)
         box.addView(passField)
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Load sessions from server")
             .setMessage("PhoneTrack lists only sessions owned by or shared with this Nextcloud user. Use an app password.")
             .setView(box)
-            .setPositiveButton("Load") { _, _ ->
+            .setPositiveButton("Load", null)
+            .setNegativeButton("Cancel") { _, _ -> showSessions() }
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val url = PhoneTrackUrl.parse(urlField.text.toString()).base
                 val user = userField.text.toString().trim()
                 val pass = passField.text.toString()
                 if (!isValidBaseUrl(url) || user.isBlank() || pass.isBlank()) {
                     Toast.makeText(this, "Server, username, and app password are required", Toast.LENGTH_LONG).show()
-                    showSessions()
-                    return@setPositiveButton
+                    return@setOnClickListener
                 }
-                prefs.edit().putString("nc_auth_url", url).putString("nc_user", user).putString("nc_pass", pass).apply()
+                prefs.edit().putString("nc_auth_url", url).putString("nc_user", user).putString("nc_pass", pass).commit()
+                dialog.dismiss()
                 Toast.makeText(this, "Loading sessions…", Toast.LENGTH_SHORT).show()
                 Thread {
                     val (remote, error) = PhoneTrackApi.fetchSessionList(this, url, user, pass)
@@ -754,11 +762,12 @@ class MainActivity : AppCompatActivity() {
                             Toast.makeText(this, "Server has ${remote.size} sessions. Added $added.", Toast.LENGTH_LONG).show()
                         }
                         showSessions()
+                        refreshMapBanner()
                     }
                 }.start()
             }
-            .setNegativeButton("Cancel") { _, _ -> showSessions() }
-            .show()
+        }
+        dialog.show()
     }
 
     private fun mergeRemoteSessions(baseUrl: String, remote: List<RemoteSession>): Int {

@@ -114,3 +114,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 18 (2026-11-02): Settings page in the menu stores the Nextcloud login and can clear it.
 - Rev 19 (2026-11-02): The main map shows a bottom overlay that says Not connected when the phone is not logged in or the server connection is down.
 - Rev 20 (2026-11-02): If the Nextcloud login is not verified, a Not logged in banner stacks with the other map banners. Its Settings button opens Settings.
+- Rev 21 (2026-11-02): Nextcloud login entered in Settings or From server is saved before the dialog closes and is still there the next time Settings is opened.
