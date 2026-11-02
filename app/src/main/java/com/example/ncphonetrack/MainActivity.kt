@@ -43,20 +43,14 @@ import java.util.TimerTask
 class MainActivity : AppCompatActivity() {
 
     private lateinit var map: MapView
-    private lateinit var etUrl: EditText
-    private lateinit var etToken: EditText
-    private lateinit var etDevice: EditText
-    private lateinit var etPublish: EditText
-    private lateinit var etFetch: EditText
-    private lateinit var tvStatus: TextView
     private lateinit var prefs: SharedPreferences
     private lateinit var drawerLayout: DrawerLayout
-    private lateinit var formPanel: LinearLayout
     private lateinit var statusPanel: LinearLayout
     private lateinit var tvStatusUrl: TextView
     private lateinit var tvStatusToken: TextView
     private lateinit var tvLoggingState: TextView
     private lateinit var tvConnection: TextView
+    private lateinit var sessionStatusList: LinearLayout
     private lateinit var tvMapBanner: TextView
     private lateinit var loginBanner: android.view.View
     private lateinit var tvLastUpdate: TextView
@@ -84,55 +78,22 @@ class MainActivity : AppCompatActivity() {
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         drawerLayout = findViewById(R.id.drawer_layout)
-        formPanel = findViewById(R.id.form_panel)
         statusPanel = findViewById(R.id.status_panel)
-        etUrl = findViewById(R.id.etUrl)
-        etToken = findViewById(R.id.etToken)
-        etDevice = findViewById(R.id.etDevice)
-        etPublish = findViewById(R.id.etPublishInterval)
-        etFetch = findViewById(R.id.etFetchInterval)
-        tvStatus = findViewById(R.id.tvStatus)
         tvStatusUrl = findViewById(R.id.tvStatusUrl)
         tvStatusToken = findViewById(R.id.tvStatusToken)
         tvLoggingState = findViewById(R.id.tvLoggingState)
         tvConnection = findViewById(R.id.tvConnection)
+        sessionStatusList = findViewById(R.id.sessionStatusList)
         tvMapBanner = findViewById(R.id.tvMapBanner)
         loginBanner = findViewById(R.id.loginBanner)
         findViewById<Button>(R.id.btnLoginSettings).setOnClickListener { showSettings() }
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
         tvBuffer = findViewById(R.id.tvBuffer)
         tvLog = findViewById(R.id.tvLog)
-        val tvCertStatus = findViewById<TextView>(R.id.tvCertStatus)
-        val btnSave = findViewById<Button>(R.id.btnSave)
-        val btnCert = findViewById<Button>(R.id.btnCert)
-        val btnForgetCert = findViewById<Button>(R.id.btnForgetCert)
         val btnMenu = findViewById<ImageButton>(R.id.btnMenu)
         val navView: NavigationView = findViewById(R.id.nav_view)
 
-        etUrl.setText(prefs.getString("url", "https://"))
-        etToken.setText(prefs.getString("token", ""))
-        etDevice.setText(prefs.getString("device", android.os.Build.MODEL))
-        etPublish.setText(prefs.getInt("publish_interval_sec", 60).toString())
-        etFetch.setText(prefs.getInt("fetch_interval_sec", 30).toString())
         correctSavedServerUrl()
-        refreshCertStatus(tvCertStatus)
-
-        btnCert.setOnClickListener {
-            val url = etUrl.text.toString().trim().removeSuffix("/")
-            if (!isValidBaseUrl(url)) {
-                Toast.makeText(this, "Enter the Nextcloud URL first", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            tvCertStatus.text = "Checking certificate…"
-            CertHelper.inspect(url) { probe ->
-                runOnUiThread { showCertProbe(probe, tvCertStatus) }
-            }
-        }
-        btnForgetCert.setOnClickListener {
-            CertHelper.clearAccepted(prefs)
-            refreshCertStatus(tvCertStatus)
-            Toast.makeText(this, "Forgot the accepted certificate", Toast.LENGTH_SHORT).show()
-        }
 
         map = findViewById(R.id.map)
         val httpsMapnik = object : OnlineTileSourceBase("MapnikHTTPS", 0, 19, 256, ".png", arrayOf("https://tile.openstreetmap.org/")) {
@@ -187,52 +148,12 @@ class MainActivity : AppCompatActivity() {
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_map -> {
-                    formPanel.visibility = View.GONE
                     statusPanel.visibility = View.GONE
                     refreshMapBanner()
                     drawerLayout.closeDrawers()
                 }
             }
             true
-        }
-
-        btnSave.setOnClickListener {
-            val parsed = PhoneTrackUrl.parse(etUrl.text.toString())
-            val url = parsed.base
-            var token = etToken.text.toString().trim()
-            val fromUrl = parsed.token
-            if (token.isBlank() && !fromUrl.isNullOrBlank()) token = fromUrl
-            if (url != etUrl.text.toString().trim().removeSuffix("/")) {
-                etUrl.setText(url)
-                Toast.makeText(this, "Using Nextcloud server $url", Toast.LENGTH_LONG).show()
-            }
-            if (!fromUrl.isNullOrBlank() && etToken.text.toString().isBlank()) etToken.setText(token)
-            val device = etDevice.text.toString().trim().ifEmpty { "Android" }
-            if (!isValidBaseUrl(url)) {
-                Toast.makeText(this, "Enter a full URL starting with http:// or https://", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            if (token.isBlank()) {
-                Toast.makeText(this, "Session token is required", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            val publishSec = parseInterval(etPublish.text.toString(), 60)
-            val fetchSec = parseInterval(etFetch.text.toString(), 30)
-            if (publishSec == null || fetchSec == null) {
-                Toast.makeText(this, "Intervals must be numbers from 5 to 3600 seconds", Toast.LENGTH_LONG).show()
-                return@setOnClickListener
-            }
-            prefs.edit()
-                .putString("url", url)
-                .putString("token", token)
-                .putString("device", device)
-                .putInt("publish_interval_sec", publishSec)
-                .putInt("fetch_interval_sec", fetchSec)
-                .apply()
-            saveSession(url, token, device)
-            formPanel.visibility = View.GONE
-            LogManager.add("Configured URL=$url token=$token device=$device publish=${publishSec}s fetch=${fetchSec}s")
-            startIfPermittedOrAsk()
         }
 
         val savedUrl = prefs.getString("url", null)
@@ -274,9 +195,7 @@ class MainActivity : AppCompatActivity() {
             val fromUrl = parsed.token
             if (prefs.getString("token", "").isNullOrBlank() && !fromUrl.isNullOrBlank()) {
                 editor.putString("token", fromUrl)
-                etToken.setText(fromUrl)
             }
-            etUrl.setText(parsed.base)
             LogManager.add("Corrected server URL to ${parsed.base}")
         }
         if (sessionsChanged) editor.putString("sessions", JSONArray(fixedSessions).toString())
@@ -359,7 +278,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showStatusPanel() {
-        formPanel.visibility = View.GONE
         statusPanel.visibility = View.VISIBLE
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
@@ -399,14 +317,62 @@ class MainActivity : AppCompatActivity() {
         tvLoggingState.text = "Logging: ${prefs.getString("logging_state", "idle") ?: "idle"} (${result.ifBlank { "none" }})"
         tvLastUpdate.text = if (lastOk <= 0L) "Last update: never" else "Last update: ${ageSec}s ago"
         tvBuffer.text = "Buffered points: ${prefs.getInt("buffer_count", 0)}"
-        if (ok) {
-            tvConnection.text = "OK"
-            tvConnection.setTextColor(Color.parseColor("#1B7F3A"))
-        } else {
-            tvConnection.text = "Failed"
-            tvConnection.setTextColor(Color.parseColor("#C62828"))
-        }
+        refreshSessionStatusList(ok)
         refreshMapBanner()
+    }
+
+    private fun refreshSessionStatusList(trackingOk: Boolean) {
+        sessionStatusList.removeAllViews()
+        val sessions = loadSessions()
+        if (sessions.isEmpty()) {
+            sessionStatusList.addView(TextView(this).apply { text = "No sessions" })
+            return
+        }
+        val activeUrl = prefs.getString("url", "") ?: ""
+        val activeToken = prefs.getString("token", "") ?: ""
+        sessions.forEach { session ->
+            val enabled = session.optBoolean("enabled", true)
+            val active = enabled && activeToken.isNotBlank() &&
+                session.optString("url") == activeUrl &&
+                session.optString("token") == activeToken
+            val status: String
+            val color: String
+            when {
+                !enabled -> {
+                    status = "Off"
+                    color = "#9E9E9E"
+                }
+                active && trackingOk -> {
+                    status = "OK"
+                    color = "#1B7F3A"
+                }
+                active -> {
+                    status = "Failed"
+                    color = "#C62828"
+                }
+                else -> {
+                    status = "Off"
+                    color = "#9E9E9E"
+                }
+            }
+            val name = TextView(this).apply {
+                text = sessionLabel(session)
+                textSize = 16f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val state = TextView(this).apply {
+                text = status
+                textSize = 16f
+                setTextColor(Color.parseColor(color))
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            }
+            sessionStatusList.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(0, 8, 0, 8)
+                addView(name)
+                addView(state)
+            })
+        }
     }
 
     private fun refreshMapBanner() {
@@ -422,7 +388,7 @@ class MainActivity : AppCompatActivity() {
             now - prefs.getLong("last_success_epoch", 0L) <= intervalSec * 2L * 1000
         val mapFresh = now - prefs.getLong("last_map_ok", 0L) <= intervalSec * 2L * 1000
         val connected = loggedIn && !PhoneTrackApi.rateLimited(this) && (publishFresh || mapFresh)
-        val mapVisible = formPanel.visibility != View.VISIBLE && statusPanel.visibility != View.VISIBLE
+        val mapVisible = statusPanel.visibility != View.VISIBLE
         val verified = prefs.getBoolean("credentials_verified", false)
         tvMapBanner.visibility = if (!connected && mapVisible) View.VISIBLE else View.GONE
         loginBanner.visibility = if (!verified && mapVisible) View.VISIBLE else View.GONE
@@ -451,7 +417,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateStatusText(msg: String) {
-        tvStatus.text = msg
         LogManager.add(msg)
     }
 
@@ -604,30 +569,35 @@ class MainActivity : AppCompatActivity() {
                 val title = sessionLabel(session)
                 val positions = PhoneTrackApi.getLastPositions(this, session.optString("url"), session.optString("token"))
                 val users = positions?.keys?.sorted().orEmpty()
-                Triple(title, users, session.optBoolean("enabled", true))
+                FriendRow(title, users, session.optBoolean("enabled", true), positions != null)
             }
             runOnUiThread {
                 if (!dialog.isShowing) return@runOnUiThread
                 list.removeAllViews()
-                rows.forEach { (title, users, enabled) ->
-                    val sessionColor = if (enabled) Color.BLACK else Color.parseColor("#9E9E9E")
-                    val userColor = if (enabled) Color.BLACK else Color.parseColor("#757575")
+                rows.forEach { row ->
+                    val muted = !row.enabled || !row.reachable
+                    val sessionColor = if (muted) Color.parseColor("#9E9E9E") else Color.BLACK
+                    val userColor = if (muted) Color.parseColor("#757575") else Color.BLACK
+                    val title = when {
+                        !row.enabled -> "${row.title} (disabled)"
+                        !row.reachable -> "${row.title} (unavailable)"
+                        else -> row.title
+                    }
                     list.addView(TextView(this).apply {
-                        text = if (enabled) title else "$title (unavailable)"
+                        text = title
                         textSize = 16f
                         setTextColor(sessionColor)
                         setTypeface(typeface, android.graphics.Typeface.BOLD)
                         setPadding(0, pad, 0, pad / 4)
-                        isEnabled = enabled
                     })
-                    if (users.isEmpty()) {
+                    if (row.users.isEmpty()) {
                         list.addView(TextView(this).apply {
-                            text = "No users reported"
+                            text = if (row.reachable) "No users reported" else "Users could not be loaded"
                             setTextColor(userColor)
                             setPadding(indent, 0, 0, pad / 2)
                         })
                     } else {
-                        users.forEach { user ->
+                        row.users.forEach { user ->
                             list.addView(TextView(this).apply {
                                 text = user
                                 textSize = 15f
@@ -999,7 +969,7 @@ class MainActivity : AppCompatActivity() {
                 when (item.title.toString()) {
                     "Configure" -> {
                         sessionsDialog?.dismiss()
-                        openSessionForm(session)
+                        openNewSessionForm(session)
                     }
                     "Delete" -> confirmDeleteSession(session)
                 }
@@ -1009,17 +979,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun openSessionForm(session: JSONObject) {
-        etUrl.setText(session.optString("url"))
-        etToken.setText(session.optString("token"))
-        etDevice.setText(session.optString("device"))
-        etPublish.setText(prefs.getInt("publish_interval_sec", 60).toString())
-        etFetch.setText(prefs.getInt("fetch_interval_sec", 30).toString())
-        formPanel.visibility = View.VISIBLE
-        statusPanel.visibility = View.GONE
-    }
-
-    private fun openNewSessionForm() {
+    private fun openNewSessionForm(existing: JSONObject? = null) {
         val server = prefs.getString("nc_auth_url", "")?.trim().orEmpty()
         val user = prefs.getString("nc_user", "")?.trim().orEmpty()
         val pass = prefs.getString("nc_pass", "").orEmpty()
@@ -1036,6 +996,7 @@ class MainActivity : AppCompatActivity() {
         }
         val nameField = EditText(this).apply {
             hint = "Session name"
+            setText(existing?.optString("name").orEmpty())
             layoutParams = width
         }
         val shareField = EditText(this).apply {
@@ -1044,11 +1005,15 @@ class MainActivity : AppCompatActivity() {
         }
         box.addView(nameField)
         box.addView(shareField)
+        val creating = existing == null
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
-            .setTitle("New session")
-            .setMessage("Creates the session on the server, then shares it with each username.")
+            .setTitle(if (creating) "New session" else "Session")
+            .setMessage(
+                if (creating) "Creates the session on the server, then shares it with each username."
+                else "Share this session with Nextcloud users."
+            )
             .setView(box)
-            .setPositiveButton("Create", null)
+            .setPositiveButton(if (creating) "Create" else "Save", null)
             .setNegativeButton("Cancel", null)
             .create()
         dialog.setOnShowListener {
@@ -1065,6 +1030,34 @@ class MainActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
                 dialog.dismiss()
+                if (existing != null) {
+                    val token = existing.optString("token")
+                    val sessions = loadSessions()
+                    sessions.forEach { item ->
+                        if (item.optString("token") == token) item.put("name", name)
+                    }
+                    prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
+                    if (shares.isEmpty()) {
+                        showSessions()
+                        return@setOnClickListener
+                    }
+                    Toast.makeText(this, "Sharing session…", Toast.LENGTH_SHORT).show()
+                    val target = CreatedSession(0, name, token, existing.optString("public_token"))
+                    Thread {
+                        val notes = shares.map { shareWith ->
+                            val shareError = PhoneTrackApi.shareRemoteSession(this, server, user, pass, target, shareWith)
+                            if (shareError == null) "Shared with $shareWith" else shareError
+                        }
+                        runOnUiThread {
+                            AlertDialog.Builder(this)
+                                .setTitle("Session")
+                                .setMessage(notes.joinToString("\n"))
+                                .setPositiveButton("OK") { _, _ -> showSessions() }
+                                .show()
+                        }
+                    }.start()
+                    return@setOnClickListener
+                }
                 Toast.makeText(this, "Creating session…", Toast.LENGTH_SHORT).show()
                 Thread {
                     val (created, error) = PhoneTrackApi.createRemoteSession(this, server, user, pass, name)
@@ -1293,3 +1286,10 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 }
+
+private data class FriendRow(
+    val title: String,
+    val users: List<String>,
+    val enabled: Boolean,
+    val reachable: Boolean
+)

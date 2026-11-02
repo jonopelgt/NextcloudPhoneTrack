@@ -56,13 +56,15 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - About (app info, version, purpose)
   - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
-  - Friends (each session, with that session's users indented below it)
+  - Friends (each session, with that session's users indented below it). A session turned off says disabled. A session whose users cannot be loaded says unavailable.
   - Settings (Nextcloud server, username, and app password, with a button to clear the login, and a section listing accepted self-signed certificates). A server address without http:// or https:// is saved as https://.
 - If login fails because the server certificate is not trusted, the app shows that certificate for review and does not continue until the user accepts or cancels.
   - Map
 - The main map shows a bottom overlay that says Not connected when the server connection is down. The overlay hides while a position update or map refresh is succeeding.
 - If the Nextcloud login has not been verified, the map also shows a Not logged in banner stacked with any other banner. A Settings button on the right opens the Settings page.
-- Sessions list displays saved configs. Each session has an enable switch. Hold a session to configure or delete it. New session opens a full-screen builder that creates the session on the PhoneTrack server and shares it with the Nextcloud usernames entered. The new session is saved turned off until the user enables it.
+- Connection Status lists every saved session with Off, OK, or Failed. OK is green while that session's position updates are succeeding. Failed is red when they are not. A session that is turned off shows Off.
+- Sessions list displays saved configs. Each session has an enable switch. New session opens a full-screen builder that creates the session on the PhoneTrack server and shares it with the Nextcloud usernames entered. The new session is saved turned off until the user enables it.
+- Hold a session to open the session builder for that session, or to delete it. The old session configuration form is not used.
 
 ### FR-7: Revision Distribution
 - Each software update is tagged with a revision (rev-N).
@@ -121,3 +123,5 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 24 (2026-11-02): New session on the Sessions page creates a PhoneTrack session and shares it with the usernames entered. The map menu control is a transparent hamburger. Settings opens full screen. Sessions no longer has a From server button.
 - Rev 25 (2026-11-02): The sessions list stays open while it loads names or a session is turned on or off. It no longer closes and reopens.
 - Rev 26 (2026-11-02): Turning off the session that is on the map clears its markers. A late position response does not put them back.
+- Rev 27 (2026-11-02): Connection Status lists every session as Off, OK, or Failed. Configure opens the session builder for that session. The old session configuration form is removed.
+- Rev 28 (2026-11-02): On Friends, a session turned off says disabled. A session that is on but whose users cannot be loaded says unavailable.

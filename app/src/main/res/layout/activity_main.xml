@@ -78,86 +78,6 @@
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/form_panel"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom"
-            android:orientation="vertical"
-            android:padding="16dp"
-            android:background="#CCFFFFFF"
-            android:visibility="gone">
-
-            <EditText
-                android:id="@+id/etUrl"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Nextcloud server (https://cloud.example.com)"
-                android:inputType="textUri" />
-
-            <TextView
-                android:id="@+id/tvCertStatus"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingTop="4dp"
-                android:text="Certificate: Android trust store"
-                android:textSize="12sp" />
-
-            <Button
-                android:id="@+id/btnCert"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Accept self-signed certificate" />
-
-            <Button
-                android:id="@+id/btnForgetCert"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Forget accepted certificate" />
-
-            <EditText
-                android:id="@+id/etToken"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Session Token"
-                android:inputType="text" />
-
-            <EditText
-                android:id="@+id/etDevice"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Device Name"
-                android:inputType="text" />
-
-            <EditText
-                android:id="@+id/etPublishInterval"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Publish interval seconds (default 60)"
-                android:inputType="number" />
-
-            <EditText
-                android:id="@+id/etFetchInterval"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Map refresh seconds (default 30)"
-                android:inputType="number" />
-
-            <Button
-                android:id="@+id/btnSave"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Save and Start Tracking" />
-
-            <TextView
-                android:id="@+id/tvStatus"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:padding="8dp"
-                android:text="Status: Idle" />
-
-        </LinearLayout>
-
-        <LinearLayout
             android:id="@+id/status_panel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -171,11 +91,18 @@
                 android:id="@+id/tvConnection"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingBottom="8dp"
-                android:text="Failed"
-                android:textColor="#C62828"
-                android:textSize="22sp"
+                android:paddingBottom="4dp"
+                android:text="Sessions"
+                android:textColor="#212121"
+                android:textSize="16sp"
                 android:textStyle="bold" />
+
+            <LinearLayout
+                android:id="@+id/sessionStatusList"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingBottom="8dp" />
 
             <TextView
                 android:id="@+id/tvStatusUrl"
