@@ -70,7 +70,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Tapping a device on the map opens its status bubble. The bubble fades out after 5 seconds. Tapping a track dot opens a bubble that shows that point's age, and that bubble fades out after 5 seconds.
 - Hold a session to open the session builder for that session, or to delete it. Delete removes the session from the PhoneTrack server for the logged-in account, then removes it from this phone. If the server refuses, the session stays. The old session configuration form is not used.
 - Location, opened from the drawer, sets how this phone publishes its position. The modes are Off, which sends nothing on its own, Manual, which sends only when the user asks, Significant, which sends on a significant location change, and Move, which sends while the phone is moving. Rapid sends a position every second. Each mode in this menu uses the same icon as the map control: Manual a wrench, Off a map pin with a circle-slash, Significant a walking person, Move a car, and Rapid a rocket. A location spoof option, when on, publishes a chosen position instead of the phone's GPS and sends it at the normal Move rate. Its icon is a spy hat. A long-press on the map marks that latitude and longitude, switches the map to manual follow, and turns location spoof on at that point.
-- The position update mode is also a control at the top right of the map. Each mode has an icon: Manual is a wrench, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a rocket. Tapping the icon opens a small window listing every mode, each with its icon, so one can be selected.
+- The position update mode is also a control at the top right of the map. Each mode has an icon: Manual is a wrench, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a rocket. Tapping the icon opens a small window listing every mode, each with its icon, so one can be selected. The map control updates as soon as a new mode is selected.
 
 ### FR-7: Revision Distribution
 - Each software update is tagged with a revision (rev-N).
@@ -161,6 +161,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 60 (2026-11-02): The Connection Status log shows the latest message at the bottom. Auto-scroll stops when the user leaves the bottom and starts again when the user scrolls back to the bottom.
 - Rev 61 (2026-11-02): The location popup lists every mode and shows each mode's icon.
 - Rev 62 (2026-11-02): The Manual position mode icon is a wrench.
+- Rev 63 (2026-11-02): Selecting a new location mode updates the mode control on the map immediately. It does not. Not fixed yet.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
