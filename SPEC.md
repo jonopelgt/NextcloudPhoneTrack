@@ -38,7 +38,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Every 30 s (configurable) GET:
   `https://{base}/apps/phonetrack/api/getlastpositions/{token}`
 - Parse JSON and render markers for every device in the enabled session. Turning that session off removes its markers. A position response that arrives after the session is turned off is discarded.
-- The map has three follow modes. Group, also called session zoom, is the default: it uses the closest zoom that still shows every user in the enabled session. Tapping a session on the Sessions page selects that session and sets session zoom. User follow starts when that person is tapped on Friends or on their map marker. The + and − keys are high contrast and each step changes the zoom by a quarter level without leaving follow. Manual starts when the map is panned or pinched, and the map then stays where it was left. An All key returns to session zoom. The zoom controls stay above every context window.
+- The map has three follow modes. Group, also called session zoom, is the default: it uses the closest zoom that still shows every user in the enabled session. Activating a session sets group view when more than one current position is known, and follows that one person when only one current position is known. User follow also starts when that person is tapped on Friends or on their map marker. The + and − keys are high contrast and each step changes the zoom by a quarter level without leaving follow. Manual starts when the map is panned or pinched, and the map then stays where it was left. An All key returns to session zoom. The zoom controls stay above every context window.
 - Show device name, accuracy, and age of fix on marker info.
 
 ### FR-4: Map
@@ -147,3 +147,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner. Not built yet.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out. Not built yet.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option. Not built yet.
+- Rev 46 (2026-11-02): Activating a session uses group view when more than one current position is known, and follows that one person when only one is known. Not built yet.
