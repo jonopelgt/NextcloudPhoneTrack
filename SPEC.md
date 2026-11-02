@@ -52,15 +52,15 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Graceful handling of permission denial.
 
 ### FR-6: Menu
-- Navigation drawer menu with:
+- Navigation drawer menu, from the top:
+  - Map
+  - Friends (each session, with that session's users indented below it). A session turned off says disabled. A session whose users cannot be loaded says unavailable. Each person has a color that can be changed. This phone's user defaults to blue. Other people default to colors that are different from each other and from blue. Each device has a tracks switch. Tracks are off until turned on.
+  - Location (position update mode and location spoof). This page is separate from Settings.
+  - Connection Status (shows logging state, last update)
+  - Settings (Nextcloud server, username, and app password, with a button to clear the login, and a section listing accepted self-signed certificates). A server address without http:// or https:// is saved as https://.
   - About (app info, version, purpose)
   - Sessions (list of saved PhoneTrack sessions)
-  - Connection Status (shows logging state, last update)
-  - Friends (each session, with that session's users indented below it). A session turned off says disabled. A session whose users cannot be loaded says unavailable. Each person has a color that can be changed. This phone's user defaults to blue. Other people default to colors that are different from each other and from blue. Each device has a tracks switch. Tracks are off until turned on.
-  - Settings (Nextcloud server, username, and app password, with a button to clear the login, and a section listing accepted self-signed certificates). A server address without http:// or https:// is saved as https://.
-  - Location (position update mode and location spoof). This page is separate from Settings.
 - If login fails because the server certificate is not trusted, the app shows that certificate for review and does not continue until the user accepts or cancels.
-  - Map
 - The main map shows a bottom overlay that says Not connected when the server connection is down, and also when the active session's status is Failed. The overlay hides while that session's position updates are succeeding. If every session is turned off, that overlay says No active sessions instead, and it stacks with the other map banners.
 - If the Nextcloud login has not been verified, the map also shows a Not logged in banner stacked with any other banner. A Settings button on the right opens the Settings page. Removing an accepted self-signed certificate clears the verified login, and the map shows the Not logged in banner.
 - Connection Status lists every saved session with Off, OK, or Failed. OK is green while that session's position updates are succeeding. Failed is red when they are not. A session that is turned off shows Off. Tapping the map closes Connection Status and returns to the map.
@@ -150,6 +150,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 49 (2026-11-02): The position update mode that sends nothing is labeled Off. Not built yet.
 - Rev 50 (2026-11-02): The position update mode is a control at the top right of the map. Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a plane. Tapping it opens a small window of the other modes. Not built yet.
 - Rev 51 (2026-11-02): The Location settings menu uses those same mode icons. Not built yet.
+- Rev 52 (2026-11-02): The drawer order from the top is Map, Friends, Location, Connection Status, Settings, About, then Sessions. Not built yet.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
