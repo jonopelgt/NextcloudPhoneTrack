@@ -14,17 +14,57 @@ import javax.net.ssl.X509TrustManager
 object CertHelper {
     private const val PREFS = "nc_phonetrack"
     private const val KEY_ACCEPTED_HASH = "accepted_cert_hash"
+    private const val KEY_ACCEPTED_CERTS = "accepted_certs"
 
-    fun getAcceptedHash(prefs: SharedPreferences): String? =
-        prefs.getString(KEY_ACCEPTED_HASH, null)
+    fun acceptedCerts(prefs: SharedPreferences): List<ServerCert> {
+        val raw = prefs.getString(KEY_ACCEPTED_CERTS, null)
+        val stored = mutableListOf<ServerCert>()
+        if (!raw.isNullOrBlank()) {
+            val arr = org.json.JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val item = arr.optJSONObject(i) ?: continue
+                val hash = item.optString("hash")
+                if (hash.isNotBlank()) stored.add(ServerCert(hash, item.optString("subject"), item.optString("issuer")))
+            }
+        }
+        val legacy = prefs.getString(KEY_ACCEPTED_HASH, null)
+        if (!legacy.isNullOrBlank() && stored.none { it.hash == legacy }) {
+            stored.add(ServerCert(legacy, "", ""))
+        }
+        return stored
+    }
+
+    fun getAcceptedHash(prefs: SharedPreferences): String? = acceptedCerts(prefs).firstOrNull()?.hash
+
+    fun accept(prefs: SharedPreferences, cert: ServerCert) {
+        val next = acceptedCerts(prefs).filterNot { it.hash == cert.hash } + cert
+        saveAccepted(prefs, next)
+        LogManager.add("Accepted cert hash: ${cert.hash}")
+    }
 
     fun setAcceptedHash(prefs: SharedPreferences, hash: String) {
-        prefs.edit().putString(KEY_ACCEPTED_HASH, hash).apply()
-        LogManager.add("Accepted cert hash: $hash")
+        accept(prefs, ServerCert(hash, "", ""))
+    }
+
+    fun forget(prefs: SharedPreferences, hash: String) {
+        saveAccepted(prefs, acceptedCerts(prefs).filterNot { it.hash == hash })
     }
 
     fun clearAccepted(prefs: SharedPreferences) {
-        prefs.edit().remove(KEY_ACCEPTED_HASH).apply()
+        saveAccepted(prefs, emptyList())
+    }
+
+    private fun saveAccepted(prefs: SharedPreferences, certs: List<ServerCert>) {
+        val arr = org.json.JSONArray()
+        certs.forEach { cert ->
+            arr.put(org.json.JSONObject().put("hash", cert.hash).put("subject", cert.subject).put("issuer", cert.issuer))
+        }
+        prefs.edit().putString(KEY_ACCEPTED_CERTS, arr.toString()).remove(KEY_ACCEPTED_HASH).commit()
+    }
+
+    fun looksLikeTlsFailure(message: String?): Boolean {
+        val text = message?.lowercase() ?: return false
+        return text.contains("ssl") || text.contains("cert") || text.contains("trust anchor") || text.contains("handshake")
     }
 
     fun sha256Fingerprint(cert: X509Certificate): String {
@@ -34,29 +74,41 @@ object CertHelper {
     }
 
     fun buildClient(prefs: SharedPreferences): OkHttpClient {
-        val accepted = getAcceptedHash(prefs)
-        return if (accepted == null) {
-            OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS).build()
-        } else {
-            val trustManager = object : X509TrustManager {
-                override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-                override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
-                    if (chain.isNullOrEmpty()) throw java.security.cert.CertificateException("Empty chain")
-                    val hash = sha256Fingerprint(chain[0])
-                    if (hash != accepted) {
-                        throw java.security.cert.CertificateException("Cert hash mismatch: $hash")
-                    }
-                }
-                override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        val pins = acceptedCerts(prefs).map { it.hash }.toSet()
+        val base = OkHttpClient.Builder().connectTimeout(30, TimeUnit.SECONDS)
+        if (pins.isEmpty()) return base.build()
+        val system = systemTrustManager()
+        val trustManager = object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                system.checkClientTrusted(chain, authType)
             }
-            val sslContext = SSLContext.getInstance("TLS")
-            sslContext.init(null, arrayOf<TrustManager>(trustManager), null)
-            OkHttpClient.Builder()
-                .sslSocketFactory(sslContext.socketFactory, trustManager)
-                .hostnameVerifier(HostnameVerifier { _, _ -> true })
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .build()
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {
+                try {
+                    system.checkServerTrusted(chain, authType)
+                } catch (e: java.security.cert.CertificateException) {
+                    val hash = chain?.firstOrNull()?.let { sha256Fingerprint(it) }
+                    if (hash == null || hash !in pins) throw e
+                }
+            }
+            override fun getAcceptedIssuers(): Array<X509Certificate> = system.acceptedIssuers
         }
+        val sslContext = SSLContext.getInstance("TLS")
+        sslContext.init(null, arrayOf<TrustManager>(trustManager), null)
+        val defaultVerifier = javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier()
+        return base
+            .sslSocketFactory(sslContext.socketFactory, trustManager)
+            .hostnameVerifier { host, session ->
+                if (defaultVerifier.verify(host, session)) return@hostnameVerifier true
+                val leaf = session.peerCertificates.firstOrNull() as? X509Certificate ?: return@hostnameVerifier false
+                sha256Fingerprint(leaf) in pins
+            }
+            .build()
+    }
+
+    private fun systemTrustManager(): X509TrustManager {
+        val factory = javax.net.ssl.TrustManagerFactory.getInstance(javax.net.ssl.TrustManagerFactory.getDefaultAlgorithm())
+        factory.init(null as java.security.KeyStore?)
+        return factory.trustManagers.filterIsInstance<X509TrustManager>().first()
     }
 
     fun probeCertHash(url: String, callback: (String?) -> Unit) {

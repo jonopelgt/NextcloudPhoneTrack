@@ -57,7 +57,8 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
   - Friends (each session, with that session's users indented below it)
-  - Settings (Nextcloud server, username, and app password, with a button to clear the login)
+  - Settings (Nextcloud server, username, and app password, with a button to clear the login, and a section listing accepted self-signed certificates)
+- If login fails because the server certificate is not trusted, the app shows that certificate for review and does not continue until the user accepts or cancels.
   - Map
 - The main map shows a bottom overlay that says Not connected when the server connection is down. The overlay hides while a position update or map refresh is succeeding.
 - If the Nextcloud login has not been verified, the map also shows a Not logged in banner stacked with any other banner. A Settings button on the right opens the Settings page.
@@ -115,3 +116,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 19 (2026-11-02): The main map shows a bottom overlay that says Not connected when the phone is not logged in or the server connection is down.
 - Rev 20 (2026-11-02): If the Nextcloud login is not verified, a Not logged in banner stacks with the other map banners. Its Settings button opens Settings.
 - Rev 21 (2026-11-02): Nextcloud login entered in Settings or From server is saved before the dialog closes and is still there the next time Settings is opened.
+- Rev 22 (2026-11-02): Settings lists accepted self-signed certificates. Login that needs one shows the certificate for review before it is accepted.

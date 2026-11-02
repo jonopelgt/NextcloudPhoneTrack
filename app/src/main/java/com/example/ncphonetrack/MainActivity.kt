@@ -310,7 +310,7 @@ class MainActivity : AppCompatActivity() {
                     .setTitle("Accept self-signed certificate?")
                     .setMessage(certMessage(cert, "Android does not trust this certificate. Accept it only if the fingerprint matches your Nextcloud server. Later requests will trust this certificate only."))
                     .setPositiveButton("Accept") { _, _ ->
-                        CertHelper.setAcceptedHash(prefs, cert.hash)
+                        CertHelper.accept(prefs, cert)
                         refreshCertStatus(label)
                         Toast.makeText(this, "Certificate accepted", Toast.LENGTH_SHORT).show()
                     }
@@ -657,10 +657,53 @@ class MainActivity : AppCompatActivity() {
         box.addView(urlField)
         box.addView(userField)
         box.addView(passField)
+        box.addView(TextView(this).apply {
+            text = "Accepted self-signed certificates"
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad, 0, pad / 4)
+        })
+        val certList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = width
+        }
+        box.addView(certList)
+        fun showAcceptedCerts() {
+            certList.removeAllViews()
+            val certs = CertHelper.acceptedCerts(prefs)
+            if (certs.isEmpty()) {
+                certList.addView(TextView(this).apply { text = "None" })
+                return
+            }
+            certs.forEach { cert ->
+                val label = TextView(this).apply {
+                    val who = cert.subject.ifBlank { "Saved certificate" }
+                    text = "$who\n${cert.hash}"
+                    textSize = 12f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val remove = Button(this).apply {
+                    text = "Remove"
+                    setOnClickListener {
+                        CertHelper.forget(prefs, cert.hash)
+                        showAcceptedCerts()
+                        Toast.makeText(this@MainActivity, "Certificate removed", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                certList.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    addView(label)
+                    addView(remove)
+                })
+            }
+        }
+        showAcceptedCerts()
+        val scroll = android.widget.ScrollView(this).apply { addView(box) }
         val dialog = AlertDialog.Builder(this)
             .setTitle("Settings")
             .setMessage("Nextcloud login used to load sessions and map positions.")
-            .setView(box)
+            .setView(scroll)
             .setPositiveButton("Save", null)
             .setNeutralButton("Clear") { _, _ ->
                 prefs.edit().remove("nc_auth_url").remove("nc_user").remove("nc_pass").putBoolean("credentials_verified", false).commit()
@@ -686,21 +729,53 @@ class MainActivity : AppCompatActivity() {
                 dialog.dismiss()
                 Toast.makeText(this, "Checking login…", Toast.LENGTH_SHORT).show()
                 refreshMapBanner()
-                Thread {
-                    val (_, error) = PhoneTrackApi.fetchSessionList(this, url, user, pass)
-                    runOnUiThread {
-                        if (error == null) {
-                            prefs.edit().putBoolean("credentials_verified", true).commit()
-                            Toast.makeText(this, "Login verified", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(this, error, Toast.LENGTH_LONG).show()
-                        }
-                        refreshMapBanner()
-                    }
-                }.start()
+                verifyLogin(url, user, pass)
             }
         }
         dialog.show()
+    }
+
+    private fun verifyLogin(url: String, user: String, pass: String) {
+        Thread {
+            val (_, error) = PhoneTrackApi.fetchSessionList(this, url, user, pass)
+            runOnUiThread {
+                if (error == null) {
+                    prefs.edit().putBoolean("credentials_verified", true).commit()
+                    Toast.makeText(this, "Login verified", Toast.LENGTH_SHORT).show()
+                    refreshMapBanner()
+                    return@runOnUiThread
+                }
+                if (CertHelper.looksLikeTlsFailure(error)) {
+                    CertHelper.inspect(url) { probe ->
+                        runOnUiThread {
+                            val cert = probe.cert
+                            if (probe.trust == CertTrust.UNTRUSTED && cert != null) {
+                                promptAcceptCert(cert) { verifyLogin(url, user, pass) }
+                            } else {
+                                Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                            }
+                            refreshMapBanner()
+                        }
+                    }
+                } else {
+                    Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                    refreshMapBanner()
+                }
+            }
+        }.start()
+    }
+
+    private fun promptAcceptCert(cert: ServerCert, onAccepted: () -> Unit) {
+        AlertDialog.Builder(this)
+            .setTitle("Accept self-signed certificate?")
+            .setMessage(certMessage(cert, "Login cannot continue until you accept this certificate. Accept it only if the fingerprint matches your Nextcloud server."))
+            .setPositiveButton("Accept") { _, _ ->
+                CertHelper.accept(prefs, cert)
+                Toast.makeText(this, "Certificate accepted", Toast.LENGTH_SHORT).show()
+                onAccepted()
+            }
+            .setNegativeButton("Cancel") { _, _ -> refreshMapBanner() }
+            .show()
     }
 
     private fun promptLoadSessions() {
@@ -755,6 +830,34 @@ class MainActivity : AppCompatActivity() {
                 Thread {
                     val (remote, error) = PhoneTrackApi.fetchSessionList(this, url, user, pass)
                     runOnUiThread {
+                        if (error != null && CertHelper.looksLikeTlsFailure(error)) {
+                            CertHelper.inspect(url) { probe ->
+                                runOnUiThread {
+                                    val cert = probe.cert
+                                    if (probe.trust == CertTrust.UNTRUSTED && cert != null) {
+                                        promptAcceptCert(cert) {
+                                            Thread {
+                                                val (remote, retryError) = PhoneTrackApi.fetchSessionList(this, url, user, pass)
+                                                runOnUiThread {
+                                                    if (retryError != null) {
+                                                        Toast.makeText(this, retryError, Toast.LENGTH_LONG).show()
+                                                    } else {
+                                                        val added = mergeRemoteSessions(url, remote)
+                                                        Toast.makeText(this, "Server has ${remote.size} sessions. Added $added.", Toast.LENGTH_LONG).show()
+                                                    }
+                                                    showSessions()
+                                                    refreshMapBanner()
+                                                }
+                                            }.start()
+                                        }
+                                    } else {
+                                        Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                                        showSessions()
+                                    }
+                                }
+                            }
+                            return@runOnUiThread
+                        }
                         if (error != null) {
                             Toast.makeText(this, error, Toast.LENGTH_LONG).show()
                         } else {
