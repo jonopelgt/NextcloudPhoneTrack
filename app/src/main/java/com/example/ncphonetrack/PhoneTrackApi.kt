@@ -226,8 +226,155 @@ object PhoneTrackApi {
         if (token.isBlank()) return
         out.add(RemoteSession(item.optString("name").ifBlank { token.take(8) }, token, item.optString("publicviewtoken")))
     }
+
+    fun createRemoteSession(
+        context: Context,
+        baseUrl: String,
+        user: String,
+        password: String,
+        name: String
+    ): Pair<CreatedSession?, String?> {
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val client = CertHelper.buildClient(prefs)
+        val server = PhoneTrackUrl.parse(baseUrl).base
+        val auth = okhttp3.Credentials.basic(user, password)
+        val postUrl = "$server/index.php/apps/phonetrack/session"
+        try {
+            val request = Request.Builder()
+                .url(postUrl)
+                .post(okhttp3.FormBody.Builder().add("name", name).build())
+                .header("Authorization", auth)
+                .header("OCS-APIRequest", "true")
+                .build()
+            client.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                LogManager.add("POST session ${response.code}")
+                if (response.code == 401 || response.code == 403) {
+                    return null to "Nextcloud rejected the username or app password"
+                }
+                if (text.contains("already_exists")) return null to "A session named $name already exists"
+                val created = parseCreatedSession(text, name)
+                if (response.isSuccessful && created != null) return created to null
+            }
+        } catch (e: Exception) {
+            LogManager.add("Create session failed: ${e.message}")
+        }
+        val encoded = URLEncoder.encode(name, "UTF-8").replace("+", "%20")
+        val getUrl = "$server/index.php/apps/phonetrack/api/createsession/$encoded"
+        return try {
+            val request = Request.Builder()
+                .url(getUrl)
+                .header("Authorization", auth)
+                .header("OCS-APIRequest", "true")
+                .build()
+            client.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                LogManager.add("GET createsession ${response.code}")
+                if (response.code == 401 || response.code == 403) {
+                    return null to "Nextcloud rejected the username or app password"
+                }
+                val obj = runCatching { JSONObject(text) }.getOrNull()
+                    ?: return null to "Could not create the session"
+                when (obj.optInt("done", 0)) {
+                    1 -> {
+                        val token = obj.optString("token")
+                        if (token.isBlank()) null to "Could not create the session"
+                        else CreatedSession(0, name, token, obj.optString("publicviewtoken")) to null
+                    }
+                    2 -> null to "A session named $name already exists"
+                    else -> null to "Could not create the session"
+                }
+            }
+        } catch (e: Exception) {
+            null to (e.message ?: "Could not create the session")
+        }
+    }
+
+    fun shareRemoteSession(
+        context: Context,
+        baseUrl: String,
+        user: String,
+        password: String,
+        session: CreatedSession,
+        shareWith: String
+    ): String? {
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val client = CertHelper.buildClient(prefs)
+        val server = PhoneTrackUrl.parse(baseUrl).base
+        val auth = okhttp3.Credentials.basic(user, password)
+        if (session.id > 0) {
+            val shared = postShare(
+                client,
+                "$server/index.php/apps/phonetrack/session/${session.id}/share",
+                auth,
+                okhttp3.FormBody.Builder().add("userId", shareWith).build()
+            )
+            if (shared == null || shared == "user_not_found") {
+                return if (shared == null) null else "No Nextcloud user named $shareWith"
+            }
+        }
+        val fallback = postShare(
+            client,
+            "$server/index.php/apps/phonetrack/addUserShare",
+            auth,
+            okhttp3.FormBody.Builder().add("token", session.token).add("userId", shareWith).build()
+        )
+        return when (fallback) {
+            null, "already" -> null
+            "user_not_found" -> "No Nextcloud user named $shareWith"
+            else -> "Could not share with $shareWith"
+        }
+    }
+
+    private fun postShare(
+        client: okhttp3.OkHttpClient,
+        url: String,
+        auth: String,
+        body: okhttp3.RequestBody
+    ): String? {
+        return try {
+            val request = Request.Builder()
+                .url(url)
+                .post(body)
+                .header("Authorization", auth)
+                .header("OCS-APIRequest", "true")
+                .build()
+            client.newCall(request).execute().use { response ->
+                val text = response.body?.string().orEmpty()
+                LogManager.add("POST share ${response.code}")
+                val obj = runCatching { JSONObject(text) }.getOrNull()
+                if (obj?.optString("error") == "user_not_found" || response.code == 404) return "user_not_found"
+                if (!response.isSuccessful) return "failed"
+                when (obj?.optInt("done", -1)) {
+                    1 -> null
+                    2 -> "already"
+                    4 -> "user_not_found"
+                    -1 -> if (obj.has("username") || obj.has("sharetoken")) null else "failed"
+                    else -> "failed"
+                }
+            }
+        } catch (e: Exception) {
+            LogManager.add("Share failed: ${e.message}")
+            "failed"
+        }
+    }
+
+    private fun parseCreatedSession(text: String, name: String): CreatedSession? {
+        val obj = runCatching { JSONObject(text.trim()) }.getOrNull() ?: return null
+        val data = if (obj.has("ocs")) obj.getJSONObject("ocs").optJSONObject("data") ?: obj else obj
+        val token = data.optString("token")
+        if (token.isBlank() || data.has("error")) return null
+        return CreatedSession(
+            data.optInt("id", 0),
+            data.optString("name").ifBlank { name },
+            token,
+            data.optString("publicviewtoken")
+        )
+    }
 }
 
 data class GeoPointData(val lat: Double, val lon: Double, val timestamp: Long, val accuracy: Double)
 
 data class RemoteSession(val name: String, val token: String, val publicToken: String = "")
+
+data class CreatedSession(val id: Int, val name: String, val token: String, val publicToken: String)

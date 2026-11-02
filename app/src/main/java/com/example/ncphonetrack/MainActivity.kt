@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
+import android.widget.ImageButton
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -104,7 +105,7 @@ class MainActivity : AppCompatActivity() {
         val btnSave = findViewById<Button>(R.id.btnSave)
         val btnCert = findViewById<Button>(R.id.btnCert)
         val btnForgetCert = findViewById<Button>(R.id.btnForgetCert)
-        val btnMenu = findViewById<Button>(R.id.btnMenu)
+        val btnMenu = findViewById<ImageButton>(R.id.btnMenu)
         val navView: NavigationView = findViewById(R.id.nav_view)
 
         etUrl.setText(prefs.getString("url", "https://"))
@@ -490,7 +491,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (sessions.isEmpty()) {
             list.addView(TextView(this).apply {
-                text = "No sessions yet. Use Add New."
+                text = "No sessions yet. Use New session."
                 setPadding(0, pad, 0, pad)
             })
         } else {
@@ -535,8 +536,7 @@ class MainActivity : AppCompatActivity() {
         sessionsDialog = AlertDialog.Builder(this)
             .setTitle("Sessions")
             .setView(scroll)
-            .setNeutralButton("Add New") { _, _ -> openNewSessionForm() }
-            .setNegativeButton("From server") { _, _ -> promptLoadSessions() }
+            .setNeutralButton("New session") { _, _ -> openNewSessionForm() }
             .setPositiveButton("Close", null)
             .create()
         sessionsDialog?.show()
@@ -699,8 +699,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
         showAcceptedCerts()
-        val scroll = android.widget.ScrollView(this).apply { addView(box) }
-        val dialog = AlertDialog.Builder(this)
+        val scroll = android.widget.ScrollView(this).apply {
+            layoutParams = android.view.ViewGroup.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            addView(box)
+        }
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
             .setTitle("Settings")
             .setMessage("Nextcloud login used to load sessions and map positions.")
             .setView(scroll)
@@ -713,6 +719,11 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .create()
         dialog.setOnShowListener {
+            dialog.window?.setLayout(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val url = PhoneTrackUrl.loginBase(urlField.text.toString())
                 val user = userField.text.toString().trim()
@@ -978,13 +989,100 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openNewSessionForm() {
-        etUrl.setText("https://")
-        etToken.setText("")
-        etDevice.setText(android.os.Build.MODEL)
-        etPublish.setText("60")
-        etFetch.setText("30")
-        formPanel.visibility = View.VISIBLE
-        statusPanel.visibility = View.GONE
+        val server = prefs.getString("nc_auth_url", "")?.trim().orEmpty()
+        val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+        val pass = prefs.getString("nc_pass", "").orEmpty()
+        if (!isValidBaseUrl(server) || user.isBlank() || pass.isBlank()) {
+            Toast.makeText(this, "Log in from Settings before creating a session", Toast.LENGTH_LONG).show()
+            showSettings()
+            return
+        }
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val width = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+        }
+        val nameField = EditText(this).apply {
+            hint = "Session name"
+            layoutParams = width
+        }
+        val shareField = EditText(this).apply {
+            hint = "Share with Nextcloud usernames, separated by commas"
+            layoutParams = width
+        }
+        box.addView(nameField)
+        box.addView(shareField)
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
+            .setTitle("New session")
+            .setMessage("Creates the session on the server, then shares it with each username.")
+            .setView(box)
+            .setPositiveButton("Create", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setLayout(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val name = nameField.text.toString().trim()
+                val shares = shareField.text.toString().split(",", " ").map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+                if (name.isBlank()) {
+                    Toast.makeText(this, "Session name is required", Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                dialog.dismiss()
+                Toast.makeText(this, "Creating session…", Toast.LENGTH_SHORT).show()
+                Thread {
+                    val (created, error) = PhoneTrackApi.createRemoteSession(this, server, user, pass, name)
+                    val notes = mutableListOf<String>()
+                    if (created != null) {
+                        shares.forEach { shareWith ->
+                            val shareError = PhoneTrackApi.shareRemoteSession(this, server, user, pass, created, shareWith)
+                            notes.add(if (shareError == null) "Shared with $shareWith" else shareError)
+                        }
+                    }
+                    runOnUiThread {
+                        if (created == null) {
+                            Toast.makeText(this, error ?: "Could not create the session", Toast.LENGTH_LONG).show()
+                        } else {
+                            rememberCreatedSession(server, created)
+                            val summary = buildString {
+                                append("Created ")
+                                append(created.name)
+                                if (notes.isNotEmpty()) {
+                                    append("\n")
+                                    append(notes.joinToString("\n"))
+                                }
+                            }
+                            AlertDialog.Builder(this)
+                                .setTitle("Session created")
+                                .setMessage(summary)
+                                .setPositiveButton("OK") { _, _ -> showSessions() }
+                                .show()
+                        }
+                    }
+                }.start()
+            }
+        }
+        dialog.show()
+    }
+
+    private fun rememberCreatedSession(baseUrl: String, created: CreatedSession) {
+        val sessions = loadSessions().toMutableList()
+        if (sessions.none { it.optString("token") == created.token }) {
+            sessions.add(JSONObject().apply {
+                put("name", created.name)
+                put("url", baseUrl)
+                put("token", created.token)
+                put("public_token", created.publicToken)
+                put("device", prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty { android.os.Build.MODEL })
+                put("enabled", false)
+            })
+            prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
+        }
     }
 
     private fun confirmDeleteSession(session: JSONObject) {

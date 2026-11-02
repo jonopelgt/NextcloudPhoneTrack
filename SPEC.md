@@ -62,7 +62,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Map
 - The main map shows a bottom overlay that says Not connected when the server connection is down. The overlay hides while a position update or map refresh is succeeding.
 - If the Nextcloud login has not been verified, the map also shows a Not logged in banner stacked with any other banner. A Settings button on the right opens the Settings page.
-- Sessions list displays saved configs. Each session has an enable switch. Hold a session to configure or delete it.
+- Sessions list displays saved configs. Each session has an enable switch. Hold a session to configure or delete it. New session opens a full-screen builder that creates the session on the PhoneTrack server and shares it with the Nextcloud usernames entered. The new session is saved turned off until the user enables it.
 
 ### FR-7: Revision Distribution
 - Each software update is tagged with a revision (rev-N).
@@ -118,3 +118,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 21 (2026-11-02): Nextcloud login entered in Settings or From server is saved before the dialog closes and is still there the next time Settings is opened.
 - Rev 22 (2026-11-02): Settings lists accepted self-signed certificates. Login that needs one shows the certificate for review before it is accepted.
 - Rev 23 (2026-11-02): Settings treats a server address with no scheme as https://.
+- Rev 24 (2026-11-02): New session on the Sessions page creates a PhoneTrack session and shares it with the usernames entered. The map menu control is a transparent hamburger. Settings opens full screen. Sessions no longer has a From server button.
