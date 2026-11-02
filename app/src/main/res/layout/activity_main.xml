@@ -175,6 +175,7 @@
             android:orientation="vertical"
             android:padding="16dp"
             android:background="#CCFFFFFF"
+            android:elevation="24dp"
             android:visibility="gone">
 
             <TextView

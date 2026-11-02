@@ -152,12 +152,12 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 51 (2026-11-02): The Location settings menu uses those same mode icons.
 - Rev 52 (2026-11-02): The drawer order from the top is Map, Friends, Location, Connection Status, Settings, About, then Sessions.
 - Rev 53 (2026-11-02): Turning a device's tracks switch on must show that device's earlier positions on the map. They are not showing.
-- Rev 54 (2026-11-02): Tapping a track dot opens a bubble that shows that point's age. The bubble fades out after 5 seconds. Not built yet.
-- Rev 55 (2026-11-02): The All zoom key zooms to the last observed device, the one with the newest position, and follows that device. Not built yet.
-- Rev 56 (2026-11-02): In the drawer, Sessions is directly under Location and above Connection Status. Not built yet.
-- Rev 57 (2026-11-02): The Rapid position mode icon is a rocket, not a plane. Not built yet.
-- Rev 58 (2026-11-02): While Connection Status is open, it is drawn above every other control. Not built yet.
-- Rev 59 (2026-11-02): A long-press on the map marks that latitude and longitude, switches the map to manual follow, and turns location spoof on at that point. Spoof uses a spy hat icon and sends at the normal Move rate. Not built yet.
+- Rev 54 (2026-11-02): Tapping a track dot opens a bubble that shows that point's age. The bubble fades out after 5 seconds.
+- Rev 55 (2026-11-02): The All zoom key zooms to the last observed device, the one with the newest position, and follows that device.
+- Rev 56 (2026-11-02): In the drawer, Sessions is directly under Location and above Connection Status.
+- Rev 57 (2026-11-02): The Rapid position mode icon is a rocket, not a plane.
+- Rev 58 (2026-11-02): While Connection Status is open, it is drawn above every other control.
+- Rev 59 (2026-11-02): A long-press on the map marks that latitude and longitude, switches the map to manual follow, and turns location spoof on at that point. Spoof uses a spy hat icon and sends at the normal Move rate.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.

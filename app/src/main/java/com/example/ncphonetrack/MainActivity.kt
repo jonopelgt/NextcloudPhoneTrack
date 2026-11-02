@@ -65,6 +65,7 @@ class MainActivity : AppCompatActivity() {
     private var mapFollow = MapFollow.GROUP
     private var trackedUser: String? = null
     private val lastPoints = mutableMapOf<String, GeoPoint>()
+    private val lastSeen = mutableMapOf<String, Long>()
     private lateinit var btnZoomIn: TextView
     private lateinit var btnZoomOut: TextView
     private lateinit var btnGroupView: TextView
@@ -131,7 +132,7 @@ class MainActivity : AppCompatActivity() {
         btnPositionMode.setOnClickListener { toggleModePicker() }
         btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
         btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
-        btnGroupView.setOnClickListener { enterGroupView() }
+        btnGroupView.setOnClickListener { zoomToLastObserved() }
         mapControls.bringToFront()
         refreshZoomKeys()
         refreshMapBanner()
@@ -139,6 +140,11 @@ class MainActivity : AppCompatActivity() {
         var downX = 0f
         var downY = 0f
         var dragged = false
+        val longPress = Runnable {
+            if (dragged || statusPanel.visibility == View.VISIBLE) return@Runnable
+            val geo = map.projection.fromPixels(downX.toInt(), downY.toInt())
+            activateSpoof(geo.latitude, geo.longitude)
+        }
         map.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -146,14 +152,25 @@ class MainActivity : AppCompatActivity() {
                     downY = event.y
                     dragged = false
                     modePicker.visibility = View.GONE
+                    map.removeCallbacks(longPress)
+                    map.postDelayed(longPress, android.view.ViewConfiguration.getLongPressTimeout().toLong())
                 }
-                MotionEvent.ACTION_POINTER_DOWN -> if (statusPanel.visibility != View.VISIBLE) enterManual()
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    map.removeCallbacks(longPress)
+                    if (statusPanel.visibility != View.VISIBLE) enterManual()
+                }
                 MotionEvent.ACTION_MOVE -> {
                     val moved = kotlin.math.abs(event.x - downX) > 24 || kotlin.math.abs(event.y - downY) > 24
-                    if (moved) dragged = true
+                    if (moved) {
+                        dragged = true
+                        map.removeCallbacks(longPress)
+                    }
                     if (statusPanel.visibility != View.VISIBLE && (event.pointerCount > 1 || moved)) enterManual()
                 }
-                MotionEvent.ACTION_UP -> if (!dragged && statusPanel.visibility == View.VISIBLE) showMap()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    map.removeCallbacks(longPress)
+                    if (!dragged && event.actionMasked == MotionEvent.ACTION_UP && statusPanel.visibility == View.VISIBLE) showMap()
+                }
             }
             false
         }
@@ -416,7 +433,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showStatusPanel() {
         statusPanel.visibility = View.VISIBLE
-        mapControls.bringToFront()
+        statusPanel.bringToFront()
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
         tvStatusUrl.text = "URL: $url"
@@ -1691,6 +1708,7 @@ class MainActivity : AppCompatActivity() {
                 refreshMapBanner()
                 map.overlays.clear()
                 lastPoints.clear()
+                lastSeen.clear()
                 val others = positions.keys.filter { it != ownDevice }.sorted()
                 tracked.forEach { name ->
                     val color = personColor(token, name, ownDevice, others)
@@ -1706,10 +1724,16 @@ class MainActivity : AppCompatActivity() {
                         if (alpha <= 0.05f) return@forEach
                         val dot = Marker(map)
                         dot.position = GeoPoint(point.lat, point.lon)
+                        dot.title = "Track"
+                        dot.snippet = "Age: ${(System.currentTimeMillis() / 1000 - point.timestamp)}s"
                         dot.icon = iconFor(color, 16, alpha)
                         dot.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        dot.infoWindow = null
-                        dot.setOnMarkerClickListener { _, _ -> true }
+                        val seenAt = point.timestamp
+                        dot.setOnMarkerClickListener { clicked, _ ->
+                            clicked.snippet = "Age: ${(System.currentTimeMillis() / 1000 - seenAt)}s"
+                            showStatusBubble(clicked)
+                            true
+                        }
                         map.overlays.add(dot)
                     }
                 }
@@ -1718,6 +1742,7 @@ class MainActivity : AppCompatActivity() {
                     if (alpha <= 0.05f) return@forEach
                     val point = GeoPoint(data.lat, data.lon)
                     lastPoints[name] = point
+                    lastSeen[name] = data.timestamp
                     val marker = Marker(map)
                     marker.position = point
                     val mine = name == ownDevice
@@ -1732,6 +1757,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     map.overlays.add(marker)
                 }
+                addSpoofMarker()
                 if (pickFollowOnNextMap) {
                     pickFollowOnNextMap = false
                     when (lastPoints.size) {
@@ -1845,6 +1871,12 @@ class MainActivity : AppCompatActivity() {
         val spoof = androidx.appcompat.widget.SwitchCompat(this).apply {
             text = "Location spoof"
             isChecked = prefs.getBoolean("spoof_enabled", false)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val spoofIcon = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.ic_mode_spy)
+            val size = (32 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = pad / 2 }
         }
         val lat = EditText(this).apply {
             hint = "Latitude"
@@ -1867,7 +1899,13 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad / 4, 0, pad / 2)
         })
         box.addView(modeList)
-        box.addView(spoof)
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, pad, 0, 0)
+            addView(spoofIcon)
+            addView(spoof)
+        })
         box.addView(lat)
         box.addView(lon)
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
@@ -1937,13 +1975,15 @@ class MainActivity : AppCompatActivity() {
         "quiet" -> R.drawable.ic_mode_off
         "manual" -> R.drawable.ic_mode_manual
         "significant" -> R.drawable.ic_mode_walk
-        "rapid" -> R.drawable.ic_mode_plane
+        "rapid" -> R.drawable.ic_mode_rocket
         else -> R.drawable.ic_mode_car
     }
 
     private fun refreshModeButton() {
         if (!::btnPositionMode.isInitialized) return
-        btnPositionMode.setImageResource(modeIcon(currentPositionMode()))
+        val icon = if (prefs.getBoolean("spoof_enabled", false)) R.drawable.ic_mode_spy else modeIcon(currentPositionMode())
+        btnPositionMode.setImageResource(icon)
+        btnPositionMode.contentDescription = if (prefs.getBoolean("spoof_enabled", false)) "Location spoof" else modeLabel(currentPositionMode())
     }
 
     private fun toggleModePicker() {
@@ -1992,6 +2032,43 @@ class MainActivity : AppCompatActivity() {
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
     }
 
+    private fun zoomToLastObserved() {
+        val name = lastSeen.maxByOrNull { it.value }?.key
+        if (name != null && lastPoints.containsKey(name)) enterUserTrack(name)
+    }
+
+    private fun activateSpoof(lat: Double, lon: Double) {
+        prefs.edit()
+            .putBoolean("spoof_enabled", true)
+            .putString("spoof_lat", lat.toString())
+            .putString("spoof_lon", lon.toString())
+            .apply()
+        enterManual()
+        refreshModeButton()
+        addSpoofMarker()
+        map.invalidate()
+        if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+        Toast.makeText(this, "Spoofing %.5f, %.5f".format(lat, lon), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun addSpoofMarker() {
+        if (!::map.isInitialized || !prefs.getBoolean("spoof_enabled", false)) return
+        val lat = prefs.getString("spoof_lat", null)?.toDoubleOrNull() ?: return
+        val lon = prefs.getString("spoof_lon", null)?.toDoubleOrNull() ?: return
+        map.overlays.removeAll { (it as? Marker)?.title == "Spoof" }
+        val marker = Marker(map)
+        marker.position = GeoPoint(lat, lon)
+        marker.title = "Spoof"
+        marker.snippet = "%.5f, %.5f".format(lat, lon)
+        marker.icon = ContextCompat.getDrawable(this, R.drawable.ic_mode_spy)
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+        marker.setOnMarkerClickListener { clicked, _ ->
+            showStatusBubble(clicked)
+            true
+        }
+        map.overlays.add(marker)
+    }
+
     private fun enterManual() {
         if (mapFollow == MapFollow.MANUAL) return
         mapFollow = MapFollow.MANUAL
@@ -2019,9 +2096,10 @@ class MainActivity : AppCompatActivity() {
         mapControls.visibility = if (mapContext) View.VISIBLE else View.GONE
         btnZoomIn.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
         btnZoomOut.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
-        btnGroupView.visibility = if (mapContext && mapFollow != MapFollow.GROUP) View.VISIBLE else View.GONE
-        if (::mapControls.isInitialized) mapControls.bringToFront()
-        if (::btnPositionMode.isInitialized) btnPositionMode.bringToFront()
+        btnGroupView.visibility = if (mapContext) View.VISIBLE else View.GONE
+        if (::mapControls.isInitialized && mapContext) mapControls.bringToFront()
+        if (::btnPositionMode.isInitialized && mapContext) btnPositionMode.bringToFront()
+        if (!mapContext && ::statusPanel.isInitialized && statusPanel.visibility == View.VISIBLE) statusPanel.bringToFront()
     }
 
     private fun applyMapFollow(points: List<GeoPoint>) {

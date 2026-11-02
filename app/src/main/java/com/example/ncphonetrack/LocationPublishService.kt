@@ -88,13 +88,21 @@ class LocationPublishService : Service() {
         }
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
         val mode = prefs.getString("position_mode", "move") ?: "move"
-        if (mode == "quiet" || mode == "manual") {
+        val spoofing = prefs.getBoolean("spoof_enabled", false)
+        if (!spoofing && (mode == "quiet" || mode == "manual")) {
             prefs.edit().putString("logging_state", if (mode == "quiet") "off" else "manual").apply()
             LogManager.add(if (mode == "quiet") "Position updates are off" else "Position updates are manual")
             return
         }
 
-        val locationRequest = when (mode) {
+        val locationRequest = if (spoofing) {
+            val interval = publishIntervalMs()
+            LocationRequest.create().apply {
+                this.interval = interval
+                fastestInterval = interval
+                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+            }
+        } else when (mode) {
             "significant" -> LocationRequest.create().apply {
                 interval = 5 * 60 * 1000L
                 fastestInterval = 60 * 1000L
@@ -126,9 +134,10 @@ class LocationPublishService : Service() {
 
         try {
             fusedLocationClient.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
-            LogManager.add(when (mode) {
-                "significant" -> "Significant location updates"
-                "rapid" -> "Location updates every 1s"
+            LogManager.add(when {
+                spoofing -> "Spoofed location every ${publishIntervalMs() / 1000}s"
+                mode == "significant" -> "Significant location updates"
+                mode == "rapid" -> "Location updates every 1s"
                 else -> "Location updates every ${publishIntervalMs() / 1000}s"
             })
         } catch (e: SecurityException) {

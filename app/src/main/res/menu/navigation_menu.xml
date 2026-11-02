@@ -13,6 +13,10 @@
         android:title="Location"
         android:icon="@android:drawable/ic_menu_mylocation" />
     <item
+        android:id="@+id/nav_sessions"
+        android:title="Sessions"
+        android:icon="@android:drawable/ic_menu_agenda" />
+    <item
         android:id="@+id/nav_status"
         android:title="Connection Status"
         android:icon="@android:drawable/ic_menu_info_details" />
@@ -24,8 +28,4 @@
         android:id="@+id/nav_about"
         android:title="About"
         android:icon="@android:drawable/ic_menu_help" />
-    <item
-        android:id="@+id/nav_sessions"
-        android:title="Sessions"
-        android:icon="@android:drawable/ic_menu_agenda" />
 </menu>
