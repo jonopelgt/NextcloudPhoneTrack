@@ -121,17 +121,21 @@ class MainActivity : AppCompatActivity() {
 
         var downX = 0f
         var downY = 0f
+        var dragged = false
         map.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.x
                     downY = event.y
+                    dragged = false
                 }
-                MotionEvent.ACTION_POINTER_DOWN -> enterManual()
+                MotionEvent.ACTION_POINTER_DOWN -> if (statusPanel.visibility != View.VISIBLE) enterManual()
                 MotionEvent.ACTION_MOVE -> {
-                    val dragged = kotlin.math.abs(event.x - downX) > 24 || kotlin.math.abs(event.y - downY) > 24
-                    if (event.pointerCount > 1 || dragged) enterManual()
+                    val moved = kotlin.math.abs(event.x - downX) > 24 || kotlin.math.abs(event.y - downY) > 24
+                    if (moved) dragged = true
+                    if (statusPanel.visibility != View.VISIBLE && (event.pointerCount > 1 || moved)) enterManual()
                 }
+                MotionEvent.ACTION_UP -> if (!dragged && statusPanel.visibility == View.VISIBLE) showMap()
             }
             false
         }
@@ -168,8 +172,7 @@ class MainActivity : AppCompatActivity() {
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_map -> {
-                    statusPanel.visibility = View.GONE
-                    refreshMapBanner()
+                    showMap()
                     drawerLayout.closeDrawers()
                 }
             }
@@ -295,6 +298,11 @@ class MainActivity : AppCompatActivity() {
         paint.strokeWidth = size / 8f
         canvas.drawCircle(size / 2f, size / 2f, size / 2.6f, paint)
         return BitmapDrawable(resources, bmp)
+    }
+
+    private fun showMap() {
+        statusPanel.visibility = View.GONE
+        refreshMapBanner()
     }
 
     private fun showStatusPanel() {
