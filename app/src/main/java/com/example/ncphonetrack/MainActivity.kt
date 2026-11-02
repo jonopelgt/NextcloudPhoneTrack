@@ -56,6 +56,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvStatusToken: TextView
     private lateinit var tvLoggingState: TextView
     private lateinit var tvConnection: TextView
+    private lateinit var tvMapBanner: TextView
     private lateinit var tvLastUpdate: TextView
     private lateinit var tvBuffer: TextView
     private lateinit var tvLog: TextView
@@ -92,6 +93,7 @@ class MainActivity : AppCompatActivity() {
         tvStatusToken = findViewById(R.id.tvStatusToken)
         tvLoggingState = findViewById(R.id.tvLoggingState)
         tvConnection = findViewById(R.id.tvConnection)
+        tvMapBanner = findViewById(R.id.tvMapBanner)
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
         tvBuffer = findViewById(R.id.tvBuffer)
         tvLog = findViewById(R.id.tvLog)
@@ -138,6 +140,7 @@ class MainActivity : AppCompatActivity() {
         map.setBuiltInZoomControls(true)
         map.controller.setZoom(12.0)
         map.controller.setCenter(GeoPoint(42.7654, -71.4676))
+        refreshMapBanner()
 
         map.setOnTouchListener { _, event ->
             if (event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_DOWN) {
@@ -181,7 +184,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.nav_map -> {
                     formPanel.visibility = View.GONE
                     statusPanel.visibility = View.GONE
-                    stopLogTimer()
+                    refreshMapBanner()
                     drawerLayout.closeDrawers()
                 }
             }
@@ -398,10 +401,29 @@ class MainActivity : AppCompatActivity() {
             tvConnection.text = "Failed"
             tvConnection.setTextColor(Color.parseColor("#C62828"))
         }
+        refreshMapBanner()
+    }
+
+    private fun refreshMapBanner() {
+        val loggedIn = !prefs.getString("nc_user", "").isNullOrBlank() &&
+            !prefs.getString("nc_pass", "").isNullOrBlank()
+        val intervalSec = maxOf(
+            prefs.getInt("publish_interval_sec", 60),
+            prefs.getInt("fetch_interval_sec", 30)
+        ).coerceIn(5, 3600)
+        val now = System.currentTimeMillis()
+        val result = prefs.getString("last_result", "") ?: ""
+        val publishFresh = (result == "ok" || result == "buffer cleared") &&
+            now - prefs.getLong("last_success_epoch", 0L) <= intervalSec * 2L * 1000
+        val mapFresh = now - prefs.getLong("last_map_ok", 0L) <= intervalSec * 2L * 1000
+        val connected = loggedIn && !PhoneTrackApi.rateLimited(this) && (publishFresh || mapFresh)
+        val mapVisible = formPanel.visibility != View.VISIBLE && statusPanel.visibility != View.VISIBLE
+        tvMapBanner.visibility = if (!connected && mapVisible) View.VISIBLE else View.GONE
     }
 
     private fun refreshLog() {
         tvLog.text = LogManager.getLogs().ifEmpty { "No messages yet" }
+        refreshMapBanner()
         if (statusPanel.visibility == View.VISIBLE) refreshConnectionStatus()
     }
 
@@ -644,10 +666,12 @@ class MainActivity : AppCompatActivity() {
                 }
                 prefs.edit().putString("nc_auth_url", url).putString("nc_user", user).putString("nc_pass", pass).apply()
                 Toast.makeText(this, "Login saved", Toast.LENGTH_SHORT).show()
+                refreshMapBanner()
             }
             .setNeutralButton("Clear") { _, _ ->
                 prefs.edit().remove("nc_auth_url").remove("nc_user").remove("nc_pass").apply()
                 Toast.makeText(this, "Login cleared", Toast.LENGTH_SHORT).show()
+                refreshMapBanner()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -955,8 +979,11 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (positions == null) {
                     updateStatusText("Map update failed")
+                    refreshMapBanner()
                     return@runOnUiThread
                 }
+                prefs.edit().putLong("last_map_ok", System.currentTimeMillis()).apply()
+                refreshMapBanner()
                 map.overlays.clear()
                 if (ownMarkerIcon == null) ownMarkerIcon = markerIcon(Color.parseColor("#1565C0"))
                 if (friendMarkerIcon == null) friendMarkerIcon = markerIcon(Color.parseColor("#E65100"))
@@ -987,7 +1014,12 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    override fun onResume() { super.onResume(); map.onResume() }
+    override fun onResume() {
+        super.onResume()
+        map.onResume()
+        refreshMapBanner()
+        if (logTimer == null) startLogTimer()
+    }
     override fun onPause() { super.onPause(); map.onPause(); stopLogTimer() }
     override fun onDestroy() {
         fetchTimer?.cancel()

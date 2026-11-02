@@ -24,6 +24,20 @@
             android:text="Menu"
             android:elevation="4dp" />
 
+        <TextView
+            android:id="@+id/tvMapBanner"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:background="#C62828"
+            android:gravity="center"
+            android:padding="14dp"
+            android:text="Not connected"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:elevation="6dp" />
+
         <LinearLayout
             android:id="@+id/form_panel"
             android:layout_width="match_parent"

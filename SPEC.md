@@ -59,6 +59,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Friends (each session, with that session's users indented below it)
   - Settings (Nextcloud server, username, and app password, with a button to clear the login)
   - Map
+- The main map shows a bottom overlay that says Not connected when the phone is not logged in to Nextcloud or the server connection is down. The overlay hides while a position update or map refresh is succeeding.
 - Sessions list displays saved configs. Each session has an enable switch. Hold a session to configure or delete it.
 
 ### FR-7: Revision Distribution
@@ -110,3 +111,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 16 (2026-11-01): A session turned off on the Sessions page is gray and unavailable on Friends, and its users are still listed.
 - Rev 17 (2026-11-01): Map positions use the logged-in user endpoint, or the public view token. The logging token is not sent to the public positions API, which was returning 404 and then HTTP 429. Rate limits pause requests, and buffered points are sent a few at a time.
 - Rev 18 (2026-11-02): Settings page in the menu stores the Nextcloud login and can clear it.
+- Rev 19 (2026-11-02): The main map shows a bottom overlay that says Not connected when the phone is not logged in or the server connection is down.
