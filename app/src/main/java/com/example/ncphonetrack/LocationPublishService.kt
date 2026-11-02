@@ -67,7 +67,11 @@ class LocationPublishService : Service() {
 
         LogManager.add("Service started for $deviceName")
         prefs.edit().putString("logging_state", "tracking").apply()
-        startLocationUpdates()
+        if (intent?.action == ACTION_PUBLISH_ONCE) {
+            publishOnce()
+        } else {
+            startLocationUpdates()
+        }
         watchNetwork()
         flushBufferAsync()
         return START_STICKY
@@ -83,12 +87,27 @@ class LocationPublishService : Service() {
             fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         }
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+        val mode = prefs.getString("position_mode", "move") ?: "move"
+        if (mode == "quiet" || mode == "manual") {
+            prefs.edit().putString("logging_state", mode).apply()
+            LogManager.add(if (mode == "quiet") "Position updates are quiet" else "Position updates are manual")
+            return
+        }
 
-        val interval = publishIntervalMs()
-        val locationRequest = LocationRequest.create().apply {
-            this.interval = interval
-            fastestInterval = interval
-            priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+        val locationRequest = if (mode == "significant") {
+            LocationRequest.create().apply {
+                interval = 5 * 60 * 1000L
+                fastestInterval = 60 * 1000L
+                smallestDisplacement = 100f
+                priority = LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY
+            }
+        } else {
+            val interval = publishIntervalMs()
+            LocationRequest.create().apply {
+                this.interval = interval
+                fastestInterval = interval
+                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+            }
         }
 
         val callback = object : LocationCallback() {
@@ -100,10 +119,39 @@ class LocationPublishService : Service() {
 
         try {
             fusedLocationClient.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
-            LogManager.add("Location updates every ${interval / 1000}s")
+            LogManager.add(if (mode == "significant") "Significant location updates" else "Location updates every ${publishIntervalMs() / 1000}s")
         } catch (e: SecurityException) {
             LogManager.add("Location permission missing")
             prefs.edit().putString("logging_state", "permission denied").apply()
+        }
+    }
+
+    private fun publishOnce() {
+        spoofedLocation()?.let {
+            publishLocation(it)
+            return
+        }
+        if (!::fusedLocationClient.isInitialized) {
+            fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        }
+        try {
+            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                if (location != null) publishLocation(location) else LogManager.add("No location to send")
+            }
+        } catch (e: SecurityException) {
+            LogManager.add("Location permission missing")
+        }
+    }
+
+    private fun spoofedLocation(): Location? {
+        if (!prefs.getBoolean("spoof_enabled", false)) return null
+        val lat = prefs.getString("spoof_lat", null)?.toDoubleOrNull() ?: return null
+        val lon = prefs.getString("spoof_lon", null)?.toDoubleOrNull() ?: return null
+        return Location("spoof").apply {
+            latitude = lat
+            longitude = lon
+            accuracy = 1f
+            time = System.currentTimeMillis()
         }
     }
 
@@ -155,8 +203,9 @@ class LocationPublishService : Service() {
     }
 
     private fun publishLocation(location: Location) {
-        val point = pointFrom(location)
-        LogManager.add("Fix lat=${location.latitude} lon=${location.longitude}")
+        val fix = spoofedLocation() ?: location
+        val point = pointFrom(fix)
+        LogManager.add("Fix lat=${fix.latitude} lon=${fix.longitude}")
         if (PhoneTrackApi.rateLimited(this)) {
             appendBuffer(point)
             recordResult("buffered")
@@ -298,5 +347,9 @@ class LocationPublishService : Service() {
             }
         }
         super.onDestroy()
+    }
+
+    companion object {
+        const val ACTION_PUBLISH_ONCE = "com.example.ncphonetrack.PUBLISH_ONCE"
     }
 }

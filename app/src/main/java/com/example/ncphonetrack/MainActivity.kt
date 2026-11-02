@@ -68,6 +68,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnZoomIn: TextView
     private lateinit var btnZoomOut: TextView
     private lateinit var btnGroupView: TextView
+    private lateinit var mapControls: View
+    private var pickFollowOnNextMap = false
+    private var bubbleToken = 0
+    private val zoomOverlays = mutableListOf<LinearLayout>()
     private val iconCache = mutableMapOf<String, BitmapDrawable>()
     private val colorChoices = listOf(
         "#1565C0", "#E65100", "#2E7D32", "#6A1B9A", "#C62828",
@@ -118,9 +122,11 @@ class MainActivity : AppCompatActivity() {
         btnZoomIn = findViewById(R.id.btnZoomIn)
         btnZoomOut = findViewById(R.id.btnZoomOut)
         btnGroupView = findViewById(R.id.btnGroupView)
+        mapControls = findViewById(R.id.mapControls)
         btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
         btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
         btnGroupView.setOnClickListener { enterGroupView() }
+        mapControls.bringToFront()
         refreshZoomKeys()
         refreshMapBanner()
 
@@ -163,6 +169,10 @@ class MainActivity : AppCompatActivity() {
                     showFriends()
                     drawerLayout.closeDrawers()
                 }
+                R.id.nav_location -> {
+                    showLocationSettings()
+                    drawerLayout.closeDrawers()
+                }
                 R.id.nav_settings -> {
                     showSettings()
                     drawerLayout.closeDrawers()
@@ -173,7 +183,11 @@ class MainActivity : AppCompatActivity() {
                         .setTitle("About Nextcloud PhoneTrack")
                         .setMessage("cyberchilli LLC\nRevision $version\nLocation sharing via Nextcloud PhoneTrack")
                         .setPositiveButton("OK", null)
-                        .show()
+                        .create()
+                        .also { dialog ->
+                            dialog.show()
+                            pinZoomControls(dialog)
+                        }
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_map -> {
@@ -395,6 +409,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showStatusPanel() {
         statusPanel.visibility = View.VISIBLE
+        mapControls.bringToFront()
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
         tvStatusUrl.text = "URL: $url"
@@ -503,7 +518,7 @@ class MainActivity : AppCompatActivity() {
         val publishFresh = (result == "ok" || result == "buffer cleared") &&
             now - prefs.getLong("last_success_epoch", 0L) <= intervalSec * 2L * 1000
         val mapFresh = now - prefs.getLong("last_map_ok", 0L) <= intervalSec * 2L * 1000
-        val connected = loggedIn && !PhoneTrackApi.rateLimited(this) && (publishFresh || mapFresh)
+        val connected = loggedIn && !PhoneTrackApi.rateLimited(this) && !activeSessionFailed() && (publishFresh || mapFresh)
         val mapVisible = statusPanel.visibility != View.VISIBLE
         val verified = prefs.getBoolean("credentials_verified", false)
         val noneActive = loadSessions().none { it.optBoolean("enabled", true) }
@@ -582,7 +597,7 @@ class MainActivity : AppCompatActivity() {
             })
         } else {
             list.addView(TextView(this).apply {
-                text = "Tap a session for session zoom. Hold to configure or delete."
+                text = "Tap a session to activate it. Hold to configure or delete."
                 textSize = 12f
                 setPadding(0, 0, 0, pad / 2)
             })
@@ -607,7 +622,7 @@ class MainActivity : AppCompatActivity() {
                     isLongClickable = true
                     setOnClickListener {
                         if (!session.optBoolean("enabled", true)) setSessionEnabled(session, true)
-                        enterGroupView()
+                        else chooseActivationZoom()
                         sessionsDialog?.dismiss()
                         statusPanel.visibility = View.GONE
                         refreshMapBanner()
@@ -618,7 +633,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     label.setOnClickListener {
                         if (!session.optBoolean("enabled", true)) setSessionEnabled(session, true)
-                        enterGroupView()
+                        else chooseActivationZoom()
                         sessionsDialog?.dismiss()
                         statusPanel.visibility = View.GONE
                         refreshMapBanner()
@@ -645,6 +660,7 @@ class MainActivity : AppCompatActivity() {
                 sessionsList = null
             }
             sessionsDialog?.show()
+            sessionsDialog?.let { pinZoomControls(it) }
         }
         if (reloadNames) refreshSessionNames()
     }
@@ -696,6 +712,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Close", null)
             .create()
         dialog.show()
+        pinZoomControls(dialog)
         if (sessions.isEmpty()) return
         Thread {
             val rows = sessions.map { session ->
@@ -842,7 +859,9 @@ class MainActivity : AppCompatActivity() {
                     text = "Remove"
                     setOnClickListener {
                         CertHelper.forget(prefs, cert.hash)
+                        prefs.edit().putBoolean("credentials_verified", false).apply()
                         showAcceptedCerts()
+                        refreshMapBanner()
                         Toast.makeText(this@MainActivity, "Certificate removed", Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -900,6 +919,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         dialog.show()
+        pinZoomControls(dialog)
     }
 
     private fun verifyLogin(url: String, user: String, pass: String) {
@@ -1101,6 +1121,7 @@ class MainActivity : AppCompatActivity() {
         prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
         if (enabled) {
             prefs.edit().putString("url", url).putString("token", token).putString("device", device).apply()
+            armActivationZoom()
             startIfPermittedOrAsk()
         } else if (isActiveSession(session)) {
             stopTracking()
@@ -1305,6 +1326,10 @@ class MainActivity : AppCompatActivity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, pad, 0, pad / 4)
         })
+        box.addView(TextView(this).apply {
+            text = "Age out"
+            setPadding(0, pad / 2, 0, 0)
+        })
         box.addView(ageField)
         var sessionId = existing?.optInt("id", 0) ?: 0
         var publicToken = existing?.optString("public_token").orEmpty()
@@ -1483,6 +1508,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         dialog.show()
+        pinZoomControls(dialog)
     }
 
     private fun rememberCreatedSession(baseUrl: String, created: CreatedSession) {
@@ -1689,16 +1715,219 @@ class MainActivity : AppCompatActivity() {
                     marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                     marker.setOnMarkerClickListener { _, _ ->
                         enterUserTrack(name)
-                        marker.showInfoWindow()
+                        showStatusBubble(marker)
                         true
                     }
                     map.overlays.add(marker)
+                }
+                if (pickFollowOnNextMap) {
+                    pickFollowOnNextMap = false
+                    when (lastPoints.size) {
+                        0 -> {
+                            mapFollow = MapFollow.GROUP
+                            trackedUser = null
+                        }
+                        1 -> {
+                            mapFollow = MapFollow.USER
+                            trackedUser = lastPoints.keys.first()
+                        }
+                        else -> {
+                            mapFollow = MapFollow.GROUP
+                            trackedUser = null
+                        }
+                    }
+                    refreshZoomKeys()
                 }
                 applyMapFollow(lastPoints.values.toList())
                 map.invalidate()
                 updateStatusText("Map updated: ${positions.size} devices")
             }
         }.start()
+    }
+
+    private fun activeSessionFailed(): Boolean {
+        val url = prefs.getString("url", "") ?: ""
+        val token = prefs.getString("token", "") ?: ""
+        if (url.isBlank() || token.isBlank()) return false
+        val active = loadSessions().any {
+            it.optBoolean("enabled", true) && it.optString("url") == url && it.optString("token") == token
+        }
+        if (!active) return false
+        val result = prefs.getString("last_result", "") ?: ""
+        val intervalSec = prefs.getInt("publish_interval_sec", 60).coerceIn(5, 3600)
+        val storedOk = prefs.getLong("last_success_epoch", 0L)
+        val lastOk = if (storedOk > 0L) storedOk else 0L
+        val ageSec = if (lastOk <= 0L) Long.MAX_VALUE else (System.currentTimeMillis() - lastOk) / 1000
+        val latestFailed = result.isNotBlank() && result != "ok" && result != "buffer cleared"
+        return latestFailed || ageSec > intervalSec * 2L
+    }
+
+    private fun armActivationZoom() {
+        pickFollowOnNextMap = true
+    }
+
+    private fun chooseActivationZoom() {
+        when (lastPoints.size) {
+            0 -> enterGroupView()
+            1 -> enterUserTrack(lastPoints.keys.first())
+            else -> enterGroupView()
+        }
+    }
+
+    private fun showStatusBubble(marker: Marker) {
+        marker.showInfoWindow()
+        val token = ++bubbleToken
+        marker.infoWindow?.view?.alpha = 1f
+        map.postDelayed({
+            if (token != bubbleToken) return@postDelayed
+            val bubble = marker.infoWindow?.view
+            if (bubble == null) {
+                marker.closeInfoWindow()
+                return@postDelayed
+            }
+            bubble.animate().alpha(0f).setDuration(400).withEndAction {
+                if (token == bubbleToken) marker.closeInfoWindow()
+                bubble.alpha = 1f
+            }.start()
+        }, 5000)
+    }
+
+    private fun pinZoomControls(dialog: AlertDialog) {
+        dialog.window?.decorView?.post {
+            val decor = dialog.window?.decorView as? android.widget.FrameLayout ?: return@post
+            if (decor.findViewWithTag<View>("zoom_overlay") != null) return@post
+            val margin = (8 * resources.displayMetrics.density).toInt()
+            val column = LinearLayout(this).apply {
+                tag = "zoom_overlay"
+                orientation = LinearLayout.VERTICAL
+                val zoomIn = zoomKey("+") { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
+                val zoomOut = zoomKey("−") { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
+                val all = zoomKey("All") { enterGroupView() }
+                addView(zoomIn)
+                addView(zoomOut)
+                addView(all)
+                zoomIn.tag = "in"
+                zoomOut.tag = "out"
+                all.tag = "all"
+            }
+            val params = android.widget.FrameLayout.LayoutParams(
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+                android.view.Gravity.END or android.view.Gravity.CENTER_VERTICAL
+            )
+            params.marginEnd = margin
+            decor.addView(column, params)
+            zoomOverlays.add(column)
+            refreshZoomKeys()
+        }
+    }
+
+    private fun zoomKey(label: String, onClick: () -> Unit): TextView {
+        val gap = (6 * resources.displayMetrics.density).toInt()
+        val size = (44 * resources.displayMetrics.density).toInt()
+        return TextView(this).apply {
+            text = label
+            gravity = android.view.Gravity.CENTER
+            setBackgroundResource(R.drawable.zoom_key_bg)
+            setTextColor(Color.parseColor("#111111"))
+            textSize = if (label.length > 1) 13f else 26f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { bottomMargin = gap }
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun showLocationSettings() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val width = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+        }
+        val modes = listOf("quiet", "manual", "significant", "move")
+        val labels = listOf("Quiet", "Manual", "Significant", "Move")
+        val current = prefs.getString("position_mode", "move") ?: "move"
+        val mode = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, labels)
+            setSelection(modes.indexOf(current).coerceAtLeast(0))
+            layoutParams = width
+        }
+        val spoof = androidx.appcompat.widget.SwitchCompat(this).apply {
+            text = "Location spoof"
+            isChecked = prefs.getBoolean("spoof_enabled", false)
+        }
+        val lat = EditText(this).apply {
+            hint = "Latitude"
+            setText(prefs.getString("spoof_lat", "") ?: "")
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
+            layoutParams = width
+        }
+        val lon = EditText(this).apply {
+            hint = "Longitude"
+            setText(prefs.getString("spoof_lon", "") ?: "")
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
+            layoutParams = width
+        }
+        box.addView(TextView(this).apply {
+            text = "Position update mode"
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        box.addView(TextView(this).apply {
+            text = "Quiet sends nothing. Manual sends when you tap Send now. Significant sends after a real move. Move sends on the normal interval."
+            setPadding(0, pad / 4, 0, pad / 2)
+        })
+        box.addView(mode)
+        box.addView(spoof)
+        box.addView(lat)
+        box.addView(lon)
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
+            .setTitle("Location")
+            .setView(android.widget.ScrollView(this).apply { addView(box) })
+            .setPositiveButton("Save", null)
+            .setNeutralButton("Send now", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setLayout(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.WHITE))
+            pinZoomControls(dialog)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                prefs.edit()
+                    .putString("position_mode", modes[mode.selectedItemPosition])
+                    .putBoolean("spoof_enabled", spoof.isChecked)
+                    .putString("spoof_lat", lat.text.toString().trim())
+                    .putString("spoof_lon", lon.text.toString().trim())
+                    .apply()
+                dialog.dismiss()
+                if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                prefs.edit()
+                    .putBoolean("spoof_enabled", spoof.isChecked)
+                    .putString("spoof_lat", lat.text.toString().trim())
+                    .putString("spoof_lon", lon.text.toString().trim())
+                    .apply()
+                val url = prefs.getString("url", "") ?: ""
+                val token = prefs.getString("token", "") ?: ""
+                if (!isValidBaseUrl(url) || token.isBlank()) {
+                    Toast.makeText(this, "Turn on a session before sending a position", Toast.LENGTH_LONG).show()
+                    return@setOnClickListener
+                }
+                val device = prefs.getString("nc_user", "")?.trim().orEmpty()
+                    .ifEmpty { prefs.getString("device", "Android") ?: "Android" }
+                startService(Intent(this, LocationPublishService::class.java).apply {
+                    action = LocationPublishService.ACTION_PUBLISH_ONCE
+                    putExtra("url", url)
+                    putExtra("token", token)
+                    putExtra("device", device)
+                })
+                Toast.makeText(this, "Sending position", Toast.LENGTH_SHORT).show()
+            }
+        }
+        dialog.show()
     }
 
     private fun enterManual() {
@@ -1727,6 +1956,13 @@ class MainActivity : AppCompatActivity() {
         btnZoomIn.visibility = if (tracking) View.VISIBLE else View.GONE
         btnZoomOut.visibility = if (tracking) View.VISIBLE else View.GONE
         btnGroupView.visibility = if (mapFollow == MapFollow.GROUP) View.GONE else View.VISIBLE
+        zoomOverlays.removeAll { !it.isAttachedToWindow }
+        zoomOverlays.forEach { column ->
+            column.findViewWithTag<View>("in")?.visibility = if (tracking) View.VISIBLE else View.GONE
+            column.findViewWithTag<View>("out")?.visibility = if (tracking) View.VISIBLE else View.GONE
+            column.findViewWithTag<View>("all")?.visibility = if (mapFollow == MapFollow.GROUP) View.GONE else View.VISIBLE
+        }
+        if (::mapControls.isInitialized) mapControls.bringToFront()
     }
 
     private fun applyMapFollow(points: List<GeoPoint>) {

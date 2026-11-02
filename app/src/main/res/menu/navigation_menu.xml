@@ -13,6 +13,10 @@
         android:title="Friends"
         android:icon="@android:drawable/ic_menu_myplaces" />
     <item
+        android:id="@+id/nav_location"
+        android:title="Location"
+        android:icon="@android:drawable/ic_menu_mylocation" />
+    <item
         android:id="@+id/nav_settings"
         android:title="Settings"
         android:icon="@android:drawable/ic_menu_preferences" />

@@ -141,10 +141,10 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 37 (2026-11-02): The session builder shows a public switch, and the public URL in an accordion directly under it when public. It has a server enabled/disabled switch, an auto-purge dropdown of off, daily, weekly, or monthly, and each device's name and selectable color.
 - Rev 38 (2026-11-02): The session builder has a Local view section for this phone only. Position age-out defaults to 15 minutes and fades a map marker with age until it vanishes at that time.
 - Rev 39 (2026-11-02): Each device on Friends and in the session builder has a tracks switch. Tracks are off until turned on. When on, earlier positions are small dots in that device's color, each faded by its own age until the age-out time.
-- Rev 40 (2026-11-02): Tapping a device on the map opens its status bubble. The bubble fades out after 5 seconds. Not built yet.
-- Rev 41 (2026-11-02): If the active session's status is Failed, the map status banner says Not connected. Not built yet.
-- Rev 42 (2026-11-02): The map zoom controls stay above every context window. Not built yet.
-- Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner. Not built yet.
-- Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out. Not built yet.
-- Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option. Not built yet.
-- Rev 46 (2026-11-02): Activating a session uses group view when more than one current position is known, and follows that one person when only one is known. Not built yet.
+- Rev 40 (2026-11-02): Tapping a device on the map opens its status bubble. The bubble fades out after 5 seconds.
+- Rev 41 (2026-11-02): If the active session's status is Failed, the map status banner says Not connected.
+- Rev 42 (2026-11-02): The map zoom controls stay above every context window.
+- Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
+- Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
+- Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
+- Rev 46 (2026-11-02): Activating a session uses group view when more than one current position is known, and follows that one person when only one is known.
