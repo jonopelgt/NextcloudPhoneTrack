@@ -38,7 +38,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Every 30 s (configurable) GET:
   `https://{base}/apps/phonetrack/api/getlastpositions/{token}`
 - Parse JSON and render markers for every device in the enabled session. Turning that session off removes its markers. A position response that arrives after the session is turned off is discarded.
-- Center map on own device when available.
+- The map has three follow modes. Group, also called session zoom, is the default: it uses the closest zoom that still shows every user in the enabled session. Tapping a session on the Sessions page selects that session and sets session zoom. User follow starts when that person is tapped on Friends or on their map marker, and transparent + and − keys change the zoom without leaving follow. Manual starts when the map is panned or pinched, and the map then stays where it was left. A transparent All key returns to session zoom.
 - Show device name, accuracy, and age of fix on marker info.
 
 ### FR-4: Map
@@ -125,3 +125,5 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 26 (2026-11-02): Turning off the session that is on the map clears its markers. A late position response does not put them back.
 - Rev 27 (2026-11-02): Connection Status lists every session as Off, OK, or Failed. Configure opens the session builder for that session. The old session configuration form is removed.
 - Rev 28 (2026-11-02): On Friends, a session turned off says disabled. A session that is on but whose users cannot be loaded says unavailable.
+- Rev 29 (2026-11-02): The map defaults to group view. Tapping a person follows that person, with transparent zoom keys. Panning or pinching switches to manual. All returns to group view.
+- Rev 30 (2026-11-02): Tapping a session on the Sessions page turns that session on if needed and sets the map to session zoom.

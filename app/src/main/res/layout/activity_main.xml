@@ -29,6 +29,65 @@
             android:src="@drawable/ic_menu" />
 
         <LinearLayout
+            android:id="@+id/mapControls"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end|center_vertical"
+            android:layout_marginEnd="8dp"
+            android:elevation="4dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/btnZoomIn"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="Zoom in"
+                android:gravity="center"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:text="+"
+                android:textColor="#FFFFFF"
+                android:textSize="32sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnZoomOut"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="Zoom out"
+                android:gravity="center"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:text="−"
+                android:textColor="#FFFFFF"
+                android:textSize="32sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/btnGroupView"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@android:color/transparent"
+                android:contentDescription="Group view"
+                android:gravity="center"
+                android:shadowColor="#CC000000"
+                android:shadowDx="0"
+                android:shadowDy="1"
+                android:shadowRadius="3"
+                android:text="All"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/mapBanners"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

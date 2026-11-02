@@ -61,8 +61,12 @@ class MainActivity : AppCompatActivity() {
     private var logTimer: Timer? = null
     private var fetchTimer: Timer? = null
     private var mapEpoch = 0
-    private var autoCenter = true
-    private var fitAll = false
+    private var mapFollow = MapFollow.GROUP
+    private var trackedUser: String? = null
+    private val lastPoints = mutableMapOf<String, GeoPoint>()
+    private lateinit var btnZoomIn: TextView
+    private lateinit var btnZoomOut: TextView
+    private lateinit var btnGroupView: TextView
     private var ownMarkerIcon: BitmapDrawable? = null
     private var friendMarkerIcon: BitmapDrawable? = null
 
@@ -103,15 +107,31 @@ class MainActivity : AppCompatActivity() {
         }
         map.setTileSource(httpsMapnik)
         map.setMultiTouchControls(true)
-        map.setBuiltInZoomControls(true)
+        map.setBuiltInZoomControls(false)
         map.controller.setZoom(12.0)
         map.controller.setCenter(GeoPoint(42.7654, -71.4676))
+        btnZoomIn = findViewById(R.id.btnZoomIn)
+        btnZoomOut = findViewById(R.id.btnZoomOut)
+        btnGroupView = findViewById(R.id.btnGroupView)
+        btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 1.0) }
+        btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 1.0) }
+        btnGroupView.setOnClickListener { enterGroupView() }
+        refreshZoomKeys()
         refreshMapBanner()
 
+        var downX = 0f
+        var downY = 0f
         map.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_MOVE || event.action == MotionEvent.ACTION_DOWN) {
-                autoCenter = false
-                fitAll = false
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.x
+                    downY = event.y
+                }
+                MotionEvent.ACTION_POINTER_DOWN -> enterManual()
+                MotionEvent.ACTION_MOVE -> {
+                    val dragged = kotlin.math.abs(event.x - downX) > 24 || kotlin.math.abs(event.y - downY) > 24
+                    if (event.pointerCount > 1 || dragged) enterManual()
+                }
             }
             false
         }
@@ -464,7 +484,7 @@ class MainActivity : AppCompatActivity() {
             })
         } else {
             list.addView(TextView(this).apply {
-                text = "Hold a session to configure or delete"
+                text = "Tap a session for session zoom. Hold to configure or delete."
                 textSize = 12f
                 setPadding(0, 0, 0, pad / 2)
             })
@@ -485,10 +505,25 @@ class MainActivity : AppCompatActivity() {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
                     setPadding(0, pad / 2, 0, pad / 2)
+                    isClickable = true
                     isLongClickable = true
+                    setOnClickListener {
+                        if (!session.optBoolean("enabled", true)) setSessionEnabled(session, true)
+                        enterGroupView()
+                        sessionsDialog?.dismiss()
+                        statusPanel.visibility = View.GONE
+                        refreshMapBanner()
+                    }
                     setOnLongClickListener { anchor ->
                         showSessionHoldMenu(anchor, session)
                         true
+                    }
+                    label.setOnClickListener {
+                        if (!session.optBoolean("enabled", true)) setSessionEnabled(session, true)
+                        enterGroupView()
+                        sessionsDialog?.dismiss()
+                        statusPanel.visibility = View.GONE
+                        refreshMapBanner()
                     }
                     label.setOnLongClickListener { anchor ->
                         showSessionHoldMenu(anchor, session)
@@ -568,8 +603,8 @@ class MainActivity : AppCompatActivity() {
             val rows = sessions.map { session ->
                 val title = sessionLabel(session)
                 val positions = PhoneTrackApi.getLastPositions(this, session.optString("url"), session.optString("token"))
-                val users = positions?.keys?.sorted().orEmpty()
-                FriendRow(title, users, session.optBoolean("enabled", true), positions != null)
+                val points = positions?.mapValues { (_, data) -> GeoPoint(data.lat, data.lon) }.orEmpty()
+                FriendRow(title, points.keys.sorted(), session.optBoolean("enabled", true), positions != null, points)
             }
             runOnUiThread {
                 if (!dialog.isShowing) return@runOnUiThread
@@ -603,6 +638,14 @@ class MainActivity : AppCompatActivity() {
                                 textSize = 15f
                                 setTextColor(userColor)
                                 setPadding(indent, pad / 4, 0, pad / 4)
+                                isClickable = true
+                                setOnClickListener {
+                                    dialog.dismiss()
+                                    statusPanel.visibility = View.GONE
+                                    lastPoints.putAll(row.points)
+                                    enterUserTrack(user)
+                                    refreshMapBanner()
+                                }
                             })
                         }
                     }
@@ -1246,11 +1289,10 @@ class MainActivity : AppCompatActivity() {
                 map.overlays.clear()
                 if (ownMarkerIcon == null) ownMarkerIcon = markerIcon(Color.parseColor("#1565C0"))
                 if (friendMarkerIcon == null) friendMarkerIcon = markerIcon(Color.parseColor("#E65100"))
-                val points = mutableListOf<GeoPoint>()
-                var ownPoint: GeoPoint? = null
+                lastPoints.clear()
                 positions.forEach { (name, data) ->
                     val point = GeoPoint(data.lat, data.lon)
-                    points.add(point)
+                    lastPoints[name] = point
                     val marker = Marker(map)
                     marker.position = point
                     val mine = name == ownDevice
@@ -1258,19 +1300,62 @@ class MainActivity : AppCompatActivity() {
                     marker.snippet = "Acc: ${data.accuracy}m | Age: ${(System.currentTimeMillis()/1000 - data.timestamp)}s"
                     marker.icon = if (mine) ownMarkerIcon else friendMarkerIcon
                     marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    marker.setOnMarkerClickListener { _, _ ->
+                        enterUserTrack(name)
+                        marker.showInfoWindow()
+                        true
+                    }
                     map.overlays.add(marker)
-                    if (mine) ownPoint = point
                 }
-                if (autoCenter && ownPoint != null) {
-                    map.controller.setCenter(ownPoint)
-                } else if (fitAll && points.isNotEmpty()) {
-                    val bb = BoundingBox.fromGeoPoints(points)
-                    map.zoomToBoundingBox(bb, false)
-                }
+                applyMapFollow(lastPoints.values.toList())
                 map.invalidate()
                 updateStatusText("Map updated: ${positions.size} devices")
             }
         }.start()
+    }
+
+    private fun enterManual() {
+        if (mapFollow == MapFollow.MANUAL) return
+        mapFollow = MapFollow.MANUAL
+        trackedUser = null
+        refreshZoomKeys()
+    }
+
+    private fun enterUserTrack(name: String) {
+        mapFollow = MapFollow.USER
+        trackedUser = name
+        refreshZoomKeys()
+        lastPoints[name]?.let { map.controller.animateTo(it) }
+    }
+
+    private fun enterGroupView() {
+        mapFollow = MapFollow.GROUP
+        trackedUser = null
+        refreshZoomKeys()
+        applyMapFollow(lastPoints.values.toList())
+    }
+
+    private fun refreshZoomKeys() {
+        val tracking = mapFollow == MapFollow.USER
+        btnZoomIn.visibility = if (tracking) View.VISIBLE else View.GONE
+        btnZoomOut.visibility = if (tracking) View.VISIBLE else View.GONE
+        btnGroupView.visibility = if (mapFollow == MapFollow.GROUP) View.GONE else View.VISIBLE
+    }
+
+    private fun applyMapFollow(points: List<GeoPoint>) {
+        when (mapFollow) {
+            MapFollow.MANUAL -> Unit
+            MapFollow.USER -> lastPoints[trackedUser]?.let { map.controller.setCenter(it) }
+            MapFollow.GROUP -> {
+                if (points.isEmpty()) return
+                if (points.size == 1) {
+                    map.controller.setCenter(points[0])
+                    map.controller.setZoom(16.0)
+                } else {
+                    map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), false, 100)
+                }
+            }
+        }
     }
 
     override fun onResume() {
@@ -1287,9 +1372,12 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
+private enum class MapFollow { GROUP, USER, MANUAL }
+
 private data class FriendRow(
     val title: String,
     val users: List<String>,
     val enabled: Boolean,
-    val reachable: Boolean
+    val reachable: Boolean,
+    val points: Map<String, GeoPoint>
 )
