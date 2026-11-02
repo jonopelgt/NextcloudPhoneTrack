@@ -69,8 +69,8 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - The session builder has a Local view section. Its controls affect only this phone's map and are not sent to the server. It includes a position age-out time, labeled Age out. The default is 15 minutes. On the map, a marker starts fully opaque and becomes more transparent as the fix gets older. It is fully invisible at the age-out time. When a device's tracks switch is on, each earlier position is a small dot in that device's color. Each dot fades on its own age and disappears at the same age-out time. Tracks are off until turned on. When the switch is off, those dots are hidden.
 - Tapping a device on the map opens its status bubble. The bubble fades out after 5 seconds. Tapping a track dot opens a bubble that shows that point's age, and that bubble fades out after 5 seconds.
 - Hold a session to open the session builder for that session, or to delete it. Delete removes the session from the PhoneTrack server for the logged-in account, then removes it from this phone. If the server refuses, the session stays. The old session configuration form is not used.
-- Location, opened from the drawer, sets how this phone publishes its position. The modes are Off, which sends nothing on its own, Manual, which sends only when the user asks, Significant, which sends on a significant location change, and Move, which sends while the phone is moving. Rapid sends a position every second. Each mode in this menu uses the same icon as the map control: Manual a map pin, Off a map pin with a circle-slash, Significant a walking person, Move a car, and Rapid a plane. A location spoof option, when on, publishes a position the user chooses instead of the phone's GPS.
-- The position update mode is also a control at the top right of the map. Each mode has an icon: Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a plane. Tapping the icon opens a small window listing the other modes so one can be selected.
+- Location, opened from the drawer, sets how this phone publishes its position. The modes are Off, which sends nothing on its own, Manual, which sends only when the user asks, Significant, which sends on a significant location change, and Move, which sends while the phone is moving. Rapid sends a position every second. Each mode in this menu uses the same icon as the map control: Manual a map pin, Off a map pin with a circle-slash, Significant a walking person, Move a car, and Rapid a rocket. A location spoof option, when on, publishes a position the user chooses instead of the phone's GPS.
+- The position update mode is also a control at the top right of the map. Each mode has an icon: Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a rocket. Tapping the icon opens a small window listing the other modes so one can be selected.
 
 ### FR-7: Revision Distribution
 - Each software update is tagged with a revision (rev-N).
@@ -148,13 +148,14 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 47 (2026-11-02): The zoom controls are visible only while the map is the selected context. They are hidden for every other context window.
 - Rev 48 (2026-11-02): Position update mode includes Rapid, which sends a position every second.
 - Rev 49 (2026-11-02): The position update mode that sends nothing is labeled Off.
-- Rev 50 (2026-11-02): The position update mode is a control at the top right of the map. Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a plane. Tapping it opens a small window of the other modes.
+- Rev 50 (2026-11-02): The position update mode is a control at the top right of the map. Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a rocket. Tapping it opens a small window of the other modes.
 - Rev 51 (2026-11-02): The Location settings menu uses those same mode icons.
 - Rev 52 (2026-11-02): The drawer order from the top is Map, Friends, Location, Connection Status, Settings, About, then Sessions.
 - Rev 53 (2026-11-02): Turning a device's tracks switch on must show that device's earlier positions on the map. They are not showing.
 - Rev 54 (2026-11-02): Tapping a track dot opens a bubble that shows that point's age. The bubble fades out after 5 seconds. Not built yet.
 - Rev 55 (2026-11-02): The All zoom key zooms to the last observed device, the one with the newest position, and follows that device. Not built yet.
 - Rev 56 (2026-11-02): In the drawer, Sessions is directly under Location and above Connection Status. Not built yet.
+- Rev 57 (2026-11-02): The Rapid position mode icon is a rocket, not a plane. Not built yet.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
