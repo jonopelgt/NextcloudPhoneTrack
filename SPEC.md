@@ -38,7 +38,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Every 30 s (configurable) GET:
   `https://{base}/apps/phonetrack/api/getlastpositions/{token}`
 - Parse JSON and render markers for every device in the enabled session. Turning that session off removes its markers. A position response that arrives after the session is turned off is discarded.
-- The map has three follow modes. Group, also called session zoom, is the default: it uses the closest zoom that still shows every user in the enabled session. Tapping a session on the Sessions page selects that session and sets session zoom. User follow starts when that person is tapped on Friends or on their map marker. The + and − keys are high contrast and each step changes the zoom by a quarter level without leaving follow. Manual starts when the map is panned or pinched, and the map then stays where it was left. An All key returns to session zoom.
+- The map has three follow modes. Group, also called session zoom, is the default: it uses the closest zoom that still shows every user in the enabled session. Tapping a session on the Sessions page selects that session and sets session zoom. User follow starts when that person is tapped on Friends or on their map marker. The + and − keys are high contrast and each step changes the zoom by a quarter level without leaving follow. Manual starts when the map is panned or pinched, and the map then stays where it was left. An All key returns to session zoom. The zoom controls stay above every context window.
 - Show device name, accuracy, and age of fix on marker info.
 
 ### FR-4: Map
@@ -141,3 +141,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 39 (2026-11-02): Each device on Friends and in the session builder has a tracks switch. Tracks are off until turned on. When on, earlier positions are small dots in that device's color, each faded by its own age until the age-out time.
 - Rev 40 (2026-11-02): Tapping a device on the map opens its status bubble. The bubble fades out after 5 seconds. Not built yet.
 - Rev 41 (2026-11-02): If the active session's status is Failed, the map status banner says Not connected. Not built yet.
+- Rev 42 (2026-11-02): The map zoom controls stay above every context window. Not built yet.
