@@ -70,6 +70,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Tapping a device on the map opens its status bubble. The bubble fades out after 5 seconds.
 - Hold a session to open the session builder for that session, or to delete it. Delete removes the session from the PhoneTrack server for the logged-in account, then removes it from this phone. If the server refuses, the session stays. The old session configuration form is not used.
 - Location, opened from the drawer, sets how this phone publishes its position. The modes are Off, which sends nothing on its own, Manual, which sends only when the user asks, Significant, which sends on a significant location change, and Move, which sends while the phone is moving. Rapid sends a position every second. A location spoof option, when on, publishes a position the user chooses instead of the phone's GPS.
+- The position update mode is also a control at the top right of the map. Each mode has an icon: Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a plane. Tapping the icon opens a small window listing the other modes so one can be selected.
 
 ### FR-7: Revision Distribution
 - Each software update is tagged with a revision (rev-N).
@@ -147,6 +148,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 47 (2026-11-02): The zoom controls are visible only while the map is the selected context. They are hidden for every other context window. Not built yet.
 - Rev 48 (2026-11-02): Position update mode includes Rapid, which sends a position every second. Not built yet.
 - Rev 49 (2026-11-02): The position update mode that sends nothing is labeled Off. Not built yet.
+- Rev 50 (2026-11-02): The position update mode is a control at the top right of the map. Manual is a map pin, Off is a map pin with a circle-slash, Significant is a walking person, Move is a car, and Rapid is a plane. Tapping it opens a small window of the other modes. Not built yet.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
