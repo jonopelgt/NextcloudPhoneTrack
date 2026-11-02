@@ -37,7 +37,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 ### FR-3: Position Retrieval & Display
 - Every 30 s (configurable) GET:
   `https://{base}/apps/phonetrack/api/getlastpositions/{token}`
-- Parse JSON and render markers for every device in the enabled session. Turning that session off removes its markers. A position response that arrives after the session is turned off is discarded.
+- Parse JSON and render markers for every device in the enabled session. Turning that session off removes its markers. A position response that arrives after the session is turned off is discarded. PhoneTrack encodes a session with no points as an empty array under the session token. That response is zero devices, not a failed map update.
 - The map has three follow modes. Group, also called session zoom, is the default: it uses the closest zoom that still shows every user in the enabled session. Activating a session sets group view when more than one current position is known, and follows that one person when only one current position is known. User follow also starts when that person is tapped on Friends or on their map marker. The + and − keys are high contrast and each step changes the zoom by a quarter level without leaving follow. Manual starts when the map is panned or pinched, and the map then stays where it was left. The All key zooms to the last observed device, the one whose position is the newest, and follows that device. The zoom controls are visible only while the map is the selected context.
 - Show device name, accuracy, and age of fix on marker info.
 
@@ -162,3 +162,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
 - Rev 46 (2026-11-02): Activating a session uses group view when more than one current position is known, and follows that one person when only one is known.
+- Rev 60 (2026-11-02): A last-positions response whose session value is an empty array is zero devices. It does not fail the map update.
