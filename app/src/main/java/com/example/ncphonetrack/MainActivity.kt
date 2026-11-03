@@ -26,6 +26,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.drawerlayout.widget.DrawerLayout
 import com.google.android.material.navigation.NavigationView
 import org.json.JSONArray
@@ -37,6 +38,7 @@ import org.osmdroid.util.GeoPoint
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import java.io.File
 import java.util.Timer
 import java.util.TimerTask
 
@@ -111,6 +113,7 @@ class MainActivity : AppCompatActivity() {
         tvBuffer = findViewById(R.id.tvBuffer)
         tvLog = findViewById(R.id.tvLog)
         logScroll = findViewById(R.id.logScroll)
+        findViewById<Button>(R.id.btnExportLog).setOnClickListener { exportLog() }
         logScroll.setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 logScroll.post {
@@ -584,6 +587,31 @@ class MainActivity : AppCompatActivity() {
         noSessionBanner.visibility = if (noneActive && mapVisible) View.VISIBLE else View.GONE
         tvMapBanner.visibility = if (!connected && !noneActive && mapVisible) View.VISIBLE else View.GONE
         loginBanner.visibility = if (!verified && mapVisible) View.VISIBLE else View.GONE
+    }
+
+    private fun exportLog() {
+        val text = LogManager.getLogs().ifEmpty { "No messages yet" }
+        val dir = File(cacheDir, "logs").apply { mkdirs() }
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+        val file = File(dir, "phonetrack-log-$stamp.txt")
+        try {
+            file.writeText(text)
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "PhoneTrack log")
+                putExtra(Intent.EXTRA_TEXT, text)
+                clipData = android.content.ClipData.newRawUri("PhoneTrack log", uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            val chooser = Intent.createChooser(send, "Export log")
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivity(chooser)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not export the log", Toast.LENGTH_LONG).show()
+            LogManager.add("Export log failed: ${e.message}")
+        }
     }
 
     private fun refreshLog() {
