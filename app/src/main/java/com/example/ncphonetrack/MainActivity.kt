@@ -503,7 +503,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private data class LinkState(val readFail: Boolean, val pushFail: Boolean, val pushWaiting: Boolean, val readOk: Boolean)
+    private data class LinkState(
+        val readFail: Boolean,
+        val pushFail: Boolean,
+        val localUnavailable: Boolean,
+        val pushWaiting: Boolean,
+        val readOk: Boolean,
+        val pushFresh: Boolean
+    )
 
     private fun linkState(): LinkState {
         val now = System.currentTimeMillis()
@@ -519,14 +526,18 @@ class MainActivity : AppCompatActivity() {
             prefs.getLong("last_success_epoch", 0L) > 0L &&
             now - prefs.getLong("last_success_epoch", 0L) <= publishSec * 2L * 1000
         val quiet = stateName == "off"
+        val localUnavailable = !quiet && stateName != "manual" && stateName != "stopped" &&
+            (stateName == "location off" || stateName == "permission denied" ||
+                stateName == "waiting for GPS" || stateName == "no position")
+        val pushFail = !localUnavailable && result == "network"
         val noAttempt = result.isBlank() || result == "none"
-        val pushWaiting = !quiet && !pushFresh && noAttempt &&
-            stateName != "location off" && stateName != "permission denied" && stateName != "stopped"
-        val pushFail = !quiet && !pushFresh && !pushWaiting
-        return LinkState(readFail, pushFail, pushWaiting, readFresh)
+        val pushWaiting = !quiet && !localUnavailable && !pushFresh && !pushFail && noAttempt && stateName != "stopped"
+        return LinkState(readFail, pushFail, localUnavailable, pushWaiting, readFresh, pushFresh)
     }
 
     private fun connectionFailMessage(link: LinkState): String? = when {
+        link.localUnavailable && link.readFail -> "Connection fail read. local position unavailable."
+        link.localUnavailable -> "local position unavailable."
         link.readFail && link.pushFail -> "Connection fail read and push"
         link.readFail -> "Connection fail read"
         link.pushFail -> "Connection fail push"
@@ -572,9 +583,9 @@ class MainActivity : AppCompatActivity() {
                 }
                 message != null -> {
                     status = message
-                    color = "#C62828"
+                    color = if (link.localUnavailable && !link.readFail && !link.pushFail) "#E65100" else "#C62828"
                 }
-                link.readOk && !link.pushWaiting -> {
+                (link.readOk && link.pushFresh) || (link.readOk && (prefs.getString("logging_state", "") ?: "") == "off") -> {
                     status = "OK"
                     color = "#1B7F3A"
                 }

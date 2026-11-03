@@ -220,7 +220,10 @@ class LocationPublishService : Service() {
         }
         try {
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                if (location != null) publishLocation(location) else LogManager.add("No location to send")
+                if (location != null) publishLocation(location) else {
+                    LogManager.add("No location to send")
+                    prefs.edit().putString("logging_state", "no position").apply()
+                }
             }
         } catch (e: SecurityException) {
             LogManager.add("Location permission missing")
@@ -296,6 +299,7 @@ class LocationPublishService : Service() {
         val fix = spoofedLocation() ?: location
         val point = pointFrom(fix)
         LogManager.add("Fix lat=${fix.latitude} lon=${fix.longitude}")
+        prefs.edit().putString("logging_state", "tracking").apply()
         io.execute {
             appendBuffer(point)
             trySend()
@@ -318,7 +322,7 @@ class LocationPublishService : Service() {
             .build()
     }
 
-    private fun postSync(client: OkHttpClient, point: JSONObject): Boolean {
+    private fun postSync(client: OkHttpClient, point: JSONObject): String {
         val url = logUrl()
         val body = FormBody.Builder()
             .add("lat", point.optDouble("lat").toString())
@@ -334,11 +338,11 @@ class LocationPublishService : Service() {
             client.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
                 LogManager.add("POST ${response.code} ${response.message}")
                 if (response.code == 429) PhoneTrackApi.noteRateLimit(this, response)
-                response.isSuccessful
+                if (response.isSuccessful) "ok" else "rejected"
             }
         } catch (e: Exception) {
             LogManager.add("POST failed: ${e.message}")
-            false
+            "network"
         }
     }
 
@@ -408,7 +412,11 @@ class LocationPublishService : Service() {
     }
 
     private fun trySend() {
-        if (!online() || PhoneTrackApi.rateLimited(this)) {
+        if (!online()) {
+            if (bufferCount() > 0) recordResult("network")
+            return
+        }
+        if (PhoneTrackApi.rateLimited(this)) {
             if (bufferCount() > 0) recordResult("buffered")
             return
         }
@@ -427,12 +435,20 @@ class LocationPublishService : Service() {
                 if (burstSent > 0) recordResult("buffer cleared")
                 return
             }
-            if (!postSync(client, head)) {
-                recordResult("buffered")
-                return
+            when (postSync(client, head)) {
+                "ok" -> {
+                    dropHead(head)
+                    burstSent += 1
+                }
+                "network" -> {
+                    recordResult("network")
+                    return
+                }
+                else -> {
+                    recordResult("buffered")
+                    return
+                }
             }
-            dropHead(head)
-            burstSent += 1
         }
         val left = bufferCount()
         recordResult(if (left == 0) "buffer cleared" else "ok")
@@ -452,9 +468,13 @@ class LocationPublishService : Service() {
     }
 
     private fun recordResult(result: String) {
-        val editor = prefs.edit()
-            .putString("last_result", result)
-            .putString("logging_state", "tracking")
+        val state = prefs.getString("logging_state", "") ?: ""
+        val noFix = state == "location off" || state == "permission denied" ||
+            state == "waiting for GPS" || state == "no position"
+        val editor = prefs.edit().putString("last_result", result)
+        if (result == "ok" || result == "buffer cleared" || !noFix) {
+            editor.putString("logging_state", "tracking")
+        }
         if (result == "ok" || result == "buffer cleared") {
             val now = System.currentTimeMillis()
             editor.putLong("last_success_epoch", now)
