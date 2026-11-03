@@ -2542,14 +2542,17 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad / 2, 0, 0)
         }
         var mapsDialog: AlertDialog? = null
-        var applySizes: (Pair<Long, Map<String, Long>>) -> Unit = {}
+        var showSaved: () -> Unit = {}
         fun refreshSizes() {
-            if (OfflineMaps.queue().isNotEmpty()) return
             Thread {
-                val use = OfflineMaps.diskUse(this)
-                runOnUiThread {
-                    if (mapsDialog?.isShowing != true || OfflineMaps.queue().isNotEmpty()) return@runOnUiThread
-                    applySizes(use)
+                val missing = OfflineMaps.statesMissingSize(prefs)
+                missing.forEach { state ->
+                    if (OfflineMaps.queue().any { it.abbr == state.abbr }) return@forEach
+                    val bytes = OfflineMaps.measureState(this, state)
+                    OfflineMaps.saveBytes(prefs, state, bytes)
+                    runOnUiThread {
+                        if (mapsDialog?.isShowing == true) showSaved()
+                    }
                 }
             }.start()
         }
@@ -2560,10 +2563,10 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { onClick() }
             }
         }
-        fun paintSaved(use: Pair<Long, Map<String, Long>>? = OfflineMaps.cachedDiskUse()) {
+        fun paintSaved() {
             saved.removeAllViews()
-            val totalBytes = use?.first
-            downloadedTitle.text = if (totalBytes != null && totalBytes > 0) {
+            val totalBytes = OfflineMaps.storedTotal(prefs)
+            downloadedTitle.text = if (totalBytes > 0L) {
                 "Downloaded (${OfflineMaps.compactSize(totalBytes)})"
             } else {
                 "Downloaded"
@@ -2623,7 +2626,8 @@ class MainActivity : AppCompatActivity() {
             rows.forEach { (state, at) ->
                 val fresh = OfflineMaps.isFresh(at)
                 val whenText = format.format(java.util.Date(at))
-                val sizeText = use?.second?.get(state.abbr)?.let { OfflineMaps.compactSize(it) }
+                val bytes = OfflineMaps.storedBytes(prefs, state.abbr)
+                val sizeText = if (bytes >= 0L) OfflineMaps.compactSize(bytes) else null
                 saved.addView(LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
@@ -2647,8 +2651,7 @@ class MainActivity : AppCompatActivity() {
                     addView(stateAction(if (fresh) "Delete" else "Update") {
                         if (fresh) {
                             OfflineMaps.remove(this@MainActivity, prefs, state)
-                            paintSaved(null)
-                            refreshSizes()
+                            paintSaved()
                         } else {
                             startDownload(listOf(state), true)
                         }
@@ -2656,7 +2659,7 @@ class MainActivity : AppCompatActivity() {
                 })
             }
         }
-        applySizes = { paintSaved(it) }
+        showSaved = { paintSaved() }
         startDownload = { states, force ->
             confirmMeteredDownload(states, force) { _ ->
                 paintSaved()

@@ -250,6 +250,43 @@ object OfflineMaps {
         }
     }
 
+    fun storedBytes(prefs: SharedPreferences, abbr: String): Long {
+        val item = catalog(prefs).optJSONObject(abbr) ?: return -1L
+        return if (item.has("bytes")) item.optLong("bytes", 0L) else -1L
+    }
+
+    fun storedTotal(prefs: SharedPreferences): Long {
+        return downloaded(prefs).sumOf { (state, _) ->
+            val bytes = storedBytes(prefs, state.abbr)
+            if (bytes > 0L) bytes else 0L
+        }
+    }
+
+    fun statesMissingSize(prefs: SharedPreferences): List<UsState> {
+        return downloaded(prefs).filter { storedBytes(prefs, it.first.abbr) < 0L }.map { it.first }
+    }
+
+    fun saveBytes(prefs: SharedPreferences, state: UsState, bytes: Long) {
+        val root = catalog(prefs)
+        val item = root.optJSONObject(state.abbr) ?: return
+        item.put("bytes", bytes)
+        root.put(state.abbr, item)
+        prefs.edit().putString("offline_maps", root.toString()).apply()
+    }
+
+    fun measureState(context: Context, state: UsState): Long {
+        var total = 0L
+        for (map in bases) {
+            for (zoom in zoomsFor(state)) {
+                for ((x, y) in tilesAt(state, zoom)) {
+                    val file = File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}")
+                    if (file.isFile) total += file.length()
+                }
+            }
+        }
+        return total
+    }
+
     fun stale(prefs: SharedPreferences): List<UsState> {
         val now = System.currentTimeMillis()
         return downloaded(prefs).filter { now - it.second > FRESH_MS }.map { it.first }
@@ -360,8 +397,7 @@ object OfflineMaps {
                     val error = download(context, job.first, job.second, total, onStatus)
                     synchronized(pending) { current = null }
                     if (error == null) {
-                        mark(prefs, job.first)
-                        invalidateDiskUse()
+                        mark(prefs, job.first, measureState(context, job.first))
                         onStatus("${job.first.name} downloaded")
                         LogManager.add("${job.first.name}: offline maps downloaded")
                     } else if (error == "cancelled") {
@@ -575,9 +611,12 @@ object OfflineMaps {
         }
     }
 
-    private fun mark(prefs: SharedPreferences, state: UsState) {
+    private fun mark(prefs: SharedPreferences, state: UsState, bytes: Long) {
         val root = catalog(prefs)
-        root.put(state.abbr, JSONObject().put("at", System.currentTimeMillis()).put("name", state.name))
+        root.put(state.abbr, JSONObject()
+            .put("at", System.currentTimeMillis())
+            .put("name", state.name)
+            .put("bytes", bytes))
         prefs.edit().putString("offline_maps", root.toString()).apply()
     }
 }
