@@ -860,7 +860,7 @@ class MainActivity : AppCompatActivity() {
         tvMapBanner.setBackgroundColor(Color.parseColor(if (localOnly) "#757575" else "#C62828"))
         sessionBanner.text = if (SharingControl.remaining(this) > 0L && !positionUpdatesOff()) {
             val left = SharingControl.hourMinuteLabel(SharingControl.remaining(this))
-            if (name.isBlank()) left else "$name $left"
+            if (name.isBlank()) "($left)" else "$name ($left)"
         } else {
             name
         }
@@ -3542,13 +3542,26 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (points.size == 1) {
+            val here = map.mapCenter
+            val same = kotlin.math.abs(here.latitude - points[0].latitude) < 0.00001 &&
+                kotlin.math.abs(here.longitude - points[0].longitude) < 0.00001
+            if (same && kotlin.math.abs(map.zoomLevelDouble - 16.0) < 0.2) return
             map.controller.setCenter(points[0])
             map.controller.setZoom(16.0)
             return
         }
         val pad = (56 * resources.displayMetrics.density).toInt()
+        if (pointsInWindow(points, pad)) return
         map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), false, pad)
         map.post { keepPointsInWindow(points, pad, 8) }
+    }
+
+    private fun pointsInWindow(points: List<GeoPoint>, pad: Int): Boolean {
+        if (map.zoomLevelDouble <= 0.0) return false
+        return points.all { point ->
+            val pixel = map.projection.toPixels(point, null)
+            pixel.x >= pad && pixel.y >= pad && pixel.x <= map.width - pad && pixel.y <= map.height - pad
+        }
     }
 
     private fun keepPointsInWindow(points: List<GeoPoint>, pad: Int, steps: Int) {
