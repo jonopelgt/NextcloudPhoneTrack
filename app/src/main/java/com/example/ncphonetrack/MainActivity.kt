@@ -1656,6 +1656,12 @@ class MainActivity : AppCompatActivity() {
             setText(existing?.optString("name").orEmpty())
             layoutParams = width
         }
+        val creatorField = EditText(this).apply {
+            hint = "Creator"
+            setText(existing?.optString("owner").orEmpty().ifBlank { if (existing == null) user else "" })
+            isEnabled = false
+            layoutParams = width
+        }
         val searchField = EditText(this).apply {
             hint = "Search friends"
             layoutParams = width
@@ -1756,6 +1762,7 @@ class MainActivity : AppCompatActivity() {
             layoutParams = width
         }
         box.addView(nameField)
+        box.addView(creatorField)
         val sessionToken = existing?.optString("token").orEmpty()
         if (sessionToken.isNotBlank()) {
             box.addView(TextView(this).apply {
