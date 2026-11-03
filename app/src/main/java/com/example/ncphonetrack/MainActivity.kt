@@ -3058,7 +3058,9 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, 0)
         }
-        var selectedMode = currentPositionMode()
+        var selectedMode = currentPositionMode().let { mode ->
+            if (mode == "quiet") prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move" else mode
+        }
         val modeList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun renderModes() {
             modeList.removeAllViews()
@@ -3219,14 +3221,12 @@ class MainActivity : AppCompatActivity() {
             shareClock.removeCallbacks(tickShareClock)
             shareClock.post(tickShareClock)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val sharing = selectedMode != "quiet" || spoof.isChecked
                 val edit = prefs.edit()
                     .putString("position_mode", selectedMode)
-                    .putBoolean("location_sharing", sharing)
                     .putBoolean("spoof_enabled", spoof.isChecked)
                     .putString("spoof_lat", lat.text.toString().trim())
                     .putString("spoof_lon", lon.text.toString().trim())
-                if (selectedMode != "quiet") edit.putString("share_mode", selectedMode)
+                    .putString("share_mode", selectedMode)
                 edit.apply()
                 dialog.dismiss()
                 refreshModeButton()
@@ -3260,7 +3260,7 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private val positionModes = listOf("manual", "quiet", "significant", "move", "rapid")
+    private val positionModes = listOf("manual", "significant", "move", "rapid")
 
     private fun currentPositionMode(): String = prefs.getString("position_mode", "move") ?: "move"
 
@@ -3443,14 +3443,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setPositionMode(mode: String) {
-        if (mode == "quiet") {
-            SharingControl.set(this, false)
-            refreshModeButton()
-            return
-        }
-        val edit = prefs.edit().putString("position_mode", mode).putBoolean("location_sharing", true)
-        edit.putString("share_mode", mode)
-        edit.apply()
+        if (mode == "quiet") return
+        prefs.edit().putString("position_mode", mode).putString("share_mode", mode).apply()
         refreshModeButton()
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
     }
@@ -3473,7 +3467,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendCurrentPosition() {
-        if (currentPositionMode() == "quiet" && !prefs.getBoolean("spoof_enabled", false)) return
+        if (positionUpdatesOff()) return
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
         if (!isValidBaseUrl(url) || token.isBlank()) {

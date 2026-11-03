@@ -16,8 +16,7 @@ object SharingControl {
         val end = prefs.getLong("share_timer_end", 0L)
         if (end > 0L && System.currentTimeMillis() >= end) return false
         if (!prefs.getBoolean("location_sharing", true)) return false
-        val mode = prefs.getString("position_mode", "move") ?: "move"
-        return mode != "quiet" || prefs.getBoolean("spoof_enabled", false)
+        return true
     }
 
     fun remaining(context: Context): Long {
@@ -66,24 +65,23 @@ object SharingControl {
     }
 
     fun set(context: Context, on: Boolean) {
-        expireIfDue(context)
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
-        val mode = prefs.getString("position_mode", "move") ?: "move"
+        val now = System.currentTimeMillis()
+        val end = prefs.getLong("share_timer_end", 0L)
         val edit = prefs.edit().putBoolean("location_sharing", on)
+        if (end > 0L && now >= end) edit.putLong("share_timer_end", 0L)
         if (on) {
+            val mode = prefs.getString("position_mode", "move") ?: "move"
             if (mode == "quiet") {
                 val resume = prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move"
                 edit.putString("position_mode", resume)
             }
         } else {
-            if (mode != "quiet") edit.putString("share_mode", mode)
-            edit.putString("position_mode", "quiet")
-            edit.putBoolean("spoof_enabled", false)
             edit.putString("logging_state", "off")
         }
         edit.apply()
-        val end = prefs.getLong("share_timer_end", 0L)
-        if (end > System.currentTimeMillis()) scheduleAlarm(context) else cancelAlarm(context)
+        val kept = prefs.getLong("share_timer_end", 0L)
+        if (kept > now) scheduleAlarm(context) else cancelAlarm(context)
         applyService(context)
         refreshSurfaces(context)
         context.sendBroadcast(Intent(ACTION_SHARING_CHANGED).setPackage(context.packageName))
@@ -210,15 +208,11 @@ object SharingControl {
 
     private fun expire(context: Context) {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
-        val mode = prefs.getString("position_mode", "move") ?: "move"
-        val edit = prefs.edit()
+        prefs.edit()
             .putBoolean("location_sharing", false)
             .putLong("share_timer_end", 0L)
-            .putString("position_mode", "quiet")
-            .putBoolean("spoof_enabled", false)
             .putString("logging_state", "off")
-        if (mode != "quiet") edit.putString("share_mode", mode)
-        edit.apply()
+            .apply()
         cancelAlarm(context)
         applyService(context)
         refreshSurfaces(context)
