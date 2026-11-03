@@ -467,6 +467,7 @@ class MainActivity : AppCompatActivity() {
     private fun showMap() {
         statusPanel.visibility = View.GONE
         refreshMapBanner()
+        refreshZoomKeys()
     }
 
     private fun showStatusPanel() {
@@ -478,7 +479,7 @@ class MainActivity : AppCompatActivity() {
         tvStatusToken.text = "Token: $token"
         val state = prefs.getString("logging_state", "idle") ?: "idle"
         val result = prefs.getString("last_result", "none") ?: "none"
-        tvLoggingState.text = "Logging: $state ($result)"
+        tvLoggingState.text = "Logging: $state (${resultLabel(result)})"
         val last = prefs.getLong("last_publish_epoch", 0L)
         tvLastUpdate.text = if (last <= 0L) {
             "Last update: never"
@@ -490,6 +491,14 @@ class MainActivity : AppCompatActivity() {
         refreshConnectionStatus()
         refreshLog()
         startLogTimer()
+        refreshZoomKeys()
+    }
+
+    private fun resultLabel(result: String): String {
+        return when {
+            result.isBlank() || result == "none" -> "no position yet"
+            else -> result
+        }
     }
 
     private fun refreshConnectionStatus() {
@@ -507,7 +516,7 @@ class MainActivity : AppCompatActivity() {
         val latestFailed = result != "ok" && result != "buffer cleared"
         val stale = ageSec > intervalSec * 2L
         val ok = !latestFailed && !stale
-        tvLoggingState.text = "Logging: ${prefs.getString("logging_state", "idle") ?: "idle"} (${result.ifBlank { "none" }})"
+        tvLoggingState.text = "Logging: ${prefs.getString("logging_state", "idle") ?: "idle"} (${resultLabel(result)})"
         tvLastUpdate.text = if (lastOk <= 0L) "Last update: never" else "Last update: ${ageSec}s ago"
         tvBuffer.text = "Buffered points: ${prefs.getInt("buffer_count", 0)}"
         refreshSessionStatusList(ok)
@@ -523,11 +532,18 @@ class MainActivity : AppCompatActivity() {
         }
         val activeUrl = prefs.getString("url", "") ?: ""
         val activeToken = prefs.getString("token", "") ?: ""
+        val result = prefs.getString("last_result", "") ?: ""
         sessions.forEach { session ->
             val enabled = session.optBoolean("enabled", true)
             val active = enabled && activeToken.isNotBlank() &&
                 session.optString("url") == activeUrl &&
                 session.optString("token") == activeToken
+            val stateName = prefs.getString("logging_state", "idle") ?: "idle"
+            val waiting = active && !trackingOk &&
+                (result.isBlank() || result == "none") &&
+                stateName != "location off" &&
+                stateName != "permission denied" &&
+                stateName != "stopped"
             val status: String
             val color: String
             when {
@@ -538,6 +554,10 @@ class MainActivity : AppCompatActivity() {
                 active && trackingOk -> {
                     status = "OK"
                     color = "#1B7F3A"
+                }
+                active && waiting -> {
+                    status = "Waiting"
+                    color = "#E65100"
                 }
                 active -> {
                     status = "Failed"
@@ -2322,6 +2342,11 @@ class MainActivity : AppCompatActivity() {
         map.onResume()
         refreshMapBanner()
         if (logTimer == null) startLogTimer()
+        val url = prefs.getString("url", "") ?: ""
+        val token = prefs.getString("token", "") ?: ""
+        if (fetchTimer == null && url.isNotBlank() && token.isNotBlank() && checkPermissions() && activeSessionEnabled()) {
+            startTrackingFromPrefs()
+        }
     }
     override fun onPause() { super.onPause(); map.onPause(); stopLogTimer() }
     override fun onDestroy() {

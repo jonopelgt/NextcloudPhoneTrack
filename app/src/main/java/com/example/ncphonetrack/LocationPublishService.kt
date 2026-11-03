@@ -9,6 +9,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -23,6 +25,7 @@ import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.tasks.CancellationTokenSource
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -39,6 +42,8 @@ class LocationPublishService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var prefs: SharedPreferences
     private var locationCallback: LocationCallback? = null
+    private var legacyListener: LocationListener? = null
+    private val legacyStarted = AtomicBoolean(false)
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var nextcloudUrl: String = ""
     private var token: String = ""
@@ -74,12 +79,9 @@ class LocationPublishService : Service() {
         }
 
         LogManager.add("Service started for $deviceName")
-        prefs.edit().putString("logging_state", "tracking").apply()
-        if (intent?.action == ACTION_PUBLISH_ONCE) {
-            publishOnce()
-        } else {
-            startLocationUpdates()
-        }
+        prefs.edit().putString("logging_state", "waiting for GPS").apply()
+        startLocationUpdates()
+        if (intent?.action == ACTION_PUBLISH_ONCE) publishOnce()
         watchNetwork()
         flushBufferAsync()
         return START_STICKY
@@ -95,6 +97,14 @@ class LocationPublishService : Service() {
             fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         }
         locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+        legacyListener?.let { listener ->
+            try {
+                getSystemService(LocationManager::class.java)?.removeUpdates(listener)
+            } catch (_: Exception) {
+            }
+        }
+        legacyListener = null
+        legacyStarted.set(false)
         val mode = prefs.getString("position_mode", "move") ?: "move"
         val spoofing = prefs.getBoolean("spoof_enabled", false)
         if (!spoofing && (mode == "quiet" || mode == "manual")) {
@@ -142,6 +152,27 @@ class LocationPublishService : Service() {
 
         try {
             fusedLocationClient.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
+                .addOnFailureListener { error ->
+                    LogManager.add("Play location failed: ${error.message}")
+                    startLegacyUpdates()
+                }
+            fusedLocationClient.lastLocation
+                .addOnSuccessListener { location ->
+                    if (location != null) publishLocation(location)
+                    else LogManager.add("No last location yet")
+                }
+                .addOnFailureListener { error ->
+                    LogManager.add("Last location failed: ${error.message}")
+                }
+            fusedLocationClient.getCurrentLocation(
+                LocationRequest.PRIORITY_HIGH_ACCURACY,
+                CancellationTokenSource().token
+            ).addOnSuccessListener { location ->
+                if (location != null) publishLocation(location)
+            }.addOnFailureListener { error ->
+                LogManager.add("Current location failed: ${error.message}")
+                startLegacyUpdates()
+            }
             LogManager.add(when {
                 spoofing -> "Spoofed location every ${publishIntervalMs() / 1000}s"
                 mode == "significant" -> "Significant location updates"
@@ -151,6 +182,31 @@ class LocationPublishService : Service() {
         } catch (e: SecurityException) {
             LogManager.add("Location permission missing")
             prefs.edit().putString("logging_state", "permission denied").apply()
+        }
+    }
+
+    private fun startLegacyUpdates() {
+        if (!legacyStarted.compareAndSet(false, true)) return
+        val manager = getSystemService(LocationManager::class.java) ?: return
+        val provider = when {
+            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+            else -> {
+                LogManager.add("Location providers are off")
+                prefs.edit().putString("logging_state", "location off").apply()
+                return
+            }
+        }
+        val listener = LocationListener { publishLocation(it) }
+        legacyListener = listener
+        try {
+            manager.requestLocationUpdates(provider, publishIntervalMs(), 0f, listener, Looper.getMainLooper())
+            LogManager.add("Location updates from $provider")
+            manager.getLastKnownLocation(provider)?.let { publishLocation(it) }
+        } catch (e: SecurityException) {
+            LogManager.add("Location permission missing")
+            prefs.edit().putString("logging_state", "permission denied").apply()
+            legacyListener = null
         }
     }
 
@@ -428,6 +484,12 @@ class LocationPublishService : Service() {
         io.shutdownNow()
         locationCallback?.let {
             if (::fusedLocationClient.isInitialized) fusedLocationClient.removeLocationUpdates(it)
+        }
+        legacyListener?.let { listener ->
+            try {
+                getSystemService(LocationManager::class.java)?.removeUpdates(listener)
+            } catch (_: Exception) {
+            }
         }
         networkCallback?.let { callback ->
             try {
