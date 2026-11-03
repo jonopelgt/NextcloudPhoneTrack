@@ -1762,12 +1762,10 @@ class MainActivity : AppCompatActivity() {
             setPadding(pad, pad, pad, 0)
         }
         val nameField = EditText(this).apply {
-            hint = "Session name"
             setText(existing?.optString("name").orEmpty())
             layoutParams = width
         }
         val creatorField = EditText(this).apply {
-            hint = "Creator"
             setText(existing?.optString("owner").orEmpty().ifBlank { if (existing == null) user else "" })
             isEnabled = false
             layoutParams = width
@@ -1836,7 +1834,22 @@ class MainActivity : AppCompatActivity() {
         }
         val publicUrl = TextView(this).apply {
             text = "The public URL is available after the session is created."
-            setPadding(pad, pad / 2, pad, pad / 2)
+            setPadding(0, pad / 2, pad, pad / 2)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            setTextIsSelectable(true)
+        }
+        val copyLink = android.widget.ImageButton(this).apply {
+            setImageResource(R.drawable.ic_copy)
+            contentDescription = "Copy public link"
+            background = null
+            visibility = View.GONE
+            setOnClickListener {
+                val link = publicUrl.text?.toString().orEmpty()
+                if (!link.startsWith("http")) return@setOnClickListener
+                val clipboard = getSystemService(android.content.ClipboardManager::class.java)
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Public link", link))
+                Toast.makeText(this@MainActivity, "Copied", Toast.LENGTH_SHORT).show()
+            }
         }
         val publicAccordion = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -1845,7 +1858,12 @@ class MainActivity : AppCompatActivity() {
                 text = "Public URL"
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
-            addView(publicUrl)
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                addView(publicUrl)
+                addView(copyLink)
+            })
         }
         publicSwitch.setOnCheckedChangeListener { _, checked ->
             publicAccordion.visibility = if (checked) View.VISIBLE else View.GONE
@@ -1871,7 +1889,16 @@ class MainActivity : AppCompatActivity() {
             setText((existing?.optInt("age_out_min", 15) ?: 15).toString())
             layoutParams = width
         }
+        box.addView(TextView(this).apply {
+            text = "Session name"
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
         box.addView(nameField)
+        box.addView(TextView(this).apply {
+            text = "Session creator"
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad, 0, pad / 4)
+        })
         box.addView(creatorField)
         val sessionToken = existing?.optString("token").orEmpty()
         if (sessionToken.isNotBlank()) {
@@ -2013,6 +2040,7 @@ class MainActivity : AppCompatActivity() {
                         if (detail.publicToken.isNotBlank()) {
                             publicUrl.text = PhoneTrackUrl.parse(server).base +
                                 "/index.php/apps/phonetrack/publicSessionWatch/${detail.publicToken}"
+                            copyLink.visibility = View.VISIBLE
                         }
                         showDevices(detail)
                     } else {
