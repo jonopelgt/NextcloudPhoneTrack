@@ -3286,7 +3286,7 @@ class MainActivity : AppCompatActivity() {
         "rapid" -> R.drawable.ic_mode_rocket
         "spoof" -> R.drawable.ic_mode_spy
         "timer" -> R.drawable.ic_mode_timer
-        "on" -> R.drawable.ic_mode_on
+        "on" -> R.drawable.ic_mode_broadcast
         else -> R.drawable.ic_mode_car
     }
 
@@ -3302,7 +3302,7 @@ class MainActivity : AppCompatActivity() {
                 when {
                     !sharingOn -> R.drawable.ic_mode_off
                     timing -> R.drawable.ic_mode_timer
-                    else -> R.drawable.ic_mode_on
+                    else -> R.drawable.ic_mode_broadcast
                 }
             )
             btnSharing.contentDescription = when {
