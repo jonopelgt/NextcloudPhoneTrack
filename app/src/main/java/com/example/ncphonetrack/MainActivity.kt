@@ -3109,6 +3109,10 @@ class MainActivity : AppCompatActivity() {
             text = "Timer off"
             setPadding(0, pad / 2, 0, pad / 2)
         }
+        val showRemaining = {
+            val left = SharingControl.remaining(this)
+            remainingView.text = if (left > 0L) "Time left ${SharingControl.remainingLabel(left)}" else "Timer off"
+        }
         val durationSpinner = android.widget.Spinner(this).apply {
             adapter = android.widget.ArrayAdapter(
                 this@MainActivity,
@@ -3130,10 +3134,6 @@ class MainActivity : AppCompatActivity() {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
         durationSpinner.post { durationAdjusting = false }
-        fun showRemaining() {
-            val left = SharingControl.remaining(this)
-            remainingView.text = if (left > 0L) "Time left ${SharingControl.remainingLabel(left)}" else "Timer off"
-        }
         showRemaining()
         box.addView(TextView(this).apply {
             text = "Timer"
