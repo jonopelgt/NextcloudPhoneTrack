@@ -566,8 +566,9 @@ class MainActivity : AppCompatActivity() {
             includeRead -> prefs.getLong("last_map_ok", 0L)
             else -> 0L
         }
-        val readFresh = includeRead && readResult == "ok" && mapOk > 0L && now - mapOk <= fetchSec * 2L * 1000
-        val readFail = includeRead && (readResult == "failed" || (readResult == "ok" && !readFresh))
+        val usingNet = netResult.isNotBlank()
+        val readFresh = (usingNet || includeRead) && readResult == "ok" && mapOk > 0L && now - mapOk <= fetchSec * 2L * 1000
+        val readFail = (usingNet || includeRead) && (readResult == "failed" || (readResult == "ok" && !readFresh))
         val pushFresh = result == "ok" && successEpoch > 0L && now - successEpoch <= publishSec * 2L * 1000
         val quiet = stateName == "off" || updatesOff
         val localUnavailable = updatesOff || (!quiet && stateName != "manual" && stateName != "stopped" &&
@@ -692,7 +693,7 @@ class MainActivity : AppCompatActivity() {
             val selected = token.isNotBlank() && token == shown
             val sessionLink = linkStateFor(token, selected)
             val label = sessionLabel(session)
-            val message = if (selected) connectionFailMessage(label, sessionLink) else null
+            val message = connectionFailMessage(label, sessionLink)
             val status: String
             val color: String
             val rowColor: Int
@@ -734,7 +735,7 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val state = TextView(this).apply {
-                text = if (selected) status else if (!enabled) "Off" else ""
+                text = status
                 textSize = 16f
                 setTextColor(Color.parseColor(color))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
