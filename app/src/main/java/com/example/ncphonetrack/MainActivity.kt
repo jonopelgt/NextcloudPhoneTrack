@@ -712,9 +712,13 @@ class MainActivity : AppCompatActivity() {
     private var sessionsList: LinearLayout? = null
     private var refreshingNames = false
     private var refreshSettingsPermissions: (() -> Unit)? = null
+    private var serverTokens: Set<String>? = null
+    private var dismissedMissing = setOf<String>()
+    private val createdTokens = mutableSetOf<String>()
+    private var missingPrompt: AlertDialog? = null
 
     private fun showSessions(reloadNames: Boolean = true) {
-        val sessions = loadSessions()
+        val sessions = sessionsForList()
         val pad = (16 * resources.displayMetrics.density).toInt()
         val list = sessionsList ?: LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -723,7 +727,7 @@ class MainActivity : AppCompatActivity() {
         list.removeAllViews()
         if (sessions.isEmpty()) {
             list.addView(TextView(this).apply {
-                text = "No sessions yet. Use New session."
+                text = if (serverTokens != null) "No sessions on the server." else "No sessions yet. Use New session."
                 setPadding(0, pad, 0, pad)
             })
         } else {
@@ -808,10 +812,12 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 refreshingNames = false
                 if (error == null) {
-                    val before = prefs.getString("sessions", "")
                     mergeRemoteSessions(url, remote)
-                    val after = prefs.getString("sessions", "")
-                    if (before != after && sessionsDialog?.isShowing == true) showSessions(reloadNames = false)
+                    val tokens = remote.map { it.token }.toSet()
+                    serverTokens = tokens
+                    createdTokens.removeAll(tokens)
+                    if (sessionsDialog?.isShowing == true) showSessions(reloadNames = false)
+                    promptMissingSessions()
                 }
             }
         }.start()
@@ -1332,6 +1338,46 @@ class MainActivity : AppCompatActivity() {
         return added
     }
 
+    private fun sessionsForList(): List<JSONObject> {
+        val sessions = loadSessions()
+        val tokens = serverTokens ?: return sessions
+        return sessions.filter { it.optString("token") in tokens || it.optString("token") in createdTokens }
+    }
+
+    private fun promptMissingSessions() {
+        val tokens = serverTokens ?: return
+        val missing = loadSessions().filter {
+            val token = it.optString("token")
+            token !in tokens && token !in createdTokens
+        }
+        if (missing.isEmpty()) return
+        val keys = missing.map { it.optString("token") }.toSet()
+        if (keys == dismissedMissing || missingPrompt?.isShowing == true) return
+        val names = missing.joinToString("\n") { session ->
+            if (isActiveSession(session)) "${sessionLabel(session)} (active)" else sessionLabel(session)
+        }
+        missingPrompt = AlertDialog.Builder(this)
+            .setTitle("Not on the server")
+            .setMessage("These sessions are not on the PhoneTrack server:\n\n$names\n\nDelete them from this phone?")
+            .setPositiveButton("Delete") { _, _ ->
+                removeLocalSessions(missing)
+                dismissedMissing = emptySet()
+                if (sessionsDialog?.isShowing == true) showSessions(reloadNames = false)
+            }
+            .setNegativeButton("Cancel") { _, _ -> dismissedMissing = keys }
+            .setOnDismissListener { missingPrompt = null }
+            .create()
+        missingPrompt?.show()
+    }
+
+    private fun removeLocalSessions(gone: List<JSONObject>) {
+        val tokens = gone.map { it.optString("token") }.toSet()
+        val remaining = loadSessions().filter { it.optString("token") !in tokens }
+        prefs.edit().putString("sessions", JSONArray(remaining).toString()).apply()
+        if ((prefs.getString("token", "") ?: "") in tokens) stopTracking()
+        refreshMapBanner()
+    }
+
     private fun sessionLabel(session: JSONObject): String {
         val name = session.optString("name")
         if (name.isNotBlank()) return name
@@ -1388,7 +1434,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun syncSessionSwitches() {
         val list = sessionsList ?: return
-        val sessions = loadSessions()
+        val sessions = sessionsForList()
         var index = 0
         for (i in 0 until list.childCount) {
             val row = list.getChildAt(i) as? LinearLayout ?: continue
@@ -1783,6 +1829,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun rememberCreatedSession(baseUrl: String, created: CreatedSession) {
+        createdTokens.add(created.token)
         val sessions = loadSessions().toMutableList()
         if (sessions.none { it.optString("token") == created.token }) {
             sessions.add(JSONObject().apply {
