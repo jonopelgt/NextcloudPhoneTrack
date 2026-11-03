@@ -55,6 +55,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvConnection: TextView
     private lateinit var sessionStatusList: LinearLayout
     private lateinit var tvMapBanner: TextView
+    private lateinit var sessionBanner: TextView
     private lateinit var noSessionBanner: TextView
     private lateinit var loginBanner: android.view.View
     private lateinit var tvLastUpdate: TextView
@@ -106,6 +107,7 @@ class MainActivity : AppCompatActivity() {
         tvConnection = findViewById(R.id.tvConnection)
         sessionStatusList = findViewById(R.id.sessionStatusList)
         tvMapBanner = findViewById(R.id.tvMapBanner)
+        sessionBanner = findViewById(R.id.tvSessionBanner)
         noSessionBanner = findViewById(R.id.tvNoSessionBanner)
         loginBanner = findViewById(R.id.loginBanner)
         findViewById<Button>(R.id.btnLoginSettings).setOnClickListener { showSettings() }
@@ -477,11 +479,12 @@ class MainActivity : AppCompatActivity() {
         statusPanel.bringToFront()
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
-        tvStatusUrl.text = "URL: $url"
+        val name = displayedSessionName()
+        tvStatusUrl.text = if (name.isBlank()) "URL: $url" else "$name"
         tvStatusToken.text = "Token: $token"
         val state = prefs.getString("logging_state", "idle") ?: "idle"
-        val result = prefs.getString("last_result", "none") ?: "none"
-        tvLoggingState.text = "Logging: $state (${resultLabel(result)})"
+        val result = sessionPush(token).first.ifBlank { prefs.getString("last_result", "none") ?: "none" }
+        tvLoggingState.text = named("$name", "Logging: $state (${resultLabel(result)})")
         val last = prefs.getLong("last_publish_epoch", 0L)
         tvLastUpdate.text = if (last <= 0L) {
             "Last update: never"
@@ -512,19 +515,48 @@ class MainActivity : AppCompatActivity() {
         val pushFresh: Boolean
     )
 
-    private fun linkState(): LinkState {
+    private fun displayedToken(): String = prefs.getString("token", "") ?: ""
+
+    private fun displayedSession(): JSONObject? {
+        val token = displayedToken()
+        if (token.isBlank()) return null
+        return loadSessions().find { it.optString("token") == token && it.optBoolean("enabled", true) }
+    }
+
+    private fun displayedSessionName(): String = displayedSession()?.let { sessionLabel(it) }.orEmpty()
+
+    private fun named(name: String, message: String): String {
+        return if (name.isBlank()) message else "$name: $message"
+    }
+
+    private fun sessionPush(token: String): Pair<String, Long> {
+        if (token.isBlank()) return "" to 0L
+        val all = try {
+            JSONObject(prefs.getString("session_push", "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+        val item = all.optJSONObject(token) ?: return "" to 0L
+        return item.optString("result") to item.optLong("epoch")
+    }
+
+    private fun linkStateFor(token: String, includeRead: Boolean): LinkState {
         val now = System.currentTimeMillis()
         val publishSec = prefs.getInt("publish_interval_sec", 60).coerceIn(5, 3600)
         val fetchSec = prefs.getInt("fetch_interval_sec", 30).coerceIn(5, 3600)
-        val result = prefs.getString("last_result", "") ?: ""
+        val (pushResult, pushEpoch) = sessionPush(token)
+        val result = pushResult.ifBlank {
+            if (token.isNotBlank() && token == displayedToken()) prefs.getString("last_result", "") ?: "" else ""
+        }
+        val successEpoch = if (pushEpoch > 0L) pushEpoch else {
+            if (token.isNotBlank() && token == displayedToken()) prefs.getLong("last_success_epoch", 0L) else 0L
+        }
         val stateName = prefs.getString("logging_state", "idle") ?: "idle"
-        val readResult = prefs.getString("last_read_result", "") ?: ""
-        val mapOk = prefs.getLong("last_map_ok", 0L)
-        val readFresh = readResult == "ok" && mapOk > 0L && now - mapOk <= fetchSec * 2L * 1000
-        val readFail = readResult == "failed" || (readResult == "ok" && !readFresh)
-        val pushFresh = (result == "ok" || result == "buffer cleared") &&
-            prefs.getLong("last_success_epoch", 0L) > 0L &&
-            now - prefs.getLong("last_success_epoch", 0L) <= publishSec * 2L * 1000
+        val readResult = if (includeRead) prefs.getString("last_read_result", "") ?: "" else ""
+        val mapOk = if (includeRead) prefs.getLong("last_map_ok", 0L) else 0L
+        val readFresh = includeRead && readResult == "ok" && mapOk > 0L && now - mapOk <= fetchSec * 2L * 1000
+        val readFail = includeRead && (readResult == "failed" || (readResult == "ok" && !readFresh))
+        val pushFresh = result == "ok" && successEpoch > 0L && now - successEpoch <= publishSec * 2L * 1000
         val quiet = stateName == "off"
         val localUnavailable = !quiet && stateName != "manual" && stateName != "stopped" &&
             (stateName == "location off" || stateName == "permission denied" ||
@@ -535,55 +567,60 @@ class MainActivity : AppCompatActivity() {
         return LinkState(readFail, pushFail, localUnavailable, pushWaiting, readFresh, pushFresh)
     }
 
-    private fun connectionFailMessage(link: LinkState): String? = when {
-        link.localUnavailable && link.readFail -> "Connection fail read. local position unavailable."
-        link.localUnavailable -> "local position unavailable."
-        link.readFail && link.pushFail -> "Connection fail read and push"
-        link.readFail -> "Connection fail read"
-        link.pushFail -> "Connection fail push"
+    private fun linkState(): LinkState = linkStateFor(displayedToken(), true)
+
+    private fun connectionFailMessage(name: String, link: LinkState): String? = when {
+        link.localUnavailable && link.readFail -> named(name, "Connection fail read. local position unavailable.")
+        link.localUnavailable -> named(name, "local position unavailable.")
+        link.readFail && link.pushFail -> named(name, "Connection fail read and push")
+        link.readFail -> named(name, "Connection fail read")
+        link.pushFail -> named(name, "Connection fail push")
         else -> null
     }
 
     private fun refreshConnectionStatus() {
+        val name = displayedSessionName()
         val link = linkState()
-        val message = connectionFailMessage(link)
-        val result = prefs.getString("last_result", "") ?: ""
+        val message = connectionFailMessage(name, link)
+        val (pushResult, pushEpoch) = sessionPush(displayedToken())
+        val result = pushResult.ifBlank { prefs.getString("last_result", "") ?: "" }
         val state = prefs.getString("logging_state", "idle") ?: "idle"
-        val detail = "Logging: $state (${resultLabel(result)})"
+        val detail = named(name, "Logging: $state (${resultLabel(result)})")
         tvLoggingState.text = if (message == null) detail else "$message\n$detail"
-        val lastOk = prefs.getLong("last_success_epoch", 0L)
+        val lastOk = if (pushEpoch > 0L) pushEpoch else prefs.getLong("last_success_epoch", 0L)
         val ageSec = if (lastOk <= 0L) Long.MAX_VALUE else (System.currentTimeMillis() - lastOk) / 1000
-        tvLastUpdate.text = if (lastOk <= 0L) "Last update: never" else "Last update: ${ageSec}s ago"
+        tvLastUpdate.text = if (lastOk <= 0L) "Last update: never" else named(name, "Last update: ${ageSec}s ago")
         tvBuffer.text = "Buffered points: ${prefs.getInt("buffer_count", 0)}"
-        refreshSessionStatusList(link)
+        refreshSessionStatusList()
         refreshMapBanner()
     }
 
-    private fun refreshSessionStatusList(link: LinkState) {
+    private fun refreshSessionStatusList() {
         sessionStatusList.removeAllViews()
         val sessions = loadSessions()
         if (sessions.isEmpty()) {
             sessionStatusList.addView(TextView(this).apply { text = "No sessions" })
             return
         }
-        val activeUrl = prefs.getString("url", "") ?: ""
-        val activeToken = prefs.getString("token", "") ?: ""
-        val message = connectionFailMessage(link)
+        val shown = displayedToken()
+        val quiet = (prefs.getString("logging_state", "") ?: "") == "off"
         sessions.forEach { session ->
             val enabled = session.optBoolean("enabled", true)
-            val active = enabled && activeToken.isNotBlank() &&
-                session.optString("url") == activeUrl &&
-                session.optString("token") == activeToken
+            val token = session.optString("token")
+            val onMap = enabled && token.isNotBlank() && token == shown
+            val sessionLink = linkStateFor(token, onMap)
+            val label = sessionLabel(session)
+            val message = connectionFailMessage(label, sessionLink)
             val status: String
             val color: String
             val rowColor: Int
             when {
-                !enabled || !active -> {
+                !enabled -> {
                     status = "Off"
                     color = "#9E9E9E"
                     rowColor = Color.TRANSPARENT
                 }
-                message != null && link.localUnavailable && !link.readFail && !link.pushFail -> {
+                message != null && sessionLink.localUnavailable && !sessionLink.readFail && !sessionLink.pushFail -> {
                     status = message
                     color = "#424242"
                     rowColor = Color.parseColor("#E0E0E0")
@@ -593,7 +630,12 @@ class MainActivity : AppCompatActivity() {
                     color = "#C62828"
                     rowColor = Color.TRANSPARENT
                 }
-                (link.readOk && link.pushFresh) || (link.readOk && (prefs.getString("logging_state", "") ?: "") == "off") -> {
+                sessionLink.pushFresh && (!onMap || sessionLink.readOk) -> {
+                    status = "OK"
+                    color = "#1B7F3A"
+                    rowColor = Color.TRANSPARENT
+                }
+                quiet && (!onMap || sessionLink.readOk) -> {
                     status = "OK"
                     color = "#1B7F3A"
                     rowColor = Color.TRANSPARENT
@@ -605,7 +647,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             val name = TextView(this).apply {
-                text = sessionLabel(session)
+                text = if (onMap) "$label · map" else label
                 textSize = 16f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
@@ -626,14 +668,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshMapBanner() {
+        val name = displayedSessionName()
         val link = linkState()
-        val message = connectionFailMessage(link)
+        val message = connectionFailMessage(name, link)
         val mapVisible = statusPanel.visibility != View.VISIBLE
         val verified = prefs.getBoolean("credentials_verified", false)
         val noneActive = loadSessions().none { it.optBoolean("enabled", true) }
-        tvMapBanner.text = message ?: "Not connected"
+        tvMapBanner.text = message ?: named(name, "Not connected")
         val localOnly = link.localUnavailable && !link.readFail && !link.pushFail
         tvMapBanner.setBackgroundColor(Color.parseColor(if (localOnly) "#757575" else "#C62828"))
+        sessionBanner.text = name
+        sessionBanner.visibility = if (name.isNotBlank() && !noneActive && mapVisible) View.VISIBLE else View.GONE
         noSessionBanner.visibility = if (noneActive && mapVisible) View.VISIBLE else View.GONE
         tvMapBanner.visibility = if (message != null && !noneActive && mapVisible) View.VISIBLE else View.GONE
         loginBanner.visibility = if (!verified && mapVisible) View.VISIBLE else View.GONE
@@ -700,7 +745,7 @@ class MainActivity : AppCompatActivity() {
         val previous = loadSessions().find { sameSession(it, url, token, device) }
         val sessions = loadSessions().filterNot {
             sameSession(it, url, token, device)
-        }.onEach { it.put("enabled", false) }.toMutableList()
+        }.toMutableList()
         val obj = JSONObject().apply {
             put("url", url)
             put("token", token)
@@ -745,7 +790,7 @@ class MainActivity : AppCompatActivity() {
             })
         } else {
             list.addView(TextView(this).apply {
-                text = "Tap a session to activate it. Hold to configure or delete."
+                text = "Tap a session to show it on the map. More than one session can stay on."
                 textSize = 12f
                 setPadding(0, 0, 0, pad / 2)
             })
@@ -769,8 +814,7 @@ class MainActivity : AppCompatActivity() {
                     isClickable = true
                     isLongClickable = true
                     setOnClickListener {
-                        if (!session.optBoolean("enabled", true)) setSessionEnabled(session, true)
-                        else chooseActivationZoom()
+                        showSessionOnMap(session)
                         sessionsDialog?.dismiss()
                         statusPanel.visibility = View.GONE
                         refreshMapBanner()
@@ -780,8 +824,7 @@ class MainActivity : AppCompatActivity() {
                         true
                     }
                     label.setOnClickListener {
-                        if (!session.optBoolean("enabled", true)) setSessionEnabled(session, true)
-                        else chooseActivationZoom()
+                        showSessionOnMap(session)
                         sessionsDialog?.dismiss()
                         statusPanel.visibility = View.GONE
                         refreshMapBanner()
@@ -882,8 +925,11 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (!dialog.isShowing) return@runOnUiThread
                 list.removeAllViews()
-                val activeToken = prefs.getString("token", "") ?: ""
-                val ordered = rows.sortedByDescending { it.enabled && it.token.isNotBlank() && it.token == activeToken }
+                val displayToken = displayedToken()
+                val ordered = rows.sortedWith(
+                    compareByDescending<FriendRow> { it.token == displayToken }
+                        .thenByDescending { it.enabled }
+                )
                 ordered.forEach { row ->
                     val muted = !row.enabled || !row.reachable
                     val sessionColor = if (muted) Color.parseColor("#9E9E9E") else Color.BLACK
@@ -1389,8 +1435,14 @@ class MainActivity : AppCompatActivity() {
     private fun removeLocalSessions(gone: List<JSONObject>) {
         val tokens = gone.map { it.optString("token") }.toSet()
         val remaining = loadSessions().filter { it.optString("token") !in tokens }
-        prefs.edit().putString("sessions", JSONArray(remaining).toString()).apply()
-        if ((prefs.getString("token", "") ?: "") in tokens) stopTracking()
+        prefs.edit().putString("sessions", JSONArray(remaining).toString()).commit()
+        val shown = prefs.getString("token", "") ?: ""
+        if (shown in tokens) {
+            val next = remaining.firstOrNull { it.optBoolean("enabled", true) }
+            if (next != null) showSessionOnMap(next) else stopTracking()
+        } else if (remaining.any { it.optBoolean("enabled", true) }) {
+            startIfPermittedOrAsk()
+        }
         refreshMapBanner()
     }
 
@@ -1418,31 +1470,50 @@ class MainActivity : AppCompatActivity() {
             (prefs.getString("device", "") ?: "") == session.optString("device")
     }
 
-    private fun setSessionEnabled(session: JSONObject, enabled: Boolean) {
+    private fun showSessionOnMap(session: JSONObject) {
         val url = session.optString("url")
         val token = session.optString("token")
         val device = session.optString("device")
         val sessions = loadSessions()
         sessions.forEach { item ->
-            if (sameSession(item, url, token, device)) item.put("enabled", enabled)
-            else if (enabled) item.put("enabled", false)
+            if (sameSession(item, url, token, device)) item.put("enabled", true)
         }
-        prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
+        prefs.edit()
+            .putString("sessions", JSONArray(sessions).toString())
+            .putString("url", url)
+            .putString("token", token)
+            .putString("device", device)
+            .remove("last_read_result")
+            .remove("last_map_ok")
+            .commit()
+        armActivationZoom()
+        val name = sessionLabel(session)
+        updateStatusText("$name: shown on the map")
+        startIfPermittedOrAsk()
+    }
+
+    private fun setSessionEnabled(session: JSONObject, enabled: Boolean) {
+        val url = session.optString("url")
+        val token = session.optString("token")
+        val device = session.optString("device")
+        val name = sessionLabel(session)
+        val sessions = loadSessions()
+        sessions.forEach { item ->
+            if (sameSession(item, url, token, device)) item.put("enabled", enabled)
+        }
+        prefs.edit().putString("sessions", JSONArray(sessions).toString()).commit()
         if (enabled) {
-            prefs.edit()
-                .putString("url", url)
-                .putString("token", token)
-                .putString("device", device)
-                .remove("last_result")
-                .remove("last_success_epoch")
-                .remove("last_publish_epoch")
-                .remove("last_read_result")
-                .remove("last_map_ok")
-                .apply()
-            armActivationZoom()
-            startIfPermittedOrAsk()
+            updateStatusText("$name: on")
+            if (displayedSession() == null) showSessionOnMap(session)
+            else startIfPermittedOrAsk()
         } else if (isActiveSession(session)) {
-            stopTracking()
+            updateStatusText("$name: off")
+            val next = loadSessions().firstOrNull { it.optBoolean("enabled", true) }
+            if (next != null) showSessionOnMap(next) else stopTracking()
+        } else {
+            updateStatusText("$name: off")
+            if (loadSessions().any { it.optBoolean("enabled", true) }) startIfPermittedOrAsk()
+            else stopTracking()
         }
         if (sessionsDialog?.isShowing == true) syncSessionSwitches() else showSessions(reloadNames = false)
         refreshMapBanner()
@@ -1946,7 +2017,9 @@ class MainActivity : AppCompatActivity() {
         val positionId = prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty { device }
         startLocationService(url, token, positionId)
         startFetchingPositions(url, token, positionId)
-        updateStatusText("Tracking started")
+        val names = loadSessions().filter { it.optBoolean("enabled", true) }.joinToString(", ") { sessionLabel(it) }
+        updateStatusText(if (names.isBlank()) "Tracking started" else "Tracking $names")
+        updateStatusText("${displayedSessionName()}: map")
     }
 
     private fun promptBackgroundOnce() {
@@ -2028,7 +2101,7 @@ class MainActivity : AppCompatActivity() {
                 if (epoch != mapEpoch) return@runOnUiThread
                 if (positions == null) {
                     prefs.edit().putString("last_read_result", "failed").apply()
-                    updateStatusText("Map update failed")
+                    updateStatusText("${displayedSessionName()}: Map update failed")
                     refreshConnectionStatus()
                     return@runOnUiThread
                 }
@@ -2109,7 +2182,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 applyMapFollow(lastPoints.values.toList())
                 map.invalidate()
-                updateStatusText("Map updated: ${positions.size} devices")
+                updateStatusText("${displayedSessionName()}: Map updated: ${positions.size} devices")
             }
         }.start()
     }

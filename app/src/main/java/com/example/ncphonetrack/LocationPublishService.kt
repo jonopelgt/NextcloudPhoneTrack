@@ -71,14 +71,16 @@ class LocationPublishService : Service() {
         createNotificationChannel()
         startForeground(1, createNotification())
 
-        if (nextcloudUrl.isBlank() || token.isBlank()) {
-            LogManager.add("Service stopped: missing URL or token")
+        if (enabledTargets().isEmpty()) {
+            LogManager.add("Service stopped: no enabled session")
             prefs.edit().putString("logging_state", "stopped").apply()
             stopSelf()
             return START_NOT_STICKY
         }
 
-        LogManager.add("Service started for $deviceName")
+        LogManager.add("Service started for " + enabledTargets().joinToString(", ") {
+            it.optString("name").ifBlank { "Unnamed session" }
+        })
         prefs.edit().putString("logging_state", "waiting for GPS").apply()
         startLocationUpdates()
         if (intent?.action == ACTION_PUBLISH_ONCE) publishOnce()
@@ -267,14 +269,31 @@ class LocationPublishService : Service() {
         return if (level >= 0 && scale > 0) (level * 100 / scale) else 0
     }
 
-    private fun logUrl(): String {
-        val parsed = PhoneTrackUrl.parse(nextcloudUrl)
-        nextcloudUrl = parsed.base
-        val fromUrl = parsed.token
-        if (token.isBlank() && !fromUrl.isNullOrBlank()) token = fromUrl
-        val encToken = URLEncoder.encode(token, "UTF-8").replace("+", "%20")
-        val encDevice = URLEncoder.encode(deviceName, "UTF-8").replace("+", "%20")
-        return "$nextcloudUrl/index.php/apps/phonetrack/logPost/$encToken/$encDevice"
+    private fun enabledTargets(): List<JSONObject> {
+        val raw = prefs.getString("sessions", "[]") ?: "[]"
+        val out = mutableListOf<JSONObject>()
+        val arr = try {
+            JSONArray(raw)
+        } catch (_: Exception) {
+            return out
+        }
+        for (i in 0 until arr.length()) {
+            val session = arr.optJSONObject(i) ?: continue
+            if (!session.optBoolean("enabled", true)) continue
+            if (session.optString("url").isBlank() || session.optString("token").isBlank()) continue
+            out.add(session)
+        }
+        return out
+    }
+
+    private fun logUrl(point: JSONObject): String {
+        val raw = point.optString("url").ifBlank { nextcloudUrl }
+        val parsed = PhoneTrackUrl.parse(raw)
+        val sessionToken = point.optString("token").ifBlank { token }
+        val sessionDevice = point.optString("device").ifBlank { deviceName }
+        val encToken = URLEncoder.encode(sessionToken, "UTF-8").replace("+", "%20")
+        val encDevice = URLEncoder.encode(sessionDevice, "UTF-8").replace("+", "%20")
+        return "${parsed.base}/index.php/apps/phonetrack/logPost/$encToken/$encDevice"
     }
 
     private fun pointFrom(location: Location): JSONObject {
@@ -297,11 +316,24 @@ class LocationPublishService : Service() {
 
     private fun publishLocation(location: Location) {
         val fix = spoofedLocation() ?: location
-        val point = pointFrom(fix)
+        val targets = enabledTargets()
+        if (targets.isEmpty()) {
+            LogManager.add("Fix not sent: no enabled session")
+            return
+        }
         LogManager.add("Fix lat=${fix.latitude} lon=${fix.longitude}")
         prefs.edit().putString("logging_state", "tracking").apply()
         io.execute {
-            appendBuffer(point)
+            targets.forEach { session ->
+                val name = session.optString("name").ifBlank { "Unnamed session" }
+                val point = pointFrom(fix)
+                    .put("url", session.optString("url"))
+                    .put("token", session.optString("token"))
+                    .put("device", session.optString("device").ifBlank { deviceName })
+                    .put("name", name)
+                appendBuffer(point)
+                LogManager.add("$name: queued position")
+            }
             trySend()
         }
     }
@@ -323,7 +355,7 @@ class LocationPublishService : Service() {
     }
 
     private fun postSync(client: OkHttpClient, point: JSONObject): String {
-        val url = logUrl()
+        val url = logUrl(point)
         val body = FormBody.Builder()
             .add("lat", point.optDouble("lat").toString())
             .add("lon", point.optDouble("lon").toString())
@@ -336,12 +368,14 @@ class LocationPublishService : Service() {
             .build()
         return try {
             client.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
-                LogManager.add("POST ${response.code} ${response.message}")
+                val name = point.optString("name").ifBlank { "Session" }
+                LogManager.add("$name: POST ${response.code} ${response.message}")
                 if (response.code == 429) PhoneTrackApi.noteRateLimit(this, response)
                 if (response.isSuccessful) "ok" else "rejected"
             }
         } catch (e: Exception) {
-            LogManager.add("POST failed: ${e.message}")
+            val name = point.optString("name").ifBlank { "Session" }
+            LogManager.add("$name: POST failed: ${e.message}")
             "network"
         }
     }
@@ -366,7 +400,7 @@ class LocationPublishService : Service() {
     private fun bufferCount(): Int = synchronized(bufferLock) { readBuffer().length() }
 
     private fun pointKey(point: JSONObject): String {
-        return "${point.optLong("timestamp")}:${point.optDouble("lat")}:${point.optDouble("lon")}"
+        return "${point.optString("token")}:${point.optLong("timestamp")}:${point.optDouble("lat")}:${point.optDouble("lon")}"
     }
 
     private fun peekHead(): JSONObject? = synchronized(bufferLock) {
@@ -411,13 +445,31 @@ class LocationPublishService : Service() {
         }
     }
 
+    private fun deferHead(point: JSONObject) {
+        val key = pointKey(point)
+        synchronized(bufferLock) {
+            val arr = readBuffer()
+            if (arr.length() == 0) return
+            var removed: JSONObject? = null
+            for (i in 0 until arr.length()) {
+                if (pointKey(arr.getJSONObject(i)) == key) {
+                    removed = arr.getJSONObject(i)
+                    arr.remove(i)
+                    break
+                }
+            }
+            if (removed != null) arr.put(removed)
+            writeBuffer(arr)
+        }
+    }
+
     private fun trySend() {
         if (!online()) {
-            if (bufferCount() > 0) recordResult("network")
+            markBuffered("network")
             return
         }
         if (PhoneTrackApi.rateLimited(this)) {
-            if (bufferCount() > 0) recordResult("buffered")
+            markBuffered("buffered")
             return
         }
         val now = System.currentTimeMillis()
@@ -429,30 +481,39 @@ class LocationPublishService : Service() {
             scheduleDrain(1000L - (now - burstWindowStart))
             return
         }
+        val seen = mutableSetOf<String>()
         val client = logClient()
         while (burstSent < BURST) {
-            val head = peekHead() ?: run {
-                if (burstSent > 0) recordResult("buffer cleared")
-                return
-            }
+            val head = peekHead() ?: return
+            if (!seen.add(pointKey(head))) return
             when (postSync(client, head)) {
                 "ok" -> {
                     dropHead(head)
                     burstSent += 1
+                    recordResult(head, "ok")
                 }
                 "network" -> {
-                    recordResult("network")
-                    return
+                    recordResult(head, "network")
+                    deferHead(head)
                 }
                 else -> {
-                    recordResult("buffered")
-                    return
+                    recordResult(head, "buffered")
+                    deferHead(head)
                 }
             }
         }
-        val left = bufferCount()
-        recordResult(if (left == 0) "buffer cleared" else "ok")
-        if (left > 0 && !PhoneTrackApi.rateLimited(this)) scheduleDrain(1000L)
+        if (bufferCount() > 0 && !PhoneTrackApi.rateLimited(this)) scheduleDrain(1000L)
+    }
+
+    private fun markBuffered(result: String) {
+        val arr = synchronized(bufferLock) { readBuffer() }
+        val seen = mutableSetOf<String>()
+        for (i in 0 until arr.length()) {
+            val point = arr.getJSONObject(i)
+            val key = point.optString("token")
+            if (key.isBlank() || !seen.add(key)) continue
+            recordResult(point, result)
+        }
     }
 
     private fun scheduleDrain(delayMs: Long) {
@@ -467,20 +528,34 @@ class LocationPublishService : Service() {
         io.execute { trySend() }
     }
 
-    private fun recordResult(result: String) {
+    private fun recordResult(point: JSONObject, result: String) {
+        val tokenKey = point.optString("token").ifBlank { token }
+        val name = point.optString("name").ifBlank { "Unnamed session" }
         val state = prefs.getString("logging_state", "") ?: ""
         val noFix = state == "location off" || state == "permission denied" ||
             state == "waiting for GPS" || state == "no position"
-        val editor = prefs.edit().putString("last_result", result)
-        if (result == "ok" || result == "buffer cleared" || !noFix) {
-            editor.putString("logging_state", "tracking")
+        val all = try {
+            JSONObject(prefs.getString("session_push", "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
         }
-        if (result == "ok" || result == "buffer cleared") {
-            val now = System.currentTimeMillis()
-            editor.putLong("last_success_epoch", now)
-            editor.putLong("last_publish_epoch", now)
+        val now = System.currentTimeMillis()
+        val item = all.optJSONObject(tokenKey) ?: JSONObject()
+        item.put("result", result)
+        item.put("name", name)
+        if (result == "ok") item.put("epoch", now)
+        all.put(tokenKey, item)
+        val editor = prefs.edit().putString("session_push", all.toString())
+        if (result == "ok" || !noFix) editor.putString("logging_state", "tracking")
+        if (tokenKey.isNotBlank() && tokenKey == prefs.getString("token", "")) {
+            editor.putString("last_result", result)
+            if (result == "ok") {
+                editor.putLong("last_success_epoch", now)
+                editor.putLong("last_publish_epoch", now)
+            }
         }
         editor.apply()
+        LogManager.add("$name: $result")
     }
 
     private fun createNotificationChannel() {
@@ -493,7 +568,9 @@ class LocationPublishService : Service() {
     private fun createNotification(): Notification {
         return NotificationCompat.Builder(this, "location")
             .setContentTitle("PhoneTrack Sharing")
-            .setContentText("Publishing location to Nextcloud")
+            .setContentText(enabledTargets().joinToString(", ") {
+                it.optString("name").ifBlank { "Unnamed session" }
+            }.ifBlank { "Publishing location to Nextcloud" })
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .build()
