@@ -2255,6 +2255,14 @@ class MainActivity : AppCompatActivity() {
         }
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val saved = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        var startDownload: (List<UsState>, Boolean) -> Unit = { _, _ -> }
+        fun stateAction(label: String, onClick: () -> Unit): Button {
+            return Button(this).apply {
+                text = label
+                textSize = 12f
+                setOnClickListener { onClick() }
+            }
+        }
         fun paintSaved() {
             saved.removeAllViews()
             val active = OfflineMaps.queue()
@@ -2338,14 +2346,7 @@ class MainActivity : AppCompatActivity() {
                 })
             }
         }
-        fun stateAction(label: String, onClick: () -> Unit): Button {
-            return Button(this).apply {
-                text = label
-                textSize = 12f
-                setOnClickListener { onClick() }
-            }
-        }
-        fun startDownload(states: List<UsState>, force: Boolean) {
+        startDownload = { states, force ->
             confirmMeteredDownload(states, force) { _ ->
                 paintSaved()
             }
