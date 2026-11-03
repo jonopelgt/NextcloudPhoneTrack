@@ -43,21 +43,25 @@ object SharingControl {
     }
 
     private fun applyService(context: Context) {
-        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
-        if (!isOn(context) || !hasEnabledSession(prefs.getString("sessions", "[]") ?: "[]")) {
-            context.stopService(Intent(context, LocationPublishService::class.java))
-            return
+        try {
+            val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+            if (!isOn(context) || !hasEnabledSession(prefs.getString("sessions", "[]") ?: "[]")) {
+                context.stopService(Intent(context, LocationPublishService::class.java))
+                return
+            }
+            val url = prefs.getString("url", "") ?: ""
+            val token = prefs.getString("token", "") ?: ""
+            if (!url.startsWith("http") || token.isBlank()) return
+            val device = prefs.getString("nc_user", "")?.trim().orEmpty()
+                .ifEmpty { prefs.getString("device", "Android") ?: "Android" }
+            ContextCompat.startForegroundService(context, Intent(context, LocationPublishService::class.java).apply {
+                putExtra("url", url)
+                putExtra("token", token)
+                putExtra("device", device)
+            })
+        } catch (e: Exception) {
+            LogManager.add("Could not change location sharing: ${e.message}")
         }
-        val url = prefs.getString("url", "") ?: ""
-        val token = prefs.getString("token", "") ?: ""
-        if (!url.startsWith("http") || token.isBlank()) return
-        val device = prefs.getString("nc_user", "")?.trim().orEmpty()
-            .ifEmpty { prefs.getString("device", "Android") ?: "Android" }
-        ContextCompat.startForegroundService(context, Intent(context, LocationPublishService::class.java).apply {
-            putExtra("url", url)
-            putExtra("token", token)
-            putExtra("device", device)
-        })
     }
 
     private fun hasEnabledSession(raw: String): Boolean {
