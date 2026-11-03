@@ -1,0 +1,25 @@
+package com.example.ncphonetrack
+
+import android.os.Build
+import android.service.quicksettings.Tile
+import android.service.quicksettings.TileService
+
+class SharingTile : TileService() {
+    override fun onStartListening() {
+        refresh()
+    }
+
+    override fun onClick() {
+        SharingControl.set(this, !SharingControl.isOn(this))
+        refresh()
+    }
+
+    private fun refresh() {
+        val tile = qsTile ?: return
+        val on = SharingControl.isOn(this)
+        tile.state = if (on) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        tile.label = "Location sharing"
+        if (Build.VERSION.SDK_INT >= 29) tile.subtitle = if (on) "On" else "Off"
+        tile.updateTile()
+    }
+}

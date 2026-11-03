@@ -1810,7 +1810,10 @@ class MainActivity : AppCompatActivity() {
                         sessionsDialog?.dismiss()
                         openNewSessionForm(session)
                     }
-                    "Delete" -> confirmDeleteSession(session)
+                    "Delete" -> {
+                        if (ownsSession(session)) confirmDeleteSession(session)
+                        else Toast.makeText(this@MainActivity, "Only the owner can delete this session", Toast.LENGTH_LONG).show()
+                    }
                 }
                 true
             }
@@ -1972,6 +1975,17 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad, 0, pad / 4)
         })
         box.addView(creatorField)
+        val ownsServer = existing == null || ownsSession(existing)
+        if (!ownsServer) {
+            searchField.isEnabled = false
+            publicSwitch.isEnabled = false
+            serverSwitch.isEnabled = false
+            purge.isEnabled = false
+            box.addView(TextView(this).apply {
+                text = "Only the owner can change this session on the server."
+                setPadding(0, pad / 2, 0, 0)
+            })
+        }
         val sessionToken = existing?.optString("token").orEmpty()
         if (sessionToken.isNotBlank()) {
             box.addView(TextView(this).apply {
@@ -2060,6 +2074,7 @@ class MainActivity : AppCompatActivity() {
                             val token = existing?.optString("token").orEmpty()
                             if (token.isNotBlank()) savePersonColor(token, device.name, hex)
                             setBackgroundColor(parseHex(hex))
+                            if (!ownsServer || sessionId <= 0) return@pickColor
                             Thread {
                                 PhoneTrackApi.updateDeviceColor(this@MainActivity, server, user, pass, sessionId, device.id, hex)
                             }.start()
@@ -2142,6 +2157,11 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
+                    if (!ownsSession(existing)) {
+                        Toast.makeText(this, "Saved on this phone. Only the owner can change the session on the server.", Toast.LENGTH_LONG).show()
+                        showSessions()
+                        return@setOnClickListener
+                    }
                     Toast.makeText(this, "Saving session…", Toast.LENGTH_SHORT).show()
                     val target = CreatedSession(sessionId, name, token, publicToken)
                     Thread {
@@ -2988,6 +3008,7 @@ class MainActivity : AppCompatActivity() {
                     if (checked) addSpoofMarker() else removeSpoofMarker()
                     refreshModeButton()
                     if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+                    if (checked) sendSpoofNow()
                 }
             }
         }
@@ -3052,8 +3073,9 @@ class MainActivity : AppCompatActivity() {
                 edit.apply()
                 dialog.dismiss()
                 refreshModeButton()
-                if (!spoof.isChecked) removeSpoofMarker()
+                if (!spoof.isChecked) removeSpoofMarker() else addSpoofMarker()
                 if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+                if (spoof.isChecked) sendSpoofNow()
             }
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                 prefs.edit()
@@ -3141,6 +3163,7 @@ class MainActivity : AppCompatActivity() {
                 refreshModeButton()
                 addSpoofMarker()
                 if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+                sendSpoofNow()
             }
         })
         modePicker.visibility = View.VISIBLE
@@ -3168,6 +3191,30 @@ class MainActivity : AppCompatActivity() {
             })
             setOnClickListener { onClick() }
         }
+    }
+
+    private fun ownsSession(session: JSONObject): Boolean {
+        val owner = session.optString("owner").trim()
+        if (owner.isBlank()) return true
+        val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+        return owner.equals(user, ignoreCase = true)
+    }
+
+    private fun sendSpoofNow() {
+        val lat = prefs.getString("spoof_lat", null)?.toDoubleOrNull()
+        val lon = prefs.getString("spoof_lon", null)?.toDoubleOrNull()
+        if (lat == null || lon == null) return
+        val url = prefs.getString("url", "") ?: ""
+        val token = prefs.getString("token", "") ?: ""
+        if (!isValidBaseUrl(url) || token.isBlank()) return
+        val device = prefs.getString("nc_user", "")?.trim().orEmpty()
+            .ifEmpty { prefs.getString("device", "Android") ?: "Android" }
+        ContextCompat.startForegroundService(this, Intent(this, LocationPublishService::class.java).apply {
+            action = LocationPublishService.ACTION_PUBLISH_ONCE
+            putExtra("url", url)
+            putExtra("token", token)
+            putExtra("device", device)
+        })
     }
 
     private fun confirmChoice(message: String, onYes: () -> Unit) {
@@ -3303,6 +3350,7 @@ class MainActivity : AppCompatActivity() {
         addSpoofMarker()
         map.invalidate()
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+        sendSpoofNow()
         Toast.makeText(this, "Spoofing %.5f, %.5f".format(lat, lon), Toast.LENGTH_SHORT).show()
     }
 

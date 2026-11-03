@@ -58,7 +58,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Location (position update mode and location spoof). This page is separate from Settings.
   - Sessions (list of saved PhoneTrack sessions). A radio button on the left shows which session is on the map. Choosing a radio shows that session. More than one session can stay on. The Nextcloud user who created the session is shown next to the session name.
   - Connection Status (shows logging state, last update)
-  - Settings (Nextcloud server, username, and app password, with a button to clear the login, a Location sharing switch, a home-screen widget of the same name, a Required permissions section, and a section listing accepted self-signed certificates). Location sharing on shows a status-bar icon of a map pin with broadcast waves while this phone is sharing its position. Off stops sharing and removes that icon. The map still reads positions from the server. A server address without http:// or https:// is saved as https://. Required permissions lists each permission this phone must grant. The status is OK or not granted. A Settings link on the right opens that permission's own page. Location opens the location permission screen. Notifications open notification settings.
+  - Settings (Nextcloud server, username, and app password, with a button to clear the login, a Location sharing switch, a home-screen widget of the same name, a Quick Settings tile of the same name, a Required permissions section, and a section listing accepted self-signed certificates). Location sharing on shows a status-bar icon of a map pin with a hollow center and broadcast waves while this phone is sharing its position. Off stops sharing and removes that icon. The map still reads positions from the server. A server address without http:// or https:// is saved as https://. Required permissions lists each permission this phone must grant. The status is OK or not granted. A Settings link on the right opens that permission's own page. Location opens the location permission screen. Notifications open notification settings.
   - About (app info, version, purpose)
 - If login fails because the server certificate is not trusted, the app shows that certificate for review and does not continue until the user accepts or cancels.
 - The main map shows the displayed session name in the bottom notification area. It also shows a bottom overlay when that session cannot be read, cannot be updated because the network failed, or this phone has no position. The message includes the session name. It says Connection fail read, Connection fail push, Connection fail read and push, or local position unavailable on a gray background. Connection fail push is only a network failure while sending a position. The overlay hides when none of those are true. If every session is turned off, that overlay says No active sessions instead, and it stacks with the other map banners.
@@ -171,9 +171,9 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 70 (2026-11-02): A reticle at the bottom right of the map centers on this phone's user and switches zoom and track to follow that user.
 - Rev 71 (2026-11-02): Connection Status auto-scrolls to the latest message. It does not.
 - Rev 72 (2026-11-02): Spoof is a choice in the map location control menu, with the spy hat icon. It is not.
-- Rev 73 (2026-11-02): The session config shows the session owner. Only the owner can update the session on the server. Not built yet.
+- Rev 73 (2026-11-02): The session config shows the session owner. Only the owner can update the session on the server.
 - Rev 74 (2026-11-02): Track dots have no outline.
-- Rev 75 (2026-11-02): Turning location spoof on immediately sends one position update. Not built yet.
+- Rev 75 (2026-11-02): Turning location spoof on immediately sends one position update.
 - Rev 76 (2026-11-02): Connection Status has an Export log button.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
@@ -236,3 +236,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 131 (2026-11-03): The app icon is Nextcloud blue. The broadcast waves sit lower so they fit inside the round icon.
 - Rev 132 (2026-11-03): The status-bar broadcast icon fills its slot. The pin is solid and the waves are thicker.
 - Rev 133 (2026-11-03): A home-screen widget named Location sharing turns sharing on or off.
+- Rev 134 (2026-11-03): The status-bar pin has a small hollow circle, sized like a standard map pin.
+- Rev 135 (2026-11-03): A Quick Settings tile named Location sharing turns sharing on or off.
+- Rev 136 (2026-11-03): Only the session owner can change that session on the server. A non-owner can still change the local view.
+- Rev 137 (2026-11-03): Turning location spoof on sends that position immediately.

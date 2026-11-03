@@ -1,7 +1,10 @@
 package com.example.ncphonetrack
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.service.quicksettings.TileService
 import androidx.core.content.ContextCompat
 import org.json.JSONArray
 
@@ -30,6 +33,7 @@ object SharingControl {
         }
         edit.apply()
         applyService(context)
+        refreshSurfaces(context)
     }
 
     private fun applyService(context: Context) {
@@ -64,5 +68,17 @@ object SharingControl {
             ) return true
         }
         return false
+    }
+
+    private fun refreshSurfaces(context: Context) {
+        val manager = AppWidgetManager.getInstance(context)
+        val ids = manager.getAppWidgetIds(ComponentName(context, SharingWidget::class.java))
+        if (ids.isNotEmpty()) {
+            context.sendBroadcast(Intent(context, SharingWidget::class.java).apply {
+                action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
+                putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
+            })
+        }
+        TileService.requestListeningState(context, ComponentName(context, SharingTile::class.java))
     }
 }
