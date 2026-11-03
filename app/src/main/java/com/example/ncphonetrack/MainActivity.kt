@@ -965,19 +965,11 @@ class MainActivity : AppCompatActivity() {
                 list.removeAllViews()
                 val displayToken = displayedToken()
                 val ordered = rows.sortedWith(
-                    compareByDescending<FriendRow> { it.token == displayToken }
+                    compareByDescending<FriendRow> { it.token.isNotBlank() && it.token == displayToken }
                         .thenByDescending { it.enabled }
                 )
-                if (ordered.any { it.users.isNotEmpty() }) {
-                    list.addView(TextView(this).apply {
-                        text = "Tracks"
-                        textSize = 13f
-                        setTypeface(typeface, android.graphics.Typeface.BOLD)
-                        gravity = android.view.Gravity.END
-                        setPadding(0, pad / 2, 0, 0)
-                    })
-                }
-                ordered.forEach { row ->
+                val showTracks = ordered.any { it.users.isNotEmpty() }
+                ordered.forEachIndexed { index, row ->
                     val muted = !row.enabled || !row.reachable
                     val sessionColor = if (muted) Color.parseColor("#9E9E9E") else Color.BLACK
                     val userColor = if (muted) Color.parseColor("#757575") else Color.BLACK
@@ -986,12 +978,31 @@ class MainActivity : AppCompatActivity() {
                         !row.reachable -> "${row.title} (unavailable)"
                         else -> row.title
                     }
-                    list.addView(TextView(this).apply {
-                        text = title
-                        textSize = 16f
-                        setTextColor(sessionColor)
-                        setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    val radio = android.widget.RadioButton(this).apply {
+                        isChecked = row.token.isNotBlank() && row.token == displayToken
+                        isClickable = false
+                        isFocusable = false
+                        contentDescription = "Shown on the map"
+                    }
+                    list.addView(LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
                         setPadding(0, pad, 0, pad / 4)
+                        addView(radio)
+                        addView(TextView(this@MainActivity).apply {
+                            text = title
+                            textSize = 16f
+                            setTextColor(sessionColor)
+                            setTypeface(typeface, android.graphics.Typeface.BOLD)
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        })
+                        if (index == 0 && showTracks) {
+                            addView(TextView(this@MainActivity).apply {
+                                text = "Tracks"
+                                textSize = 13f
+                                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                            })
+                        }
                     })
                     if (row.users.isEmpty()) {
                         list.addView(TextView(this).apply {
