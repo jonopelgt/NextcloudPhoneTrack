@@ -1044,6 +1044,9 @@ class MainActivity : AppCompatActivity() {
                                 setOnClickListener {
                                     dialog.dismiss()
                                     statusPanel.visibility = View.GONE
+                                    loadSessions().find { it.optString("token") == row.token }?.let {
+                                        showSessionOnMap(it, keepView = true)
+                                    }
                                     lastPoints.putAll(row.points)
                                     enterUserTrack(user)
                                     refreshMapBanner()
@@ -1539,7 +1542,7 @@ class MainActivity : AppCompatActivity() {
             (prefs.getString("device", "") ?: "") == session.optString("device")
     }
 
-    private fun showSessionOnMap(session: JSONObject) {
+    private fun showSessionOnMap(session: JSONObject, keepView: Boolean = false) {
         val url = session.optString("url")
         val token = session.optString("token")
         val device = session.optString("device")
@@ -1555,7 +1558,7 @@ class MainActivity : AppCompatActivity() {
             .remove("last_read_result")
             .remove("last_map_ok")
             .commit()
-        armActivationZoom()
+        if (!keepView) armActivationZoom()
         val name = sessionLabel(session)
         updateStatusText("$name: shown on the map")
         startIfPermittedOrAsk()
