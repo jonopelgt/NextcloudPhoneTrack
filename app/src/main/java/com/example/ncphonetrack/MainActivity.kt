@@ -176,8 +176,8 @@ class MainActivity : AppCompatActivity() {
             toggleModePicker()
             true
         }
-        btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
-        btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
+        holdZoom(btnZoomIn, 0.25)
+        holdZoom(btnZoomOut, -0.25)
         btnGroupView.setOnClickListener { zoomToAll() }
         btnReticle.setOnClickListener { centerOnSelf() }
         mapControls.bringToFront()
@@ -2874,6 +2874,40 @@ class MainActivity : AppCompatActivity() {
 
     private fun pinZoomControls(dialog: AlertDialog) {
         if (dialog.isShowing) return
+    }
+
+    private fun holdZoom(key: View, delta: Double) {
+        var repeating = false
+        val repeat = object : Runnable {
+            override fun run() {
+                if (!repeating) return
+                stepZoom(delta)
+                key.postDelayed(this, 70)
+            }
+        }
+        key.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    repeating = true
+                    key.isPressed = true
+                    stepZoom(delta)
+                    key.postDelayed(repeat, 280)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    repeating = false
+                    key.isPressed = false
+                    key.removeCallbacks(repeat)
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    private fun stepZoom(delta: Double) {
+        if (!::map.isInitialized) return
+        map.controller.setZoom(map.zoomLevelDouble + delta)
     }
 
     private fun zoomKey(label: String, onClick: () -> Unit): TextView {
