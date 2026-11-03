@@ -930,6 +930,15 @@ class MainActivity : AppCompatActivity() {
                     compareByDescending<FriendRow> { it.token == displayToken }
                         .thenByDescending { it.enabled }
                 )
+                if (ordered.any { it.users.isNotEmpty() }) {
+                    list.addView(TextView(this).apply {
+                        text = "Tracks"
+                        textSize = 13f
+                        setTypeface(typeface, android.graphics.Typeface.BOLD)
+                        gravity = android.view.Gravity.END
+                        setPadding(0, pad / 2, 0, 0)
+                    })
+                }
                 ordered.forEach { row ->
                     val muted = !row.enabled || !row.reachable
                     val sessionColor = if (muted) Color.parseColor("#9E9E9E") else Color.BLACK
@@ -983,7 +992,7 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             val track = android.widget.Switch(this).apply {
-                                text = "Tracks"
+                                contentDescription = "Tracks"
                                 isChecked = tracksOn(row.token, user)
                                 setOnCheckedChangeListener { _, on -> saveTracks(row.token, user, on) }
                             }

@@ -54,7 +54,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 ### FR-6: Menu
 - Navigation drawer menu, from the top:
   - Map
-  - Friends (each session, with that session's users indented below it). The session shown on the map is listed first. A session turned off says disabled. A session whose users cannot be loaded says unavailable. Each person has a color that can be changed. This phone's user defaults to blue. Other people default to colors that are different from each other and from blue. Each device has a tracks switch. Tracks are off until turned on.
+  - Friends (each session, with that session's users indented below it). The session shown on the map is listed first. A session turned off says disabled. A session whose users cannot be loaded says unavailable. Each person has a color that can be changed. This phone's user defaults to blue. Other people default to colors that are different from each other and from blue. Each device has a tracks switch. The word Tracks is shown once at the top of the Friends page, above those switches, and is not repeated on each switch. Tracks are off until turned on.
   - Location (position update mode and location spoof). This page is separate from Settings.
   - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
@@ -196,3 +196,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 91 (2026-11-02): The Settings link opens that permission's own page. Location opens the location permission screen. Notifications open notification settings. It does not stop at the system prompt or the general app page when the phone can open the specific page.
 - Rev 92 (2026-11-02): The session Age out field shows the unit minutes next to the number.
 - Rev 93 (2026-11-02): More than one session can be enabled at the same time, and each enabled session receives this phone's position. The map shows only the session the user tapped. That session's name is shown in the bottom notification area. Connection and map messages include the session name.
+- Rev 94 (2026-11-02): On the Friends page, the word Tracks is shown once at the top, above the track switches. It is not repeated on each switch.
