@@ -285,6 +285,7 @@ object OfflineMaps {
 
     fun remove(context: Context, prefs: SharedPreferences, state: UsState) {
         cancel(state.abbr)
+        invalidateDiskUse()
         val root = catalog(prefs)
         root.remove(state.abbr)
         prefs.edit().putString("offline_maps", root.toString()).apply()
@@ -353,6 +354,7 @@ object OfflineMaps {
                     synchronized(pending) { current = null }
                     if (error == null) {
                         mark(prefs, job.first)
+                        invalidateDiskUse()
                         onStatus("${job.first.name} downloaded")
                         LogManager.add("${job.first.name}: offline maps downloaded")
                     } else if (error == "cancelled") {
@@ -486,7 +488,21 @@ object OfflineMaps {
         return y.toInt().coerceIn(0, n - 1)
     }
 
+    @Volatile private var diskCache: Pair<Long, Map<String, Long>>? = null
+
+    fun cachedDiskUse(): Pair<Long, Map<String, Long>>? = diskCache
+
+    fun invalidateDiskUse() {
+        diskCache = null
+    }
+
     fun diskUse(context: Context): Pair<Long, Map<String, Long>> {
+        val measured = measureDisk(context)
+        diskCache = measured
+        return measured
+    }
+
+    private fun measureDisk(context: Context): Pair<Long, Map<String, Long>> {
         val root = tileCache(context)
         val byState = HashMap<String, Long>()
         var total = 0L

@@ -2541,6 +2541,15 @@ class MainActivity : AppCompatActivity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, pad / 2, 0, 0)
         }
+        var mapsDialog: AlertDialog? = null
+        fun refreshSizes() {
+            Thread {
+                val use = OfflineMaps.diskUse(this)
+                runOnUiThread {
+                    if (mapsDialog?.isShowing == true) paintSaved(use)
+                }
+            }.start()
+        }
         fun stateAction(label: String, onClick: () -> Unit): Button {
             return Button(this).apply {
                 text = label
@@ -2548,10 +2557,14 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { onClick() }
             }
         }
-        fun paintSaved() {
+        fun paintSaved(use: Pair<Long, Map<String, Long>>? = OfflineMaps.cachedDiskUse()) {
             saved.removeAllViews()
-            val (totalBytes, byState) = OfflineMaps.diskUse(this)
-            downloadedTitle.text = if (totalBytes > 0) "Downloaded (${OfflineMaps.compactSize(totalBytes)})" else "Downloaded"
+            val totalBytes = use?.first
+            downloadedTitle.text = if (totalBytes != null && totalBytes > 0) {
+                "Downloaded (${OfflineMaps.compactSize(totalBytes)})"
+            } else {
+                "Downloaded"
+            }
             val active = OfflineMaps.queue()
             val activeAbbr = active.map { it.abbr }.toSet()
             active.forEach { job ->
@@ -2607,7 +2620,7 @@ class MainActivity : AppCompatActivity() {
             rows.forEach { (state, at) ->
                 val fresh = OfflineMaps.isFresh(at)
                 val whenText = format.format(java.util.Date(at))
-                val sizeText = OfflineMaps.compactSize(byState[state.abbr] ?: 0L)
+                val sizeText = use?.second?.get(state.abbr)?.let { OfflineMaps.compactSize(it) }
                 saved.addView(LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
@@ -2618,7 +2631,12 @@ class MainActivity : AppCompatActivity() {
                         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     })
                     addView(TextView(this@MainActivity).apply {
-                        text = if (fresh) "$whenText ($sizeText)  OK" else "$whenText ($sizeText)"
+                        text = when {
+                            fresh && sizeText != null -> "$whenText ($sizeText)  OK"
+                            sizeText != null -> "$whenText ($sizeText)"
+                            fresh -> "$whenText  OK"
+                            else -> whenText
+                        }
                         textSize = 14f
                         setTextColor(Color.parseColor(if (fresh) "#1B7F3A" else "#757575"))
                         setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -2626,7 +2644,8 @@ class MainActivity : AppCompatActivity() {
                     addView(stateAction(if (fresh) "Delete" else "Update") {
                         if (fresh) {
                             OfflineMaps.remove(this@MainActivity, prefs, state)
-                            paintSaved()
+                            paintSaved(null)
+                            refreshSizes()
                         } else {
                             startDownload(listOf(state), true)
                         }
@@ -2750,8 +2769,10 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Close", null)
             .create()
             .also { dialog ->
+                mapsDialog = dialog
                 dialog.show()
                 pinZoomControls(dialog)
+                refreshSizes()
                 offerHereState()
             }
     }
