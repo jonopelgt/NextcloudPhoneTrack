@@ -790,15 +790,35 @@ class MainActivity : AppCompatActivity() {
             })
         } else {
             list.addView(TextView(this).apply {
-                text = "Tap a session to show it on the map. More than one session can stay on."
+                text = "The filled circle is the session shown on the map. More than one session can stay on."
                 textSize = 12f
                 setPadding(0, 0, 0, pad / 2)
             })
             sessions.forEach { session ->
+                val viewing = session.optString("token") == displayedToken()
+                val radio = android.widget.RadioButton(this).apply {
+                    isChecked = viewing
+                    contentDescription = "Shown on the map"
+                    setOnClickListener {
+                        if (session.optString("token") == displayedToken()) {
+                            isChecked = true
+                            return@setOnClickListener
+                        }
+                        showSessionOnMap(session)
+                        statusPanel.visibility = View.GONE
+                        refreshMapBanner()
+                        showSessions(reloadNames = false)
+                    }
+                }
                 val label = TextView(this).apply {
                     text = sessionLabel(session)
                     textSize = 16f
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    setOnClickListener { radio.performClick() }
+                    setOnLongClickListener { anchor ->
+                        showSessionHoldMenu(anchor, session)
+                        true
+                    }
                 }
                 val toggle = androidx.appcompat.widget.SwitchCompat(this).apply {
                     isChecked = session.optBoolean("enabled", true)
@@ -813,26 +833,12 @@ class MainActivity : AppCompatActivity() {
                     setPadding(0, pad / 2, 0, pad / 2)
                     isClickable = true
                     isLongClickable = true
-                    setOnClickListener {
-                        showSessionOnMap(session)
-                        sessionsDialog?.dismiss()
-                        statusPanel.visibility = View.GONE
-                        refreshMapBanner()
-                    }
+                    setOnClickListener { radio.performClick() }
                     setOnLongClickListener { anchor ->
                         showSessionHoldMenu(anchor, session)
                         true
                     }
-                    label.setOnClickListener {
-                        showSessionOnMap(session)
-                        sessionsDialog?.dismiss()
-                        statusPanel.visibility = View.GONE
-                        refreshMapBanner()
-                    }
-                    label.setOnLongClickListener { anchor ->
-                        showSessionHoldMenu(anchor, session)
-                        true
-                    }
+                    addView(radio)
                     addView(label)
                     addView(toggle)
                 })
