@@ -560,7 +560,7 @@ class MainActivity : AppCompatActivity() {
     private fun linkStateFor(token: String, includeRead: Boolean): LinkState {
         val now = System.currentTimeMillis()
         val publishSec = prefs.getInt("publish_interval_sec", 60).coerceIn(5, 3600)
-        val fetchSec = prefs.getInt("fetch_interval_sec", 30).coerceIn(5, 3600)
+        val fetchMs = fetchIntervalMs()
         val (pushResult, pushEpoch) = sessionPush(token)
         val result = pushResult.ifBlank {
             if (token.isNotBlank() && token == displayedToken()) prefs.getString("last_result", "") ?: "" else ""
@@ -582,7 +582,7 @@ class MainActivity : AppCompatActivity() {
             else -> 0L
         }
         val usingNet = netResult.isNotBlank()
-        val readFresh = (usingNet || includeRead) && readResult == "ok" && mapOk > 0L && now - mapOk <= fetchSec * 2L * 1000
+        val readFresh = (usingNet || includeRead) && readResult == "ok" && mapOk > 0L && now - mapOk <= fetchMs * 2
         val readFail = (usingNet || includeRead) && (readResult == "failed" || (readResult == "ok" && !readFresh))
         val pushFresh = result == "ok" && successEpoch > 0L && now - successEpoch <= publishSec * 2L * 1000
         val quiet = stateName == "off" || updatesOff
@@ -2344,13 +2344,13 @@ class MainActivity : AppCompatActivity() {
         fetchTimer?.cancel()
         mapEpoch += 1
         val epoch = mapEpoch
-        val seconds = prefs.getInt("fetch_interval_sec", 30).coerceIn(5, 3600)
+        val seconds = fetchIntervalMs()
         fetchTimer = Timer()
         fetchTimer?.scheduleAtFixedRate(object : TimerTask() {
             override fun run() {
                 runOnUiThread { updateMapWithPositions(url, token, device, epoch) }
             }
-        }, 0, seconds * 1000L)
+        }, 0, seconds)
     }
 
     private fun updateMapWithPositions(url: String, token: String, ownDevice: String, epoch: Int) {
@@ -2497,6 +2497,17 @@ class MainActivity : AppCompatActivity() {
         OfflineMaps.installBase(this, map, OfflineMaps.base(id))
     }
 
+    private fun fetchIntervalMs(): Long {
+        val steps = intArrayOf(500, 1000, 2000, 3000, 4000, 5000, 10000, 15000, 30000, 60000, 300000, 600000)
+        val saved = prefs.getInt("fetch_interval_ms", 0)
+        val target = if (saved > 0) saved else prefs.getInt("fetch_interval_sec", 30) * 1000
+        return steps.minBy { kotlin.math.abs(it - target) }.toLong()
+    }
+
+    private fun refreshText(ms: Int): String {
+        return if (ms < 1000) "0.5 s" else "${ms / 1000} s"
+    }
+
     private fun showMaps() {
         val pad = (16 * resources.displayMetrics.density).toInt()
         val box = LinearLayout(this).apply {
@@ -2601,6 +2612,42 @@ class MainActivity : AppCompatActivity() {
                 paintSaved()
             }
         }
+        box.addView(TextView(this).apply {
+            text = "Refresh"
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        val refreshSteps = intArrayOf(500, 1000, 2000, 3000, 4000, 5000, 10000, 15000, 30000, 60000, 300000, 600000)
+        val refreshLabel = TextView(this).apply {
+            text = refreshText(fetchIntervalMs().toInt())
+            textSize = 16f
+        }
+        val refreshSlider = android.widget.SeekBar(this).apply {
+            max = refreshSteps.lastIndex
+            progress = refreshSteps.indexOf(fetchIntervalMs().toInt()).coerceAtLeast(0)
+            setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                    val ms = refreshSteps[progress.coerceIn(0, refreshSteps.lastIndex)]
+                    refreshLabel.text = refreshText(ms)
+                }
+                override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {
+                    val ms = refreshSteps[progress.coerceIn(0, refreshSteps.lastIndex)]
+                    prefs.edit().putInt("fetch_interval_ms", ms).apply()
+                    if (fetchTimer != null && fetchUrl.isNotBlank() && fetchToken.isNotBlank()) {
+                        startFetchingPositions(fetchUrl, fetchToken, fetchDevice)
+                    }
+                }
+            })
+        }
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            addView(refreshSlider.apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(refreshLabel)
+        })
         box.addView(TextView(this).apply {
             text = "Base map"
             textSize = 16f
