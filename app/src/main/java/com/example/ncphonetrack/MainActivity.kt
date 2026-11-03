@@ -33,10 +33,8 @@ import com.google.android.material.navigation.NavigationView
 import org.json.JSONArray
 import org.json.JSONObject
 import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
-import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import java.io.File
@@ -96,6 +94,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         val rev = readVersion()
         Configuration.getInstance().userAgentValue = "NextcloudPhoneTrack/$rev (cyberchilli LLC)"
+        val mapStore = File(filesDir, "osmdroid")
+        Configuration.getInstance().osmdroidBasePath = mapStore
+        Configuration.getInstance().osmdroidTileCache = File(mapStore, "tiles")
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
@@ -131,12 +132,7 @@ class MainActivity : AppCompatActivity() {
         correctSavedServerUrl()
 
         map = findViewById(R.id.map)
-        val httpsMapnik = object : OnlineTileSourceBase("MapnikHTTPS", 0, 19, 256, ".png", arrayOf("https://tile.openstreetmap.org/")) {
-            override fun getTileURLString(pMapTileIndex: Long): String {
-                return baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + imageFilenameEnding()
-            }
-        }
-        map.setTileSource(httpsMapnik)
+        applyBaseMap(prefs.getString("base_map", "organic") ?: "organic")
         map.setMultiTouchControls(true)
         map.setBuiltInZoomControls(false)
         map.controller.setZoom(12.0)
@@ -246,7 +242,7 @@ class MainActivity : AppCompatActivity() {
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_map -> {
-                    showMap()
+                    showMaps()
                     drawerLayout.closeDrawers()
                 }
             }
@@ -2236,6 +2232,170 @@ class MainActivity : AppCompatActivity() {
                 bubble.alpha = 1f
             }.start()
         }, 5000)
+    }
+
+    private fun applyBaseMap(id: String) {
+        if (!::map.isInitialized) return
+        map.setTileSource(OfflineMaps.tileSource(OfflineMaps.base(id)))
+        map.setUseDataConnection(true)
+        map.invalidate()
+    }
+
+    private fun showMaps() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, 0)
+        }
+        val status = TextView(this).apply {
+            textSize = 14f
+            setPadding(0, pad / 2, 0, pad / 2)
+        }
+        val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val saved = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun paintSaved() {
+            saved.removeAllViews()
+            val rows = OfflineMaps.downloaded(prefs)
+            if (rows.isEmpty()) {
+                saved.addView(TextView(this).apply {
+                    text = "No states downloaded."
+                    setPadding(0, pad / 2, 0, pad / 2)
+                })
+                return
+            }
+            val format = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US)
+            rows.forEach { (state, at) ->
+                val fresh = OfflineMaps.isFresh(at)
+                val whenText = format.format(java.util.Date(at))
+                saved.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, pad / 4, 0, pad / 4)
+                    addView(TextView(this@MainActivity).apply {
+                        text = state.name
+                        textSize = 16f
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    addView(TextView(this@MainActivity).apply {
+                        text = if (fresh) "$whenText  OK" else whenText
+                        textSize = 14f
+                        setTextColor(Color.parseColor(if (fresh) "#1B7F3A" else "#757575"))
+                        setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    })
+                })
+            }
+        }
+        fun startDownload(states: List<UsState>, force: Boolean) {
+            if (states.isEmpty()) {
+                Toast.makeText(this, "All downloaded states are up to date", Toast.LENGTH_SHORT).show()
+                return
+            }
+            val go = {
+                status.text = "Starting download…"
+                OfflineMaps.enqueue(this, prefs, states, force) { line ->
+                    runOnUiThread {
+                        if (isDestroyed) return@runOnUiThread
+                        status.text = line
+                        if (line.endsWith("downloaded") || line.contains("failed")) paintSaved()
+                    }
+                }
+            }
+            val cm = getSystemService(android.net.ConnectivityManager::class.java)
+            if (cm?.isActiveNetworkMetered == true) {
+                AlertDialog.Builder(this)
+                    .setTitle("Metered connection")
+                    .setMessage("This connection is metered. Download offline maps anyway?")
+                    .setPositiveButton("Download") { _, _ -> go() }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            } else {
+                go()
+            }
+        }
+        box.addView(TextView(this).apply {
+            text = "Base map"
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        var selected = prefs.getString("base_map", "organic") ?: "organic"
+        val choices = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun paintChoices() {
+            choices.removeAllViews()
+            OfflineMaps.bases.forEach { item ->
+                choices.addView(TextView(this).apply {
+                    text = if (item.id == selected) "●  ${item.label}" else "○  ${item.label}"
+                    textSize = 16f
+                    setPadding(0, pad / 3, 0, pad / 3)
+                    setOnClickListener {
+                        selected = item.id
+                        prefs.edit().putString("base_map", item.id).apply()
+                        applyBaseMap(item.id)
+                        paintChoices()
+                    }
+                })
+            }
+        }
+        paintChoices()
+        box.addView(choices)
+        val search = EditText(this).apply {
+            hint = "Search US states"
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val update = Button(this).apply {
+            text = "Update"
+            setOnClickListener { startDownload(OfflineMaps.stale(prefs), true) }
+        }
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, pad, 0, 0)
+            addView(search)
+            addView(update)
+        })
+        box.addView(TextView(this).apply {
+            text = "Choosing a state downloads all five maps for offline use."
+            textSize = 13f
+            setPadding(0, pad / 4, 0, 0)
+        })
+        box.addView(results)
+        box.addView(status)
+        box.addView(TextView(this).apply {
+            text = "Downloaded"
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad / 2, 0, 0)
+        })
+        box.addView(saved)
+        paintSaved()
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: android.text.Editable?) {
+                results.removeAllViews()
+                OfflineMaps.search(s?.toString().orEmpty()).forEach { state ->
+                    results.addView(TextView(this@MainActivity).apply {
+                        text = state.name
+                        textSize = 16f
+                        setPadding(0, pad / 3, 0, pad / 3)
+                        setOnClickListener {
+                            search.setText("")
+                            results.removeAllViews()
+                            startDownload(listOf(state), false)
+                        }
+                    })
+                }
+            }
+        })
+        val scroll = android.widget.ScrollView(this).apply { addView(box) }
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
+            .setTitle("Maps")
+            .setView(scroll)
+            .setPositiveButton("Close", null)
+            .create()
+            .also { dialog ->
+                dialog.show()
+                pinZoomControls(dialog)
+            }
     }
 
     private fun pinZoomControls(dialog: AlertDialog) {

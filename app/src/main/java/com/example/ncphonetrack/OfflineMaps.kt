@@ -1,0 +1,276 @@
+package com.example.ncphonetrack
+
+import android.content.Context
+import android.content.SharedPreferences
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.util.MapTileIndex
+import java.io.File
+import java.util.concurrent.TimeUnit
+import kotlin.math.cos
+import kotlin.math.ln
+import kotlin.math.tan
+
+data class UsState(
+    val name: String,
+    val abbr: String,
+    val north: Double,
+    val south: Double,
+    val west: Double,
+    val east: Double
+)
+
+data class BaseMap(
+    val id: String,
+    val label: String,
+    val ext: String,
+    val arcgis: Boolean,
+    val url: (Int, Int, Int) -> String
+)
+
+object OfflineMaps {
+    const val FRESH_MS = 30L * 24 * 60 * 60 * 1000
+    private const val MIN_ZOOM = 6
+    private const val MAX_ZOOM = 12
+    private const val MAX_TILES_PER_ZOOM = 4000
+
+    val bases = listOf(
+        BaseMap("organic", "Organic Maps", ".png", false) { z, x, y ->
+            "https://tile.openstreetmap.org/$z/$x/$y.png"
+        },
+        BaseMap("osmand", "OsmAnd", ".png", false) { z, x, y ->
+            "https://tile.osmand.net/hd/$z/$x/$y.png"
+        },
+        BaseMap("magic", "Magic Earth", ".png", false) { z, x, y ->
+            "https://basemaps.cartocdn.com/rastertiles/voyager/$z/$x/$y.png"
+        },
+        BaseMap("openandro", "OpenAndroMaps", ".png", false) { z, x, y ->
+            "https://tile.opentopomap.org/$z/$x/$y.png"
+        },
+        BaseMap("usgs", "USGS topo", ".jpg", true) { z, x, y ->
+            "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/$z/$y/$x"
+        }
+    )
+
+    val states = listOf(
+        UsState("Alabama", "AL", 35.01, 30.14, -88.47, -84.89),
+        UsState("Alaska", "AK", 71.39, 51.21, -179.15, -129.98),
+        UsState("Arizona", "AZ", 37.00, 31.33, -114.82, -109.04),
+        UsState("Arkansas", "AR", 36.50, 33.00, -94.62, -89.64),
+        UsState("California", "CA", 42.01, 32.53, -124.48, -114.13),
+        UsState("Colorado", "CO", 41.00, 36.99, -109.06, -102.04),
+        UsState("Connecticut", "CT", 42.05, 40.98, -73.73, -71.79),
+        UsState("Delaware", "DE", 39.84, 38.45, -75.79, -75.05),
+        UsState("District of Columbia", "DC", 38.99, 38.79, -77.12, -76.91),
+        UsState("Florida", "FL", 31.00, 24.40, -87.63, -80.03),
+        UsState("Georgia", "GA", 35.00, 30.36, -85.61, -80.84),
+        UsState("Hawaii", "HI", 22.24, 18.91, -160.25, -154.81),
+        UsState("Idaho", "ID", 49.00, 41.99, -117.24, -111.04),
+        UsState("Illinois", "IL", 42.51, 36.97, -91.51, -87.50),
+        UsState("Indiana", "IN", 41.76, 37.77, -88.10, -84.78),
+        UsState("Iowa", "IA", 43.50, 40.38, -96.64, -90.14),
+        UsState("Kansas", "KS", 40.00, 36.99, -102.05, -94.59),
+        UsState("Kentucky", "KY", 39.15, 36.50, -89.57, -81.96),
+        UsState("Louisiana", "LA", 33.02, 28.93, -94.04, -88.82),
+        UsState("Maine", "ME", 47.46, 42.97, -71.08, -66.95),
+        UsState("Maryland", "MD", 39.72, 37.91, -79.49, -75.05),
+        UsState("Massachusetts", "MA", 42.89, 41.24, -73.51, -69.93),
+        UsState("Michigan", "MI", 48.30, 41.70, -90.42, -82.41),
+        UsState("Minnesota", "MN", 49.38, 43.50, -97.24, -89.49),
+        UsState("Mississippi", "MS", 35.00, 30.17, -91.66, -88.10),
+        UsState("Missouri", "MO", 40.61, 35.99, -95.77, -89.10),
+        UsState("Montana", "MT", 49.00, 44.36, -116.05, -104.04),
+        UsState("Nebraska", "NE", 43.00, 39.99, -104.05, -95.31),
+        UsState("Nevada", "NV", 42.00, 35.00, -120.01, -114.04),
+        UsState("New Hampshire", "NH", 45.31, 42.70, -72.56, -70.61),
+        UsState("New Jersey", "NJ", 41.36, 38.93, -75.56, -73.89),
+        UsState("New Mexico", "NM", 37.00, 31.33, -109.05, -103.00),
+        UsState("New York", "NY", 45.02, 40.50, -79.76, -71.86),
+        UsState("North Carolina", "NC", 36.59, 33.84, -84.32, -75.46),
+        UsState("North Dakota", "ND", 49.00, 45.94, -104.05, -96.55),
+        UsState("Ohio", "OH", 42.33, 38.40, -84.82, -80.52),
+        UsState("Oklahoma", "OK", 37.00, 33.62, -103.00, -94.43),
+        UsState("Oregon", "OR", 46.29, 41.99, -124.57, -116.46),
+        UsState("Pennsylvania", "PA", 42.27, 39.72, -80.52, -74.69),
+        UsState("Rhode Island", "RI", 42.02, 41.15, -71.86, -71.12),
+        UsState("South Carolina", "SC", 35.22, 32.05, -83.35, -78.54),
+        UsState("South Dakota", "SD", 45.95, 42.48, -104.06, -96.44),
+        UsState("Tennessee", "TN", 36.68, 34.98, -90.31, -81.65),
+        UsState("Texas", "TX", 36.50, 25.84, -106.65, -93.51),
+        UsState("Utah", "UT", 42.00, 36.99, -114.05, -109.04),
+        UsState("Vermont", "VT", 45.02, 42.73, -73.44, -71.46),
+        UsState("Virginia", "VA", 39.47, 36.54, -83.68, -75.24),
+        UsState("Washington", "WA", 49.00, 45.54, -124.77, -116.92),
+        UsState("West Virginia", "WV", 40.64, 37.20, -82.64, -77.72),
+        UsState("Wisconsin", "WI", 47.08, 42.49, -92.89, -86.25),
+        UsState("Wyoming", "WY", 45.01, 40.99, -111.06, -104.05)
+    )
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .build()
+
+    private val jobs = mutableListOf<Pair<UsState, Boolean>>()
+    @Volatile private var worker: Thread? = null
+
+    fun base(id: String): BaseMap = bases.firstOrNull { it.id == id } ?: bases.first()
+
+    fun tileSource(map: BaseMap): OnlineTileSourceBase {
+        return object : OnlineTileSourceBase(map.id, 0, 19, 256, map.ext, arrayOf("https://localhost/")) {
+            override fun getTileURLString(index: Long): String {
+                return map.url(MapTileIndex.getZoom(index), MapTileIndex.getX(index), MapTileIndex.getY(index))
+            }
+        }
+    }
+
+    fun search(query: String): List<UsState> {
+        val q = query.trim()
+        if (q.isEmpty()) return emptyList()
+        return states.filter {
+            it.name.contains(q, true) || it.abbr.equals(q, true)
+        }.take(8)
+    }
+
+    fun downloaded(prefs: SharedPreferences): List<Pair<UsState, Long>> {
+        val root = catalog(prefs)
+        return states.mapNotNull { state ->
+            val at = root.optJSONObject(state.abbr)?.optLong("at", 0L) ?: 0L
+            if (at <= 0L) null else state to at
+        }
+    }
+
+    fun stale(prefs: SharedPreferences): List<UsState> {
+        val now = System.currentTimeMillis()
+        return downloaded(prefs).filter { now - it.second > FRESH_MS }.map { it.first }
+    }
+
+    fun isFresh(at: Long): Boolean = System.currentTimeMillis() - at <= FRESH_MS
+
+    fun enqueue(
+        context: Context,
+        prefs: SharedPreferences,
+        states: List<UsState>,
+        force: Boolean,
+        onStatus: (String) -> Unit
+    ) {
+        if (states.isEmpty()) return
+        synchronized(jobs) { states.forEach { jobs.add(it to force) } }
+        if (worker?.isAlive == true) return
+        val app = context.applicationContext
+        worker = Thread {
+            while (true) {
+                val job = synchronized(jobs) { if (jobs.isEmpty()) null else jobs.removeAt(0) } ?: break
+                val error = download(app, job.first, job.second, onStatus)
+                if (error == null) {
+                    mark(prefs, job.first)
+                    onStatus("${job.first.name} downloaded")
+                    LogManager.add("${job.first.name}: offline maps downloaded")
+                } else {
+                    onStatus(error)
+                    LogManager.add("${job.first.name}: $error")
+                }
+            }
+            worker = null
+        }.also { it.start() }
+    }
+
+    private fun download(context: Context, state: UsState, force: Boolean, onStatus: (String) -> Unit): String? {
+        var attempted = 0
+        var failed = 0
+        for (map in bases) {
+            var zoom = MIN_ZOOM
+            while (zoom <= MAX_ZOOM) {
+                val count = tileCount(state, zoom)
+                if (zoom > MIN_ZOOM && count > MAX_TILES_PER_ZOOM) break
+                val tiles = tilesAt(state, zoom)
+                var done = 0
+                for ((x, y) in tiles) {
+                    attempted++
+                    done++
+                    if (done == 1 || done % 40 == 0) {
+                        onStatus("${state.name}: ${map.label} zoom $zoom ($done/${tiles.size})")
+                    }
+                    val dest = File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}")
+                    if (!force && dest.isFile && dest.length() > 100) continue
+                    if (!saveTile(map.url(zoom, x, y), dest)) failed++
+                }
+                zoom++
+            }
+        }
+        if (attempted > 20 && failed * 5 > attempted) {
+            return "${state.name} download failed ($failed tiles)"
+        }
+        return null
+    }
+
+    private fun saveTile(url: String, dest: File): Boolean {
+        return try {
+            val request = Request.Builder().url(url).header("User-Agent", "NextcloudPhoneTrack").build()
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return false
+                val body = response.body ?: return false
+                dest.parentFile?.mkdirs()
+                val tmp = File(dest.absolutePath + ".part")
+                body.byteStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
+                if (tmp.length() < 100) {
+                    tmp.delete()
+                    false
+                } else {
+                    if (dest.exists()) dest.delete()
+                    tmp.renameTo(dest)
+                }
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun tileCount(state: UsState, zoom: Int): Int {
+        val x1 = xTile(state.west, zoom)
+        val x2 = xTile(state.east, zoom)
+        val y1 = yTile(state.north, zoom)
+        val y2 = yTile(state.south, zoom)
+        return (x2 - x1 + 1) * (y2 - y1 + 1)
+    }
+
+    private fun tilesAt(state: UsState, zoom: Int): List<Pair<Int, Int>> {
+        val x1 = xTile(state.west, zoom)
+        val x2 = xTile(state.east, zoom)
+        val y1 = yTile(state.north, zoom)
+        val y2 = yTile(state.south, zoom)
+        val out = ArrayList<Pair<Int, Int>>((x2 - x1 + 1) * (y2 - y1 + 1))
+        for (x in x1..x2) for (y in y1..y2) out.add(x to y)
+        return out
+    }
+
+    private fun xTile(lon: Double, zoom: Int): Int {
+        val n = 1 shl zoom
+        return ((lon + 180.0) / 360.0 * n).toInt().coerceIn(0, n - 1)
+    }
+
+    private fun yTile(lat: Double, zoom: Int): Int {
+        val n = 1 shl zoom
+        val rad = Math.toRadians(lat.coerceIn(-85.0, 85.0))
+        val y = (1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * n
+        return y.toInt().coerceIn(0, n - 1)
+    }
+
+    fun tileCache(context: Context) = File(context.filesDir, "osmdroid/tiles")
+
+    private fun catalog(prefs: SharedPreferences): JSONObject {
+        return try {
+            JSONObject(prefs.getString("offline_maps", "{}") ?: "{}")
+        } catch (_: Exception) {
+            JSONObject()
+        }
+    }
+
+    private fun mark(prefs: SharedPreferences, state: UsState) {
+        val root = catalog(prefs)
+        root.put(state.abbr, JSONObject().put("at", System.currentTimeMillis()).put("name", state.name))
+        prefs.edit().putString("offline_maps", root.toString()).apply()
+    }
+}
