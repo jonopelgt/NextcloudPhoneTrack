@@ -1363,6 +1363,21 @@ class MainActivity : AppCompatActivity() {
             layoutParams = width
         }
         box.addView(nameField)
+        val sessionToken = existing?.optString("token").orEmpty()
+        if (sessionToken.isNotBlank()) {
+            box.addView(TextView(this).apply {
+                text = "Token"
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, pad, 0, pad / 4)
+            })
+            box.addView(TextView(this).apply {
+                text = sessionToken
+                textSize = 14f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextIsSelectable(true)
+                setPadding(0, 0, 0, pad / 2)
+            })
+        }
         box.addView(TextView(this).apply {
             text = "Friends"
             setTypeface(typeface, android.graphics.Typeface.BOLD)

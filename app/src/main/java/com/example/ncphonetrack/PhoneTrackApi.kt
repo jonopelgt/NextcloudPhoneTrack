@@ -2,6 +2,7 @@ package com.example.ncphonetrack
 
 import android.content.Context
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 
@@ -89,36 +90,77 @@ object PhoneTrackApi {
                     context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
                         .edit().putBoolean("credentials_verified", true).apply()
                 }
-                val json = JSONObject(response.body?.string() ?: return null)
-                if (json.has("error")) {
-                    LogManager.add("GET failed: ${json.optString("error")}")
-                    return null
+                val body = response.body?.string().orEmpty()
+                val trimmed = body.trim()
+                if (trimmed.startsWith("{")) {
+                    val root = JSONObject(trimmed)
+                    if (root.has("error") && !root.has(token)) {
+                        LogManager.add("GET failed: ${root.optString("error")}")
+                        return null
+                    }
                 }
-                val session = when {
-                    json.has(token) -> json.getJSONObject(token)
-                    json.length() > 0 && json.opt(json.keys().next()) is JSONObject ->
-                        json.getJSONObject(json.keys().next())
-                    else -> return emptyMap()
-                }
-                val devices = mutableMapOf<String, GeoPointData>()
-                val keys = session.keys()
-                while (keys.hasNext()) {
-                    val name = keys.next()
-                    val dev = session.optJSONObject(name) ?: continue
-                    if (!dev.has("lat") || !dev.has("lon")) continue
-                    devices[name] = GeoPointData(
-                        lat = dev.getDouble("lat"),
-                        lon = dev.getDouble("lon"),
-                        timestamp = dev.optLong("timestamp", 0),
-                        accuracy = dev.optDouble("accuracy", 0.0)
-                    )
-                }
+                val devices = parseLastPositions(trimmed, token)
                 LogManager.add("GET parsed ${devices.size} devices")
                 devices
             }
         } catch (e: Exception) {
             LogManager.add("GET failed: ${e.message}")
             null
+        }
+    }
+
+    /**
+     * PhoneTrack json-encodes an empty device map as []. That is zero devices, not a failure.
+     * A normal payload is {"sessionToken":{"device":{"lat":1,"lon":2,...}}}.
+     */
+    fun parseLastPositions(body: String, token: String): Map<String, GeoPointData> {
+        val trimmed = body.trim()
+        if (trimmed.isEmpty() || trimmed == "null" || trimmed.startsWith("[")) return emptyMap()
+        val json = JSONObject(trimmed)
+        val session = asDeviceMap(positionPayload(json, token))
+        val devices = mutableMapOf<String, GeoPointData>()
+        val keys = session.keys()
+        while (keys.hasNext()) {
+            val name = keys.next()
+            val dev = session.optJSONObject(name) ?: continue
+            if (!dev.has("lat") || !dev.has("lon")) continue
+            devices[name] = GeoPointData(
+                lat = dev.getDouble("lat"),
+                lon = dev.getDouble("lon"),
+                timestamp = dev.optLong("timestamp", 0),
+                accuracy = dev.optDouble("accuracy", 0.0)
+            )
+        }
+        return devices
+    }
+
+    private fun positionPayload(json: JSONObject, token: String): Any? {
+        if (json.has(token)) return json.opt(token)
+        val data = json.optJSONObject("ocs")?.opt("data")
+        if (data is JSONObject) {
+            if (data.has(token)) return data.opt(token)
+            if (data.length() > 0) return data.opt(data.keys().next())
+        }
+        if (data is JSONArray) return data
+        if (json.length() == 0) return null
+        return json.opt(json.keys().next())
+    }
+
+    private fun asDeviceMap(value: Any?): JSONObject {
+        return when (value) {
+            is JSONObject -> value
+            is JSONArray -> {
+                val obj = JSONObject()
+                for (i in 0 until value.length()) {
+                    val dev = value.optJSONObject(i) ?: continue
+                    val name = dev.optString("name").ifBlank {
+                        dev.optString("useragent")
+                    }.ifBlank { "device$i" }
+                    obj.put(name, dev)
+                }
+                obj
+            }
+            else -> JSONObject()
         }
     }
 
