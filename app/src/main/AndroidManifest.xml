@@ -60,6 +60,10 @@
             android:name=".SharingRepost"
             android:exported="false" />
 
+        <receiver
+            android:name=".SharingTimer"
+            android:exported="false" />
+
         <service
             android:name=".SharingTile"
             android:exported="true"

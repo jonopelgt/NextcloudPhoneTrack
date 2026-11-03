@@ -72,6 +72,10 @@ class LocationPublishService : Service() {
 
         createNotificationChannel()
         startForeground(1, createNotification())
+        if (SharingControl.expireIfDue(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         if (enabledTargets().isEmpty()) {
             LogManager.add("Service stopped: no enabled session")
@@ -88,7 +92,26 @@ class LocationPublishService : Service() {
         if (intent?.action == ACTION_PUBLISH_ONCE) publishOnce()
         watchNetwork()
         flushBufferAsync()
+        armShareTimer()
         return START_STICKY
+    }
+
+    private val shareTick = Runnable { onShareTick() }
+
+    private fun armShareTimer() {
+        mainHandler.removeCallbacks(shareTick)
+        onShareTick()
+    }
+
+    private fun onShareTick() {
+        if (SharingControl.expireIfDue(this)) {
+            stopSelf()
+            return
+        }
+        if (SharingControl.remaining(this) <= 0L) return
+        getSystemService(NotificationManager::class.java).notify(1, createNotification())
+        SharingControl.tick(this)
+        mainHandler.postDelayed(shareTick, 60_000L)
     }
 
     private fun publishIntervalMs(): Long {
@@ -656,9 +679,11 @@ class LocationPublishService : Service() {
             Intent(this, SharingRepost::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val left = SharingControl.remaining(this)
+        val text = if (left > 0L) "Sharing for ${SharingControl.remainingLabel(left)}" else "Location sharing is active"
         val built = NotificationCompat.Builder(this, "location_broadcast_bar")
             .setContentTitle("Position broadcast")
-            .setContentText("Location sharing is active")
+            .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_broadcast)
             .setOngoing(true)
             .setAutoCancel(false)

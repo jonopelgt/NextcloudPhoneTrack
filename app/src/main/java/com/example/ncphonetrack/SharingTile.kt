@@ -22,7 +22,7 @@ class SharingTile : TileService() {
         val on = SharingControl.isOn(this)
         tile.state = if (on) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = "Location sharing"
-        if (Build.VERSION.SDK_INT >= 29) tile.subtitle = if (on) "On" else "Off"
+        if (Build.VERSION.SDK_INT >= 29) tile.subtitle = SharingControl.statusLabel(this)
         tile.updateTile()
     }
 }

@@ -105,6 +105,7 @@ class MainActivity : AppCompatActivity() {
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         val sharingFilter = android.content.IntentFilter(SharingControl.ACTION_SHARING_CHANGED)
+        sharingFilter.addAction(SharingControl.ACTION_TIMER_TICK)
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(sharingChanged, sharingFilter, RECEIVER_NOT_EXPORTED)
         } else {
@@ -3101,6 +3102,58 @@ class MainActivity : AppCompatActivity() {
         })
         box.addView(lat)
         box.addView(lon)
+        val durations = SharingControl.DURATIONS
+        val durationLabels = durations.map { SharingControl.durationLabel(it) }
+        var durationAdjusting = false
+        val remainingView = TextView(this).apply {
+            text = "Timer off"
+            setPadding(0, pad / 2, 0, pad / 2)
+        }
+        val durationSpinner = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(
+                this@MainActivity,
+                android.R.layout.simple_spinner_dropdown_item,
+                durationLabels
+            )
+            val index = durations.indexOf(SharingControl.savedDuration(this@MainActivity)).coerceAtLeast(0)
+            setSelection(index)
+            layoutParams = width
+        }
+        durationAdjusting = true
+        durationSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (durationAdjusting) return
+                SharingControl.startTimer(this@MainActivity, durations[position])
+                refreshModeButton()
+                showRemaining()
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+        durationSpinner.post { durationAdjusting = false }
+        fun showRemaining() {
+            val left = SharingControl.remaining(this)
+            remainingView.text = if (left > 0L) "Time left ${SharingControl.remainingLabel(left)}" else "Timer off"
+        }
+        showRemaining()
+        box.addView(TextView(this).apply {
+            text = "Timer"
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad, 0, pad / 4)
+        })
+        box.addView(TextView(this).apply {
+            text = "Pick a duration to start or restart the timer. The longest is 4 days."
+            setPadding(0, 0, 0, pad / 2)
+        })
+        box.addView(durationSpinner)
+        box.addView(remainingView)
+        box.addView(Button(this).apply {
+            text = "Reset"
+            setOnClickListener {
+                SharingControl.startTimer(this@MainActivity, durations[durationSpinner.selectedItemPosition])
+                showRemaining()
+                refreshModeButton()
+            }
+        })
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
             .setTitle("Location")
             .setView(android.widget.ScrollView(this).apply { addView(box) })
@@ -3114,6 +3167,10 @@ class MainActivity : AppCompatActivity() {
             spoofAdjusting = true
             spoof.isChecked = prefs.getBoolean("spoof_enabled", false)
             spoofAdjusting = false
+            durationAdjusting = true
+            durationSpinner.setSelection(durations.indexOf(SharingControl.savedDuration(this)).coerceAtLeast(0))
+            durationSpinner.post { durationAdjusting = false }
+            showRemaining()
         }
         dialog.setOnDismissListener { refreshLocationPage = null }
         dialog.setOnShowListener {
@@ -3132,6 +3189,7 @@ class MainActivity : AppCompatActivity() {
                     .putString("spoof_lat", lat.text.toString().trim())
                     .putString("spoof_lon", lon.text.toString().trim())
                 if (selectedMode != "quiet") edit.putString("share_mode", selectedMode)
+                if (selectedMode == "quiet" && !spoof.isChecked) edit.putLong("share_timer_end", 0L)
                 edit.apply()
                 dialog.dismiss()
                 refreshModeButton()
@@ -3175,6 +3233,8 @@ class MainActivity : AppCompatActivity() {
         "significant" -> "Significant"
         "rapid" -> "Rapid"
         "spoof" -> "Spoof"
+        "timer" -> "Timer"
+        "on" -> "On"
         else -> "Move"
     }
 
@@ -3184,14 +3244,27 @@ class MainActivity : AppCompatActivity() {
         "significant" -> R.drawable.ic_mode_walk
         "rapid" -> R.drawable.ic_mode_rocket
         "spoof" -> R.drawable.ic_mode_spy
+        "timer" -> R.drawable.ic_mode_timer
+        "on" -> R.drawable.ic_mode_on
         else -> R.drawable.ic_mode_car
     }
 
     private fun refreshModeButton() {
         if (!::btnPositionMode.isInitialized) return
         val spoofing = prefs.getBoolean("spoof_enabled", false)
-        btnPositionMode.setImageResource(if (spoofing) R.drawable.ic_mode_spy else modeIcon(currentPositionMode()))
-        btnPositionMode.contentDescription = if (spoofing) "Location spoof" else modeLabel(currentPositionMode())
+        val timing = SharingControl.remaining(this) > 0L
+        btnPositionMode.setImageResource(
+            when {
+                timing -> R.drawable.ic_mode_timer
+                spoofing -> R.drawable.ic_mode_spy
+                else -> modeIcon(currentPositionMode())
+            }
+        )
+        btnPositionMode.contentDescription = when {
+            timing -> "Timer ${SharingControl.remainingLabel(SharingControl.remaining(this))}"
+            spoofing -> "Location spoof"
+            else -> modeLabel(currentPositionMode())
+        }
         btnPositionMode.invalidate()
     }
 
@@ -3202,9 +3275,12 @@ class MainActivity : AppCompatActivity() {
         }
         val current = currentPositionMode()
         val spoofing = prefs.getBoolean("spoof_enabled", false)
+        val sharingOn = !positionUpdatesOff()
+        val timing = SharingControl.remaining(this) > 0L
         modePicker.removeAllViews()
-        positionModes.forEach { mode ->
-            modePicker.addView(modeChoice(mode, !spoofing && mode == current) {
+        modePicker.addView(groupLabel("Position"))
+        listOf("manual", "significant", "move", "rapid").forEach { mode ->
+            modePicker.addView(modeChoice(mode, !spoofing && !timing && mode == current) {
                 modePicker.visibility = View.GONE
                 if (spoofing) {
                     confirmChoice("Turn off location spoof?") {
@@ -3227,6 +3303,22 @@ class MainActivity : AppCompatActivity() {
                 if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
                 sendSpoofNow()
             }
+        })
+        modePicker.addView(groupLabel("Sharing"))
+        modePicker.addView(modeChoice("quiet", !sharingOn) {
+            modePicker.visibility = View.GONE
+            SharingControl.set(this, false)
+            refreshModeButton()
+        })
+        modePicker.addView(modeChoice("timer", timing) {
+            modePicker.visibility = View.GONE
+            SharingControl.startTimer(this, SharingControl.DEFAULT_MS)
+            refreshModeButton()
+        })
+        modePicker.addView(modeChoice("on", sharingOn && !timing) {
+            modePicker.visibility = View.GONE
+            SharingControl.set(this, true)
+            refreshModeButton()
         })
         modePicker.visibility = View.VISIBLE
         modePicker.bringToFront()
@@ -3298,12 +3390,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setPositionMode(mode: String) {
-        val sharing = mode != "quiet" || prefs.getBoolean("spoof_enabled", false)
-        val edit = prefs.edit().putString("position_mode", mode).putBoolean("location_sharing", sharing)
-        if (mode != "quiet") edit.putString("share_mode", mode)
+        if (mode == "quiet") {
+            SharingControl.set(this, false)
+            refreshModeButton()
+            return
+        }
+        val edit = prefs.edit().putString("position_mode", mode).putBoolean("location_sharing", true)
+        edit.putString("share_mode", mode)
         edit.apply()
         refreshModeButton()
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+    }
+
+    private fun groupLabel(text: String): TextView {
+        val pad = (10 * resources.displayMetrics.density).toInt()
+        return TextView(this).apply {
+            this.text = text
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(pad, pad, pad, pad / 4)
+            setTextColor(Color.parseColor("#111111"))
+        }
     }
 
     private fun ageText(timestampSec: Long): String {
@@ -3514,7 +3620,7 @@ class MainActivity : AppCompatActivity() {
             if (isFinishing || isDestroyed) return
             refreshModeButton()
             refreshMapBanner()
-            startTrackingFromPrefs()
+            if (intent?.action != SharingControl.ACTION_TIMER_TICK) startTrackingFromPrefs()
             refreshSettingsSharing?.invoke()
             refreshLocationPage?.invoke()
         }
