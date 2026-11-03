@@ -165,10 +165,10 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 64 (2026-11-02): Switching into location spoof and switching out of it each ask the user to confirm.
 - Rev 65 (2026-11-02): Turning a device's tracks switch off removes that device's dots from the map immediately. They do not.
 - Rev 66 (2026-11-02): The location mode control opens on a long press. A short tap does not open it.
-- Rev 67 (2026-11-02): A tap on the location mode control sends the current position once. Off sends nothing. Not built yet.
-- Rev 68 (2026-11-02): Track and marker age is shown in hours and minutes. It is not. Not fixed yet.
-- Rev 69 (2026-11-02): The All zoom control is hidden while the map is already in All mode. It is not. Not fixed yet.
-- Rev 70 (2026-11-02): A reticle at the bottom right of the map centers on this phone's user and switches zoom and track to follow that user. Not built yet.
+- Rev 67 (2026-11-02): A tap on the location mode control sends the current position once. Off sends nothing.
+- Rev 68 (2026-11-02): Track and marker age is shown in hours and minutes.
+- Rev 69 (2026-11-02): The All zoom control is hidden while the map is already in All mode.
+- Rev 70 (2026-11-02): A reticle at the bottom right of the map centers on this phone's user and switches zoom and track to follow that user.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.

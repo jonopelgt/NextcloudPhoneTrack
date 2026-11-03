@@ -105,6 +105,20 @@
                 android:visibility="gone" />
         </LinearLayout>
 
+        <ImageButton
+            android:id="@+id/btnReticle"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="72dp"
+            android:background="@drawable/zoom_key_bg"
+            android:contentDescription="Center on you"
+            android:elevation="8dp"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_reticle" />
+
         <LinearLayout
             android:id="@+id/mapBanners"
             android:layout_width="match_parent"

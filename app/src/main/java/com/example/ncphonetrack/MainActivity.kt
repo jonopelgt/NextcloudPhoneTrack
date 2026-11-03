@@ -72,6 +72,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnZoomIn: TextView
     private lateinit var btnZoomOut: TextView
     private lateinit var btnGroupView: TextView
+    private lateinit var btnReticle: ImageButton
+    private var allMode = false
     private lateinit var mapControls: View
     private lateinit var btnPositionMode: ImageButton
     private lateinit var modePicker: LinearLayout
@@ -134,12 +136,17 @@ class MainActivity : AppCompatActivity() {
         btnZoomIn = findViewById(R.id.btnZoomIn)
         btnZoomOut = findViewById(R.id.btnZoomOut)
         btnGroupView = findViewById(R.id.btnGroupView)
+        btnReticle = findViewById(R.id.btnReticle)
         mapControls = findViewById(R.id.mapControls)
         btnPositionMode = findViewById(R.id.btnPositionMode)
         modePicker = findViewById(R.id.modePicker)
         refreshModeButton()
         btnPositionMode.setOnClickListener {
-            if (modePicker.visibility == View.VISIBLE) modePicker.visibility = View.GONE
+            if (modePicker.visibility == View.VISIBLE) {
+                modePicker.visibility = View.GONE
+            } else {
+                sendCurrentPosition()
+            }
         }
         btnPositionMode.setOnLongClickListener {
             toggleModePicker()
@@ -148,6 +155,7 @@ class MainActivity : AppCompatActivity() {
         btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
         btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
         btnGroupView.setOnClickListener { zoomToLastObserved() }
+        btnReticle.setOnClickListener { centerOnSelf() }
         mapControls.bringToFront()
         refreshZoomKeys()
         refreshMapBanner()
@@ -1763,13 +1771,13 @@ class MainActivity : AppCompatActivity() {
                         val dot = Marker(map)
                         dot.position = GeoPoint(point.lat, point.lon)
                         dot.title = "Track"
-                        dot.snippet = "Age: ${(System.currentTimeMillis() / 1000 - point.timestamp)}s"
+                        dot.snippet = "Age: ${ageText(point.timestamp)}"
                         dot.icon = iconFor(color, 16, alpha)
                         dot.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         val seenAt = point.timestamp
                         dot.relatedObject = name
                         dot.setOnMarkerClickListener { clicked, _ ->
-                            clicked.snippet = "Age: ${(System.currentTimeMillis() / 1000 - seenAt)}s"
+                            clicked.snippet = "Age: ${ageText(seenAt)}"
                             showStatusBubble(clicked)
                             true
                         }
@@ -1786,12 +1794,13 @@ class MainActivity : AppCompatActivity() {
                     marker.position = point
                     val mine = name == ownDevice
                     marker.title = if (mine) "You · $name" else name
-                    marker.snippet = "Acc: ${data.accuracy}m | Age: ${(System.currentTimeMillis()/1000 - data.timestamp)}s"
+                    marker.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
                     marker.icon = iconFor(personColor(token, name, ownDevice, others), 28, alpha)
                     marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    marker.setOnMarkerClickListener { _, _ ->
+                    marker.setOnMarkerClickListener { clicked, _ ->
+                        clicked.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
                         enterUserTrack(name)
-                        showStatusBubble(marker)
+                        showStatusBubble(clicked)
                         true
                     }
                     map.overlays.add(marker)
@@ -2104,9 +2113,49 @@ class MainActivity : AppCompatActivity() {
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
     }
 
+    private fun ageText(timestampSec: Long): String {
+        val sec = (System.currentTimeMillis() / 1000 - timestampSec).coerceAtLeast(0)
+        val hours = sec / 3600
+        val minutes = (sec % 3600) / 60
+        return "${hours}h ${minutes}m"
+    }
+
+    private fun sendCurrentPosition() {
+        if (currentPositionMode() == "quiet") return
+        val url = prefs.getString("url", "") ?: ""
+        val token = prefs.getString("token", "") ?: ""
+        if (!isValidBaseUrl(url) || token.isBlank()) {
+            Toast.makeText(this, "Turn on a session before sending a position", Toast.LENGTH_LONG).show()
+            return
+        }
+        val device = prefs.getString("nc_user", "")?.trim().orEmpty()
+            .ifEmpty { prefs.getString("device", "Android") ?: "Android" }
+        startService(Intent(this, LocationPublishService::class.java).apply {
+            action = LocationPublishService.ACTION_PUBLISH_ONCE
+            putExtra("url", url)
+            putExtra("token", token)
+            putExtra("device", device)
+        })
+        Toast.makeText(this, "Sending position", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun centerOnSelf() {
+        val name = prefs.getString("nc_user", "")?.trim().orEmpty()
+        val match = lastPoints.keys.firstOrNull { it.equals(name, true) }
+        if (match == null) {
+            Toast.makeText(this, "Your position is not on the map", Toast.LENGTH_SHORT).show()
+            return
+        }
+        allMode = false
+        enterUserTrack(match)
+    }
+
     private fun zoomToLastObserved() {
         val name = lastSeen.maxByOrNull { it.value }?.key
-        if (name != null && lastPoints.containsKey(name)) enterUserTrack(name)
+        if (name != null && lastPoints.containsKey(name)) {
+            allMode = true
+            enterUserTrack(name, fromAll = true)
+        }
     }
 
     private fun activateSpoof(lat: Double, lon: Double) {
@@ -2148,13 +2197,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun enterManual() {
-        if (mapFollow == MapFollow.MANUAL) return
+        if (mapFollow == MapFollow.MANUAL && !allMode) return
+        allMode = false
         mapFollow = MapFollow.MANUAL
         trackedUser = null
         refreshZoomKeys()
     }
 
-    private fun enterUserTrack(name: String) {
+    private fun enterUserTrack(name: String, fromAll: Boolean = false) {
+        allMode = fromAll
         mapFollow = MapFollow.USER
         trackedUser = name
         refreshZoomKeys()
@@ -2162,6 +2213,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun enterGroupView() {
+        allMode = false
         mapFollow = MapFollow.GROUP
         trackedUser = null
         refreshZoomKeys()
@@ -2174,9 +2226,11 @@ class MainActivity : AppCompatActivity() {
         mapControls.visibility = if (mapContext) View.VISIBLE else View.GONE
         btnZoomIn.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
         btnZoomOut.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
-        btnGroupView.visibility = if (mapContext) View.VISIBLE else View.GONE
+        btnGroupView.visibility = if (mapContext && !allMode) View.VISIBLE else View.GONE
+        if (::btnReticle.isInitialized) btnReticle.visibility = if (mapContext) View.VISIBLE else View.GONE
         if (::mapControls.isInitialized && mapContext) mapControls.bringToFront()
         if (::btnPositionMode.isInitialized && mapContext) btnPositionMode.bringToFront()
+        if (::btnReticle.isInitialized && mapContext) btnReticle.bringToFront()
         if (!mapContext && ::statusPanel.isInitialized && statusPanel.visibility == View.VISIBLE) statusPanel.bringToFront()
     }
 
