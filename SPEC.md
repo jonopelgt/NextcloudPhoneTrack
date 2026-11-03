@@ -31,7 +31,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - On each fix (configurable interval, default 60 s), POST to:
   `https://{base}/index.php/apps/phonetrack/logPost/{token}/{deviceName}`
   with parameters: lat, lon, timestamp (epoch), acc, alt, bat (battery %), speed, bearing.
-- Buffer failed uploads and retry when network available.
+- Buffer failed uploads and retry when network available. Each point is stored before the upload is attempted. The buffer holds up to two hours of Rapid points and is not replaced by an in-progress retry. When the connection returns, stored points upload a few at a time, oldest first.
 - Show persistent notification while tracking.
 
 ### FR-3: Position Retrieval & Display
@@ -181,3 +181,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 46 (2026-11-02): Activating a session uses group view when more than one current position is known, and follows that one person when only one is known.
 - Rev 77 (2026-11-02): A last-positions response whose session value is an empty array is zero devices. It does not fail the map update.
 - Rev 78 (2026-11-02): The session builder shows the session token under the name. The token can be selected and copied.
+- Rev 79 (2026-11-02): Offline points were dropped. The buffer kept only 30 points, and a retry could erase points saved while it was sending. A point is stored before it is uploaded and kept across a long outage. Stored points upload a few at a time, oldest first, when the connection returns.

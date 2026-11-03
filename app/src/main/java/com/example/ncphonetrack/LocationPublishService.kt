@@ -11,8 +11,10 @@ import android.content.SharedPreferences
 import android.location.Location
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
@@ -28,6 +30,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.net.URLEncoder
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LocationPublishService : Service() {
@@ -40,7 +44,11 @@ class LocationPublishService : Service() {
     private var token: String = ""
     private var deviceName: String = ""
     private val bufferLock = Any()
-    private val flushing = AtomicBoolean(false)
+    private val io = Executors.newSingleThreadExecutor()
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val drainScheduled = AtomicBoolean(false)
+    private var burstSent = 0
+    private var burstWindowStart = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -211,10 +219,16 @@ class LocationPublishService : Service() {
     }
 
     private fun pointFrom(location: Location): JSONObject {
+        val now = System.currentTimeMillis()
+        val millis = when {
+            location.time <= 0L -> now
+            location.time > now + 60_000L -> now
+            else -> location.time
+        }
         return JSONObject()
             .put("lat", location.latitude)
             .put("lon", location.longitude)
-            .put("timestamp", System.currentTimeMillis() / 1000)
+            .put("timestamp", millis / 1000)
             .put("acc", location.accuracy.toDouble())
             .put("alt", location.altitude)
             .put("bat", getBatteryLevel())
@@ -226,21 +240,26 @@ class LocationPublishService : Service() {
         val fix = spoofedLocation() ?: location
         val point = pointFrom(fix)
         LogManager.add("Fix lat=${fix.latitude} lon=${fix.longitude}")
-        if (PhoneTrackApi.rateLimited(this)) {
+        io.execute {
             appendBuffer(point)
-            recordResult("buffered")
-            return
+            trySend()
         }
-        Thread {
-            val client = CertHelper.buildClient(prefs)
-            if (postSync(client, point)) {
-                recordResult("ok")
-                flushLocked(client)
-            } else {
-                appendBuffer(point)
-                recordResult("buffered")
-            }
-        }.start()
+    }
+
+    private fun online(): Boolean {
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return true
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    private fun logClient(): OkHttpClient {
+        return CertHelper.buildClient(prefs)
+            .newBuilder()
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(20, TimeUnit.SECONDS)
+            .build()
     }
 
     private fun postSync(client: OkHttpClient, point: JSONObject): Boolean {
@@ -274,6 +293,7 @@ class LocationPublishService : Service() {
             val text = bufferFile().takeIf { it.exists() }?.readText().orEmpty()
             if (text.isBlank()) JSONArray() else JSONArray(text)
         } catch (e: Exception) {
+            LogManager.add("Buffer unreadable, starting fresh: ${e.message}")
             JSONArray()
         }
     }
@@ -283,49 +303,96 @@ class LocationPublishService : Service() {
         prefs.edit().putInt("buffer_count", arr.length()).apply()
     }
 
+    private fun bufferCount(): Int = synchronized(bufferLock) { readBuffer().length() }
+
+    private fun pointKey(point: JSONObject): String {
+        return "${point.optLong("timestamp")}:${point.optDouble("lat")}:${point.optDouble("lon")}"
+    }
+
+    private fun peekHead(): JSONObject? = synchronized(bufferLock) {
+        val arr = readBuffer()
+        if (arr.length() == 0) null else JSONObject(arr.getJSONObject(0).toString())
+    }
+
+    private fun dropHead(point: JSONObject) {
+        val key = pointKey(point)
+        synchronized(bufferLock) {
+            val arr = readBuffer()
+            if (arr.length() == 0) return
+            if (pointKey(arr.getJSONObject(0)) == key) {
+                arr.remove(0)
+            } else {
+                for (i in 0 until arr.length()) {
+                    if (pointKey(arr.getJSONObject(i)) == key) {
+                        arr.remove(i)
+                        break
+                    }
+                }
+            }
+            writeBuffer(arr)
+        }
+    }
+
     private fun appendBuffer(point: JSONObject) {
         synchronized(bufferLock) {
             val arr = readBuffer()
             arr.put(point)
-            while (arr.length() > 30) arr.remove(0)
+            var dropped = 0
+            while (arr.length() > MAX_BUFFER) {
+                arr.remove(0)
+                dropped++
+            }
             writeBuffer(arr)
-            LogManager.add("Buffered point (${arr.length()} waiting)")
+            val waiting = arr.length()
+            if (waiting > 1 || !online()) {
+                LogManager.add("Buffered point ($waiting waiting)")
+            }
+            if (dropped > 0) LogManager.add("Buffer full, dropped $dropped oldest")
         }
+    }
+
+    private fun trySend() {
+        if (!online() || PhoneTrackApi.rateLimited(this)) {
+            if (bufferCount() > 0) recordResult("buffered")
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (now - burstWindowStart >= 1000L) {
+            burstWindowStart = now
+            burstSent = 0
+        }
+        if (burstSent >= BURST) {
+            scheduleDrain(1000L - (now - burstWindowStart))
+            return
+        }
+        val client = logClient()
+        while (burstSent < BURST) {
+            val head = peekHead() ?: run {
+                if (burstSent > 0) recordResult("buffer cleared")
+                return
+            }
+            if (!postSync(client, head)) {
+                recordResult("buffered")
+                return
+            }
+            dropHead(head)
+            burstSent += 1
+        }
+        val left = bufferCount()
+        recordResult(if (left == 0) "buffer cleared" else "ok")
+        if (left > 0 && !PhoneTrackApi.rateLimited(this)) scheduleDrain(1000L)
+    }
+
+    private fun scheduleDrain(delayMs: Long) {
+        if (!drainScheduled.compareAndSet(false, true)) return
+        mainHandler.postDelayed({
+            drainScheduled.set(false)
+            io.execute { trySend() }
+        }, delayMs.coerceAtLeast(0L))
     }
 
     private fun flushBufferAsync() {
-        Thread {
-            val client = CertHelper.buildClient(prefs)
-            flushLocked(client)
-        }.start()
-    }
-
-    private fun flushLocked(client: OkHttpClient) {
-        if (!flushing.compareAndSet(false, true)) return
-        try {
-            val snapshot: JSONArray = synchronized(bufferLock) { readBuffer() }
-            if (snapshot.length() == 0) return
-            if (PhoneTrackApi.rateLimited(this)) return
-            val remaining = JSONArray()
-            var failed = false
-            var sent = 0
-            for (i in 0 until snapshot.length()) {
-                val point = snapshot.getJSONObject(i)
-                if (failed || sent >= 3) {
-                    remaining.put(point)
-                    continue
-                }
-                if (postSync(client, point)) sent += 1 else {
-                    failed = true
-                    remaining.put(point)
-                }
-            }
-            synchronized(bufferLock) { writeBuffer(remaining) }
-            LogManager.add("Buffer retry left ${remaining.length()}")
-            if (remaining.length() == 0) recordResult("buffer cleared")
-        } finally {
-            flushing.set(false)
-        }
+        io.execute { trySend() }
     }
 
     private fun recordResult(result: String) {
@@ -357,6 +424,8 @@ class LocationPublishService : Service() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null)
+        io.shutdownNow()
         locationCallback?.let {
             if (::fusedLocationClient.isInitialized) fusedLocationClient.removeLocationUpdates(it)
         }
@@ -371,5 +440,7 @@ class LocationPublishService : Service() {
 
     companion object {
         const val ACTION_PUBLISH_ONCE = "com.example.ncphonetrack.PUBLISH_ONCE"
+        private const val MAX_BUFFER = 7200
+        private const val BURST = 3
     }
 }
