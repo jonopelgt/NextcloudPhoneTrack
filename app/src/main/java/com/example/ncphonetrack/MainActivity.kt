@@ -614,10 +614,13 @@ class MainActivity : AppCompatActivity() {
     private fun bufferedFor(token: String): Int {
         if (token.isBlank()) return 0
         return try {
-            val text = File(filesDir, "pending_points.json").takeIf { it.exists() }?.readText().orEmpty()
+            val text = File(filesDir, "pending_points.json").takeIf { it.exists() }?.readText().orEmpty().trim()
             if (text.isBlank()) return 0
-            val arr = org.json.JSONArray(text)
-            (0 until arr.length()).count { arr.getJSONObject(it).optString("token") == token }
+            if (text.startsWith("[")) {
+                val arr = org.json.JSONArray(text)
+                return (0 until arr.length()).count { arr.getJSONObject(it).optString("token") == token }
+            }
+            return org.json.JSONObject(text).optJSONArray(token)?.length() ?: 0
         } catch (_: Exception) {
             0
         }

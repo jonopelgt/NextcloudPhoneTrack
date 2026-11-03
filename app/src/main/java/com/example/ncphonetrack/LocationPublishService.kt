@@ -390,101 +390,137 @@ class LocationPublishService : Service() {
         }
     }
 
+    private var bufferCursor = 0
+
     private fun bufferFile(): File = File(filesDir, "pending_points.json")
 
-    private fun readBuffer(): JSONArray {
+    private fun readQueues(): JSONObject {
         return try {
-            val text = bufferFile().takeIf { it.exists() }?.readText().orEmpty()
-            if (text.isBlank()) JSONArray() else JSONArray(text)
+            val text = bufferFile().takeIf { it.exists() }?.readText().orEmpty().trim()
+            if (text.isBlank()) return JSONObject()
+            if (text.startsWith("[")) {
+                val arr = JSONArray(text)
+                val queues = JSONObject()
+                for (i in 0 until arr.length()) {
+                    val point = arr.getJSONObject(i)
+                    val token = point.optString("token")
+                    if (token.isBlank()) continue
+                    val queue = queues.optJSONArray(token) ?: JSONArray().also { queues.put(token, it) }
+                    queue.put(point)
+                }
+                return queues
+            }
+            JSONObject(text)
         } catch (e: Exception) {
             LogManager.add("Buffer unreadable, starting fresh: ${e.message}")
-            JSONArray()
+            JSONObject()
         }
     }
 
-    private fun writeBuffer(arr: JSONArray) {
-        bufferFile().writeText(arr.toString())
-        prefs.edit().putInt("buffer_count", arr.length()).apply()
+    private fun writeQueues(queues: JSONObject) {
+        bufferFile().writeText(queues.toString())
+        prefs.edit().putInt("buffer_count", queueTotal(queues)).apply()
     }
 
-    private fun bufferCount(): Int = synchronized(bufferLock) { readBuffer().length() }
+    private fun queueTotal(queues: JSONObject): Int {
+        var total = 0
+        val keys = queues.keys()
+        while (keys.hasNext()) total += queues.optJSONArray(keys.next())?.length() ?: 0
+        return total
+    }
+
+    private fun bufferCount(): Int = synchronized(bufferLock) { queueTotal(readQueues()) }
 
     private fun pointKey(point: JSONObject): String {
         return "${point.optString("token")}:${point.optLong("timestamp")}:${point.optDouble("lat")}:${point.optDouble("lon")}"
     }
 
-    private fun peekHead(): JSONObject? = synchronized(bufferLock) {
-        val arr = readBuffer()
-        if (arr.length() == 0) null else JSONObject(arr.getJSONObject(0).toString())
+    private fun peekToken(token: String): JSONObject? = synchronized(bufferLock) {
+        val queue = readQueues().optJSONArray(token) ?: return null
+        if (queue.length() == 0) null else JSONObject(queue.getJSONObject(0).toString())
     }
 
     private fun dropHead(point: JSONObject) {
+        val token = point.optString("token")
         val key = pointKey(point)
         synchronized(bufferLock) {
-            val arr = readBuffer()
-            if (arr.length() == 0) return
-            if (pointKey(arr.getJSONObject(0)) == key) {
-                arr.remove(0)
-            } else {
-                for (i in 0 until arr.length()) {
-                    if (pointKey(arr.getJSONObject(i)) == key) {
-                        arr.remove(i)
-                        break
-                    }
+            val queues = readQueues()
+            val queue = queues.optJSONArray(token) ?: return
+            for (i in 0 until queue.length()) {
+                if (pointKey(queue.getJSONObject(i)) == key) {
+                    queue.remove(i)
+                    break
                 }
             }
-            writeBuffer(arr)
+            if (queue.length() == 0) queues.remove(token)
+            writeQueues(queues)
         }
     }
 
     private fun appendBuffer(point: JSONObject) {
+        val token = point.optString("token")
+        if (token.isBlank()) return
         synchronized(bufferLock) {
-            val arr = readBuffer()
-            arr.put(point)
+            val queues = readQueues()
+            val queue = queues.optJSONArray(token) ?: JSONArray().also { queues.put(token, it) }
+            queue.put(point)
             var dropped = 0
-            while (arr.length() > MAX_BUFFER) {
-                arr.remove(0)
+            while (queue.length() > MAX_BUFFER) {
+                queue.remove(0)
                 dropped++
             }
-            writeBuffer(arr)
-            val waiting = arr.length()
-            if (waiting > 1 || !online()) {
-                LogManager.add("Buffered point ($waiting waiting)")
-            }
-            if (dropped > 0) LogManager.add("Buffer full, dropped $dropped oldest")
+            writeQueues(queues)
+            val name = point.optString("name").ifBlank { "Session" }
+            val waiting = queue.length()
+            if (waiting > 1 || !online()) LogManager.add("$name: buffered point ($waiting waiting)")
+            if (dropped > 0) LogManager.add("$name: buffer full, dropped $dropped oldest")
         }
     }
 
     private fun deferHead(point: JSONObject) {
+        val token = point.optString("token")
         val key = pointKey(point)
         synchronized(bufferLock) {
-            val arr = readBuffer()
-            if (arr.length() == 0) return
+            val queues = readQueues()
+            val queue = queues.optJSONArray(token) ?: return
             var removed: JSONObject? = null
-            for (i in 0 until arr.length()) {
-                if (pointKey(arr.getJSONObject(i)) == key) {
-                    removed = arr.getJSONObject(i)
-                    arr.remove(i)
+            for (i in 0 until queue.length()) {
+                if (pointKey(queue.getJSONObject(i)) == key) {
+                    removed = queue.getJSONObject(i)
+                    queue.remove(i)
                     break
                 }
             }
-            if (removed != null) arr.put(removed)
-            writeBuffer(arr)
+            if (removed != null) queue.put(removed)
+            writeQueues(queues)
         }
     }
 
     private fun dropDisabled(allowed: Set<String>): Int {
         synchronized(bufferLock) {
-            val arr = readBuffer()
-            val kept = org.json.JSONArray()
+            val queues = readQueues()
             var dropped = 0
-            for (i in 0 until arr.length()) {
-                val point = arr.getJSONObject(i)
-                if (point.optString("token") in allowed) kept.put(point) else dropped++
+            val keys = queues.keys().asSequence().toList()
+            keys.forEach { token ->
+                if (token in allowed) return@forEach
+                dropped += queues.optJSONArray(token)?.length() ?: 0
+                queues.remove(token)
             }
-            if (dropped > 0) writeBuffer(kept)
+            if (dropped > 0) writeQueues(queues)
             return dropped
         }
+    }
+
+    private fun nextToken(allowed: Set<String>, skipped: Set<String>): String? {
+        val queues = synchronized(bufferLock) { readQueues() }
+        val ready = allowed.filter { token ->
+            token !in skipped && (queues.optJSONArray(token)?.length() ?: 0) > 0
+        }
+        if (ready.isEmpty()) return null
+        bufferCursor = bufferCursor % ready.size
+        val token = ready[bufferCursor]
+        bufferCursor = (bufferCursor + 1) % ready.size
+        return token
     }
 
     private fun trySend() {
@@ -508,11 +544,13 @@ class LocationPublishService : Service() {
         val allowed = enabledTargets().map { it.optString("token") }.filter { it.isNotBlank() }.toSet()
         val dropped = dropDisabled(allowed)
         if (dropped > 0) LogManager.add("Dropped $dropped buffered points for sessions that are off")
-        val seen = mutableSetOf<String>()
+        val failed = mutableSetOf<String>()
         val client = logClient()
-        while (burstSent < BURST) {
-            val head = peekHead() ?: return
-            if (!seen.add(pointKey(head))) return
+        var guard = 0
+        while (burstSent < BURST && guard < allowed.size * BURST + 1) {
+            guard++
+            val token = nextToken(allowed, failed) ?: break
+            val head = peekToken(token) ?: continue
             when (postSync(client, head)) {
                 "ok" -> {
                     dropHead(head)
@@ -522,10 +560,12 @@ class LocationPublishService : Service() {
                 "network" -> {
                     recordResult(head, "network")
                     deferHead(head)
+                    failed.add(token)
                 }
                 else -> {
                     recordResult(head, "buffered")
                     deferHead(head)
+                    failed.add(token)
                 }
             }
         }
@@ -533,13 +573,13 @@ class LocationPublishService : Service() {
     }
 
     private fun markBuffered(result: String) {
-        val arr = synchronized(bufferLock) { readBuffer() }
-        val seen = mutableSetOf<String>()
-        for (i in 0 until arr.length()) {
-            val point = arr.getJSONObject(i)
-            val key = point.optString("token")
-            if (key.isBlank() || !seen.add(key)) continue
-            recordResult(point, result)
+        val queues = synchronized(bufferLock) { readQueues() }
+        val keys = queues.keys()
+        while (keys.hasNext()) {
+            val token = keys.next()
+            val queue = queues.optJSONArray(token) ?: continue
+            if (queue.length() == 0) continue
+            recordResult(queue.getJSONObject(0), result)
         }
     }
 

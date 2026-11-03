@@ -31,7 +31,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - On each fix (configurable interval, default 60 s), POST to:
   `https://{base}/index.php/apps/phonetrack/logPost/{token}/{deviceName}`
   with parameters: lat, lon, timestamp (epoch), acc, alt, bat (battery %), speed, bearing.
-- Buffer failed uploads and retry when network available. Each point is stored before the upload is attempted. The buffer holds up to two hours of Rapid points and is not replaced by an in-progress retry. When the connection returns, stored points upload a few at a time, oldest first.
+- Each session has its own buffer. A failed send stays in that session's buffer and is retried there. It does not block another session, and the buffered count is only that session's points.
 - Show persistent notification while tracking.
 
 ### FR-3: Position Retrieval & Display
@@ -225,3 +225,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 120 (2026-11-03): Connection Status has a Clear button between the copy icon and Export log. Clear empties the log.
 - Rev 121 (2026-11-03): Maps shows a compact download date and the state's disk size in parentheses. The Downloaded heading shows the total size.
 - Rev 122 (2026-11-03): A successful empty session read is not Connection fail read. Buffered points for a session that is off or gone are dropped.
+- Rev 123 (2026-11-03): Each session has its own buffer. A failed send does not block the other sessions.
