@@ -134,6 +134,7 @@ class MainActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
         })
+        findViewById<ImageButton>(R.id.btnCopyLog).setOnClickListener { copyLog() }
         findViewById<Button>(R.id.btnExportLog).setOnClickListener { exportLog() }
         logScroll.setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -847,6 +848,13 @@ class MainActivity : AppCompatActivity() {
         noSessionBanner.visibility = if (noneActive && mapVisible) View.VISIBLE else View.GONE
         tvMapBanner.visibility = if (message != null && !noneActive && mapVisible) View.VISIBLE else View.GONE
         loginBanner.visibility = if (!verified && mapVisible) View.VISIBLE else View.GONE
+    }
+
+    private fun copyLog() {
+        val text = selectedSessionLog()
+        val clipboard = getSystemService(android.content.ClipboardManager::class.java)
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PhoneTrack log", text))
+        Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
     }
 
     private fun exportLog() {

@@ -274,6 +274,14 @@
                     android:text="Log"
                     android:textStyle="bold" />
 
+                <ImageButton
+                    android:id="@+id/btnCopyLog"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Copy log"
+                    android:src="@drawable/ic_copy" />
+
                 <Button
                     android:id="@+id/btnExportLog"
                     android:layout_width="wrap_content"
