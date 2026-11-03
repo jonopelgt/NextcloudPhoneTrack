@@ -578,19 +578,35 @@ class MainActivity : AppCompatActivity() {
         else -> null
     }
 
+    private fun bufferedFor(token: String): Int {
+        if (token.isBlank()) return 0
+        return try {
+            val text = File(filesDir, "pending_points.json").takeIf { it.exists() }?.readText().orEmpty()
+            if (text.isBlank()) return 0
+            val arr = org.json.JSONArray(text)
+            (0 until arr.length()).count { arr.getJSONObject(it).optString("token") == token }
+        } catch (_: Exception) {
+            0
+        }
+    }
+
     private fun refreshConnectionStatus() {
         val name = displayedSessionName()
+        val token = displayedToken()
         val link = linkState()
         val message = connectionFailMessage(name, link)
-        val (pushResult, pushEpoch) = sessionPush(displayedToken())
-        val result = pushResult.ifBlank { prefs.getString("last_result", "") ?: "" }
+        val (pushResult, pushEpoch) = sessionPush(token)
+        val result = pushResult.ifBlank {
+            if (token.isNotBlank()) prefs.getString("last_result", "") ?: "" else ""
+        }
         val state = prefs.getString("logging_state", "idle") ?: "idle"
+        tvStatusUrl.text = if (name.isBlank()) "URL: ${prefs.getString("url", "") ?: ""}" else name
+        tvStatusToken.text = "Token: $token"
         val detail = named(name, "Logging: $state (${resultLabel(result)})")
         tvLoggingState.text = if (message == null) detail else "$message\n$detail"
-        val lastOk = if (pushEpoch > 0L) pushEpoch else prefs.getLong("last_success_epoch", 0L)
-        val ageSec = if (lastOk <= 0L) Long.MAX_VALUE else (System.currentTimeMillis() - lastOk) / 1000
-        tvLastUpdate.text = if (lastOk <= 0L) "Last update: never" else named(name, "Last update: ${ageSec}s ago")
-        tvBuffer.text = "Buffered points: ${prefs.getInt("buffer_count", 0)}"
+        val ageSec = if (pushEpoch <= 0L) Long.MAX_VALUE else (System.currentTimeMillis() - pushEpoch) / 1000
+        tvLastUpdate.text = if (pushEpoch <= 0L) named(name, "Last update: never") else named(name, "Last update: ${ageSec}s ago")
+        tvBuffer.text = named(name, "Buffered points: ${bufferedFor(token)}")
         refreshSessionStatusList()
         refreshMapBanner()
     }
@@ -607,10 +623,10 @@ class MainActivity : AppCompatActivity() {
         sessions.forEach { session ->
             val enabled = session.optBoolean("enabled", true)
             val token = session.optString("token")
-            val onMap = enabled && token.isNotBlank() && token == shown
-            val sessionLink = linkStateFor(token, onMap)
+            val selected = token.isNotBlank() && token == shown
+            val sessionLink = linkStateFor(token, selected)
             val label = sessionLabel(session)
-            val message = connectionFailMessage(label, sessionLink)
+            val message = if (selected) connectionFailMessage(label, sessionLink) else null
             val status: String
             val color: String
             val rowColor: Int
@@ -630,12 +646,12 @@ class MainActivity : AppCompatActivity() {
                     color = "#C62828"
                     rowColor = Color.TRANSPARENT
                 }
-                sessionLink.pushFresh && (!onMap || sessionLink.readOk) -> {
+                sessionLink.pushFresh && sessionLink.readOk -> {
                     status = "OK"
                     color = "#1B7F3A"
                     rowColor = Color.TRANSPARENT
                 }
-                quiet && (!onMap || sessionLink.readOk) -> {
+                quiet && sessionLink.readOk -> {
                     status = "OK"
                     color = "#1B7F3A"
                     rowColor = Color.TRANSPARENT
@@ -647,20 +663,36 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             val name = TextView(this).apply {
-                text = if (onMap) "$label · map" else label
+                text = label
                 textSize = 16f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
             val state = TextView(this).apply {
-                text = status
+                text = if (selected) status else if (!enabled) "Off" else ""
                 textSize = 16f
                 setTextColor(Color.parseColor(color))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             }
+            val radio = android.widget.RadioButton(this).apply {
+                isChecked = selected
+                contentDescription = "Shown on the map"
+                setOnClickListener {
+                    if (token == displayedToken()) {
+                        isChecked = true
+                        return@setOnClickListener
+                    }
+                    showSessionOnMap(session)
+                    refreshConnectionStatus()
+                }
+            }
+            name.setOnClickListener { radio.performClick() }
             sessionStatusList.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
                 setPadding(0, 8, 0, 8)
                 setBackgroundColor(rowColor)
+                setOnClickListener { radio.performClick() }
+                addView(radio)
                 addView(name)
                 addView(state)
             })
