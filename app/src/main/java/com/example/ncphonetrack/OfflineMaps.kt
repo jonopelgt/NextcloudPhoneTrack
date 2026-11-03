@@ -486,6 +486,58 @@ object OfflineMaps {
         return y.toInt().coerceIn(0, n - 1)
     }
 
+    fun diskUse(context: Context): Pair<Long, Map<String, Long>> {
+        val root = tileCache(context)
+        val byState = HashMap<String, Long>()
+        var total = 0L
+        if (!root.isDirectory) return total to byState
+        root.listFiles()?.forEach { zoomRoot ->
+            zoomRoot.listFiles()?.forEach { zoomDir ->
+                val zoom = zoomDir.name.toIntOrNull() ?: return@forEach
+                zoomDir.listFiles()?.forEach { xDir ->
+                    val x = xDir.name.toIntOrNull() ?: return@forEach
+                    xDir.listFiles()?.forEach { tile ->
+                        if (!tile.isFile) return@forEach
+                        val y = tile.name.substringBefore('.').toIntOrNull() ?: return@forEach
+                        val size = tile.length()
+                        total += size
+                        states.forEach { state ->
+                            if (covers(state, zoom, x, y)) {
+                                byState[state.abbr] = (byState[state.abbr] ?: 0L) + size
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return total to byState
+    }
+
+    fun compactSize(bytes: Long): String {
+        val n = bytes.coerceAtLeast(0)
+        val k = 1024.0
+        return when {
+            n < 1024 -> "${n}B"
+            n < k * 1024 -> "${(n / k).toInt()}K"
+            n < k * k * 1024 -> {
+                val m = n / (k * k)
+                if (m < 10) String.format(Locale.US, "%.1fM", m) else "${m.toInt()}M"
+            }
+            else -> {
+                val g = n / (k * k * k)
+                if (g < 10) String.format(Locale.US, "%.1fG", g) else "${g.toInt()}G"
+            }
+        }
+    }
+
+    private fun covers(state: UsState, zoom: Int, x: Int, y: Int): Boolean {
+        val x1 = xTile(state.west, zoom)
+        val x2 = xTile(state.east, zoom)
+        val y1 = yTile(state.north, zoom)
+        val y2 = yTile(state.south, zoom)
+        return x in x1..x2 && y in y1..y2
+    }
+
     fun tileCache(context: Context) = File(context.filesDir, "osmdroid/tiles")
 
     private fun catalog(prefs: SharedPreferences): JSONObject {

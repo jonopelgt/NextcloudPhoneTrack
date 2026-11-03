@@ -2532,6 +2532,12 @@ class MainActivity : AppCompatActivity() {
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val saved = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         var startDownload: (List<UsState>, Boolean) -> Unit = { _, _ -> }
+        val downloadedTitle = TextView(this).apply {
+            text = "Downloaded"
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad / 2, 0, 0)
+        }
         fun stateAction(label: String, onClick: () -> Unit): Button {
             return Button(this).apply {
                 text = label
@@ -2541,6 +2547,8 @@ class MainActivity : AppCompatActivity() {
         }
         fun paintSaved() {
             saved.removeAllViews()
+            val (totalBytes, byState) = OfflineMaps.diskUse(this)
+            downloadedTitle.text = if (totalBytes > 0) "Downloaded (${OfflineMaps.compactSize(totalBytes)})" else "Downloaded"
             val active = OfflineMaps.queue()
             val activeAbbr = active.map { it.abbr }.toSet()
             active.forEach { job ->
@@ -2592,10 +2600,11 @@ class MainActivity : AppCompatActivity() {
                 })
                 return
             }
-            val format = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.US)
+            val format = java.text.SimpleDateFormat("M/d/yy", java.util.Locale.US)
             rows.forEach { (state, at) ->
                 val fresh = OfflineMaps.isFresh(at)
                 val whenText = format.format(java.util.Date(at))
+                val sizeText = OfflineMaps.compactSize(byState[state.abbr] ?: 0L)
                 saved.addView(LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
@@ -2606,7 +2615,7 @@ class MainActivity : AppCompatActivity() {
                         layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     })
                     addView(TextView(this@MainActivity).apply {
-                        text = if (fresh) "$whenText  OK" else whenText
+                        text = if (fresh) "$whenText ($sizeText)  OK" else "$whenText ($sizeText)"
                         textSize = 14f
                         setTextColor(Color.parseColor(if (fresh) "#1B7F3A" else "#757575"))
                         setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -2709,12 +2718,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad / 4, 0, 0)
         })
         box.addView(results)
-        box.addView(TextView(this).apply {
-            text = "Downloaded"
-            textSize = 16f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(0, pad / 2, 0, 0)
-        })
+        box.addView(downloadedTitle)
         box.addView(saved)
         paintSaved()
         search.addTextChangedListener(object : android.text.TextWatcher {
