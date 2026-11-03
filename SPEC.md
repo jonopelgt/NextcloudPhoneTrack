@@ -172,6 +172,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 71 (2026-11-02): Connection Status auto-scrolls to the latest message. It does not.
 - Rev 72 (2026-11-02): Spoof is a choice in the map location control menu, with the spy hat icon. It is not.
 - Rev 73 (2026-11-02): The session config shows the session owner. Only the owner can update the session on the server. Not built yet.
+- Rev 74 (2026-11-02): Track dots have no outline. They do. Not fixed yet.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
