@@ -230,3 +230,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 125 (2026-11-03): Choosing a state to download does not freeze the app on a slow connection.
 - Rev 126 (2026-11-03): A state's map size is measured when its download finishes and kept until that state is updated or deleted.
 - Rev 127 (2026-11-03): Pressing and holding a map zoom key keeps zooming until the key is released.
+- Rev 128 (2026-11-03): The app icon is a map pin with broadcast waves.

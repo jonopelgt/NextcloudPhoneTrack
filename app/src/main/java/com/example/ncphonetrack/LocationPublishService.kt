@@ -638,7 +638,7 @@ class LocationPublishService : Service() {
             .setContentText(enabledTargets().joinToString(", ") {
                 it.optString("name").ifBlank { "Unnamed session" }
             }.ifBlank { "Publishing location to Nextcloud" })
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(R.drawable.ic_pin_broadcast)
             .setOngoing(true)
             .build()
     }
