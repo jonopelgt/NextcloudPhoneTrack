@@ -233,3 +233,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 128 (2026-11-03): The app icon is a map pin with broadcast waves.
 - Rev 129 (2026-11-03): Settings has a Location sharing switch. While sharing is on, the status bar shows a map pin with broadcast waves. Off removes that icon and stops sharing.
 - Rev 130 (2026-11-03): The position-broadcast status icon is not a silent notification, so it stays in the status bar while sharing is on.
+- Rev 131 (2026-11-03): The app icon is Nextcloud blue. The broadcast waves sit lower so they fit inside the round icon.
