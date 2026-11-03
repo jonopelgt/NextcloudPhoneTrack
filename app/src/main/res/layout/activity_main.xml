@@ -29,6 +29,20 @@
             android:src="@drawable/ic_menu" />
 
         <ImageButton
+            android:id="@+id/btnSharing"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="12dp"
+            android:layout_marginEnd="68dp"
+            android:background="@drawable/zoom_key_bg"
+            android:contentDescription="Location sharing"
+            android:elevation="8dp"
+            android:padding="10dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_mode_on" />
+
+        <ImageButton
             android:id="@+id/btnPositionMode"
             android:layout_width="48dp"
             android:layout_height="48dp"

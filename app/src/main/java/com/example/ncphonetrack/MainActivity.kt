@@ -80,7 +80,9 @@ class MainActivity : AppCompatActivity() {
     private var allMode = false
     private lateinit var mapControls: View
     private lateinit var btnPositionMode: ImageButton
+    private lateinit var btnSharing: ImageButton
     private lateinit var modePicker: LinearLayout
+    private var openModeMenu: String? = null
     private var pickFollowOnNextMap = false
     private var bubbleToken = 0
     private val zoomOverlays = mutableListOf<LinearLayout>()
@@ -170,17 +172,19 @@ class MainActivity : AppCompatActivity() {
         btnReticle = findViewById(R.id.btnReticle)
         mapControls = findViewById(R.id.mapControls)
         btnPositionMode = findViewById(R.id.btnPositionMode)
+        btnSharing = findViewById(R.id.btnSharing)
         modePicker = findViewById(R.id.modePicker)
         refreshModeButton()
         btnPositionMode.setOnClickListener {
-            if (modePicker.visibility == View.VISIBLE) {
-                modePicker.visibility = View.GONE
-            } else {
-                sendCurrentPosition()
-            }
+            if (modePicker.visibility == View.VISIBLE) closeModeMenu() else sendCurrentPosition()
         }
         btnPositionMode.setOnLongClickListener {
-            toggleModePicker()
+            showModeMenu("position")
+            true
+        }
+        btnSharing.setOnClickListener { showModeMenu("sharing") }
+        btnSharing.setOnLongClickListener {
+            showModeMenu("sharing")
             true
         }
         holdZoom(btnZoomIn, 0.25)
@@ -205,7 +209,7 @@ class MainActivity : AppCompatActivity() {
                     downX = event.x
                     downY = event.y
                     dragged = false
-                    modePicker.visibility = View.GONE
+                    closeModeMenu()
                     map.removeCallbacks(longPress)
                     map.postDelayed(longPress, android.view.ViewConfiguration.getLongPressTimeout().toLong())
                 }
@@ -3265,77 +3269,93 @@ class MainActivity : AppCompatActivity() {
     private fun refreshModeButton() {
         if (!::btnPositionMode.isInitialized) return
         val spoofing = prefs.getBoolean("spoof_enabled", false)
+        val sharingOn = !positionUpdatesOff()
         val timing = SharingControl.remaining(this) > 0L
-        btnPositionMode.setImageResource(
-            when {
-                timing -> R.drawable.ic_mode_timer
-                spoofing -> R.drawable.ic_mode_spy
-                else -> modeIcon(currentPositionMode())
+        btnPositionMode.setImageResource(if (spoofing) R.drawable.ic_mode_spy else modeIcon(currentPositionMode()))
+        btnPositionMode.contentDescription = if (spoofing) "Location spoof" else modeLabel(currentPositionMode())
+        if (::btnSharing.isInitialized) {
+            btnSharing.setImageResource(
+                when {
+                    !sharingOn -> R.drawable.ic_mode_off
+                    timing -> R.drawable.ic_mode_timer
+                    else -> R.drawable.ic_mode_on
+                }
+            )
+            btnSharing.contentDescription = when {
+                !sharingOn -> "Sharing off"
+                timing -> "Timer ${SharingControl.remainingLabel(SharingControl.remaining(this))}"
+                else -> "Sharing on"
             }
-        )
-        btnPositionMode.contentDescription = when {
-            timing -> "Timer ${SharingControl.remainingLabel(SharingControl.remaining(this))}"
-            spoofing -> "Location spoof"
-            else -> modeLabel(currentPositionMode())
+            btnSharing.invalidate()
         }
         btnPositionMode.invalidate()
     }
 
-    private fun toggleModePicker() {
-        if (modePicker.visibility == View.VISIBLE) {
-            modePicker.visibility = View.GONE
+    private fun closeModeMenu() {
+        if (::modePicker.isInitialized) modePicker.visibility = View.GONE
+        openModeMenu = null
+    }
+
+    private fun showModeMenu(kind: String) {
+        if (modePicker.visibility == View.VISIBLE && openModeMenu == kind) {
+            closeModeMenu()
             return
         }
         val current = currentPositionMode()
         val spoofing = prefs.getBoolean("spoof_enabled", false)
         val sharingOn = !positionUpdatesOff()
         val timing = SharingControl.remaining(this) > 0L
+        openModeMenu = kind
         modePicker.removeAllViews()
-        modePicker.addView(groupLabel("Position"))
-        listOf("manual", "significant", "move", "rapid").forEach { mode ->
-            modePicker.addView(modeChoice(mode, !spoofing && !timing && mode == current) {
-                modePicker.visibility = View.GONE
-                if (spoofing) {
-                    confirmChoice("Turn off location spoof?") {
-                        prefs.edit().putBoolean("spoof_enabled", false).apply()
-                        removeSpoofMarker()
+        if (kind == "position") {
+            modePicker.addView(groupLabel("Position"))
+            listOf("manual", "significant", "move", "rapid").forEach { mode ->
+                modePicker.addView(modeChoice(mode, !spoofing && mode == current) {
+                    closeModeMenu()
+                    if (spoofing) {
+                        confirmChoice("Turn off location spoof?") {
+                            prefs.edit().putBoolean("spoof_enabled", false).apply()
+                            removeSpoofMarker()
+                            setPositionMode(mode)
+                        }
+                    } else {
                         setPositionMode(mode)
                     }
-                } else {
-                    setPositionMode(mode)
+                })
+            }
+            modePicker.addView(modeChoice("spoof", spoofing) {
+                closeModeMenu()
+                if (spoofing) return@modeChoice
+                confirmChoice("Turn on location spoof?") {
+                    prefs.edit().putBoolean("spoof_enabled", true).apply()
+                    refreshModeButton()
+                    addSpoofMarker()
+                    if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+                    sendSpoofNow()
                 }
             })
-        }
-        modePicker.addView(modeChoice("spoof", spoofing) {
-            modePicker.visibility = View.GONE
-            if (spoofing) return@modeChoice
-            confirmChoice("Turn on location spoof?") {
-                prefs.edit().putBoolean("spoof_enabled", true).apply()
+        } else {
+            modePicker.addView(groupLabel("Sharing"))
+            modePicker.addView(modeChoice("quiet", !sharingOn) {
+                closeModeMenu()
+                SharingControl.set(this, false)
                 refreshModeButton()
-                addSpoofMarker()
-                if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
-                sendSpoofNow()
-            }
-        })
-        modePicker.addView(groupLabel("Sharing"))
-        modePicker.addView(modeChoice("quiet", !sharingOn) {
-            modePicker.visibility = View.GONE
-            SharingControl.set(this, false)
-            refreshModeButton()
-        })
-        modePicker.addView(modeChoice("timer", timing) {
-            modePicker.visibility = View.GONE
-            SharingControl.startTimer(this, SharingControl.DEFAULT_MS)
-            refreshModeButton()
-        })
-        modePicker.addView(modeChoice("on", sharingOn && !timing) {
-            modePicker.visibility = View.GONE
-            SharingControl.set(this, true)
-            refreshModeButton()
-        })
+            })
+            modePicker.addView(modeChoice("timer", timing) {
+                closeModeMenu()
+                SharingControl.startTimer(this, SharingControl.DEFAULT_MS)
+                refreshModeButton()
+            })
+            modePicker.addView(modeChoice("on", sharingOn && !timing) {
+                closeModeMenu()
+                SharingControl.set(this, true)
+                refreshModeButton()
+            })
+        }
         modePicker.visibility = View.VISIBLE
         modePicker.bringToFront()
         btnPositionMode.bringToFront()
+        btnSharing.bringToFront()
     }
 
     private fun modeChoice(mode: String, selected: Boolean, onClick: () -> Unit): LinearLayout {
@@ -3597,6 +3617,7 @@ class MainActivity : AppCompatActivity() {
         if (::btnReticle.isInitialized) btnReticle.visibility = if (mapContext) View.VISIBLE else View.GONE
         if (::mapControls.isInitialized && mapContext) mapControls.bringToFront()
         if (::btnPositionMode.isInitialized && mapContext) btnPositionMode.bringToFront()
+        if (::btnSharing.isInitialized && mapContext) btnSharing.bringToFront()
         if (::btnReticle.isInitialized && mapContext) btnReticle.bringToFront()
         if (!mapContext && ::statusPanel.isInitialized && statusPanel.visibility == View.VISIBLE) statusPanel.bringToFront()
     }
