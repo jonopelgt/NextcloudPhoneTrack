@@ -11,6 +11,20 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MANAGE_APP_PERMISSION" />
+            <category android:name="android.intent.category.DEFAULT" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MANAGE_APP_PERMISSIONS" />
+            <category android:name="android.intent.category.DEFAULT" />
+        </intent>
+        <package android:name="com.google.android.permissioncontroller" />
+        <package android:name="com.android.permissioncontroller" />
+        <package android:name="com.samsung.android.permissioncontroller" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
