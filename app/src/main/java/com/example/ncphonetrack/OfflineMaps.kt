@@ -121,8 +121,15 @@ object OfflineMaps {
     )
 
     private val client = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
+        .callTimeout(12, TimeUnit.SECONDS)
+        .build()
+    private val downloadClient = client.newBuilder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .callTimeout(25, TimeUnit.SECONDS)
+        .dispatcher(okhttp3.Dispatcher().apply { maxRequests = 1 })
         .build()
 
     fun base(id: String): BaseMap = bases.firstOrNull { it.id == id } ?: bases.first()
@@ -412,10 +419,14 @@ object OfflineMaps {
                     if (!force && dest.isFile && dest.length() > 100) {
                         // already saved
                     } else {
+                        if (attempted == 1 || attempted % 5 == 0) {
+                            noteProgress(state, attempted, total)
+                            onStatus("${state.name} $attempted/$total")
+                        }
                         val wrote = saveTile(map.url(zoom, x, y), dest)
                         if (wrote < 0) failed++ else byteCount += wrote
                     }
-                    if (attempted == 1 || attempted % 10 == 0) {
+                    if (attempted == 1 || attempted % 20 == 0) {
                         noteProgress(state, attempted, total)
                         onStatus("${state.name} $attempted/$total")
                     }
@@ -438,7 +449,7 @@ object OfflineMaps {
     private fun saveTile(url: String, dest: File): Long {
         return try {
             val request = Request.Builder().url(url).header("User-Agent", "NextcloudPhoneTrack").build()
-            client.newCall(request).execute().use { response ->
+            downloadClient.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return -1L
                 val body = response.body ?: return -1L
                 dest.parentFile?.mkdirs()

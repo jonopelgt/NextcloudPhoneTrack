@@ -2543,10 +2543,12 @@ class MainActivity : AppCompatActivity() {
         }
         var mapsDialog: AlertDialog? = null
         fun refreshSizes() {
+            if (OfflineMaps.queue().isNotEmpty()) return
             Thread {
                 val use = OfflineMaps.diskUse(this)
                 runOnUiThread {
-                    if (mapsDialog?.isShowing == true) paintSaved(use)
+                    if (mapsDialog?.isShowing != true || OfflineMaps.queue().isNotEmpty()) return@runOnUiThread
+                    paintSaved(use)
                 }
             }.start()
         }
@@ -2843,17 +2845,26 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        val cm = getSystemService(android.net.ConnectivityManager::class.java)
-        if (cm?.isActiveNetworkMetered == true) {
-            AlertDialog.Builder(this)
-                .setTitle("Metered connection")
-                .setMessage("This connection is metered. Download offline maps anyway?")
-                .setPositiveButton("Download") { _, _ -> go() }
-                .setNegativeButton("Cancel", null)
-                .show()
-        } else {
-            go()
-        }
+        Thread {
+            val metered = try {
+                getSystemService(android.net.ConnectivityManager::class.java)?.isActiveNetworkMetered == true
+            } catch (_: Exception) {
+                false
+            }
+            runOnUiThread {
+                if (isDestroyed) return@runOnUiThread
+                if (metered) {
+                    AlertDialog.Builder(this)
+                        .setTitle("Metered connection")
+                        .setMessage("This connection is metered. Download offline maps anyway?")
+                        .setPositiveButton("Download") { _, _ -> go() }
+                        .setNegativeButton("Cancel", null)
+                        .show()
+                } else {
+                    go()
+                }
+            }
+        }.start()
     }
 
     private fun pinZoomControls(dialog: AlertDialog) {
