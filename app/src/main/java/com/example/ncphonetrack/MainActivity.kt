@@ -981,7 +981,7 @@ class MainActivity : AppCompatActivity() {
                     textSize = 16f
                     setTextColor(Color.parseColor("#1565C0"))
                     paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
-                    setOnClickListener { openPermissionSettings(item.destination) }
+                    setOnClickListener { openPermissionSettings(item) }
                 }
                 permissionList.addView(LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -1104,19 +1104,55 @@ class MainActivity : AppCompatActivity() {
         return items
     }
 
-    private fun openPermissionSettings(destination: String) {
-        val intent = if (destination == "notifications" && Build.VERSION.SDK_INT >= 26) {
-            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+    private val PERMISSION_SETTINGS_REQUEST = 1003
+    private var pendingPermission: RequiredPermission? = null
+    private var permissionAskAt = 0L
+
+    private fun openPermissionSettings(item: RequiredPermission) {
+        val granted = ContextCompat.checkSelfPermission(this, item.permission) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            pendingPermission = item
+            permissionAskAt = android.os.SystemClock.uptimeMillis()
+            ActivityCompat.requestPermissions(this, arrayOf(item.permission), PERMISSION_SETTINGS_REQUEST)
+            return
+        }
+        openPermissionPage(item)
+    }
+
+    private fun openPermissionPage(item: RequiredPermission) {
+        val intents = mutableListOf<Intent>()
+        if (item.permission == Manifest.permission.POST_NOTIFICATIONS) {
+            intents.add(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
                 putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
-            }
+                putExtra("android.provider.extra.APP_PACKAGE", packageName)
+                putExtra("app_package", packageName)
+                putExtra("app_uid", applicationInfo.uid)
+                data = Uri.fromParts("package", packageName, null)
+            })
         } else {
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+            intents.add(Intent("android.intent.action.MANAGE_APP_PERMISSION").apply {
+                putExtra(Intent.EXTRA_PACKAGE_NAME, packageName)
+                putExtra("android.intent.extra.PERMISSION_NAME", item.permission)
+                putExtra("android.intent.extra.PERMISSION_GROUP_NAME", "android.permission-group.LOCATION")
+            })
         }
-        try {
-            startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Could not open settings", Toast.LENGTH_LONG).show()
+        intents.add(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+        for (intent in intents) {
+            if (!canStart(intent)) continue
+            try {
+                startActivity(intent)
+                return
+            } catch (_: Exception) {
+            }
         }
+        Toast.makeText(this, "Could not open settings", Toast.LENGTH_LONG).show()
+    }
+
+    private fun canStart(intent: Intent): Boolean {
+        val resolved = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) ?: return false
+        val required = resolved.activityInfo?.permission
+        return required.isNullOrBlank() ||
+            ContextCompat.checkSelfPermission(this, required) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun verifyLogin(url: String, user: String, pass: String) {
@@ -1849,6 +1885,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSION_SETTINGS_REQUEST) {
+            val item = pendingPermission
+            val granted = grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            val skipped = android.os.SystemClock.uptimeMillis() - permissionAskAt < 400
+            refreshSettingsPermissions?.invoke()
+            if (!granted && skipped && item != null) openPermissionPage(item)
+            return
+        }
         if (requestCode == LOCATION_PERMISSION_REQUEST) {
             if (checkPermissions()) {
                 startTrackingFromPrefs()
