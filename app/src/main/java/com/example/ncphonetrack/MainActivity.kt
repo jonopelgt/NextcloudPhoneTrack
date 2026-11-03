@@ -582,13 +582,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun linkState(): LinkState = linkStateFor(displayedToken(), true)
 
-    private fun connectionFailMessage(name: String, link: LinkState): String? = when {
-        link.localUnavailable && link.readFail -> named(name, "Connection fail read. local position unavailable.")
-        link.localUnavailable -> named(name, "local position unavailable.")
-        link.readFail && link.pushFail -> named(name, "Connection fail read and push")
-        link.readFail -> named(name, "Connection fail read")
-        link.pushFail -> named(name, "Connection fail push")
-        else -> null
+    private fun connectionFailMessage(name: String, link: LinkState, includeName: Boolean = true): String? {
+        val text = when {
+            link.localUnavailable && link.readFail -> "Connection fail read. local position unavailable."
+            link.localUnavailable -> "local position unavailable."
+            link.readFail && link.pushFail -> "Connection fail read and push"
+            link.readFail -> "Connection fail read"
+            link.pushFail -> "Connection fail push"
+            else -> return null
+        }
+        return if (includeName) named(name, text) else text
     }
 
     private fun bufferedFor(token: String): Int {
@@ -693,7 +696,7 @@ class MainActivity : AppCompatActivity() {
             val selected = token.isNotBlank() && token == shown
             val sessionLink = linkStateFor(token, selected)
             val label = sessionLabel(session)
-            val message = connectionFailMessage(label, sessionLink)
+            val message = connectionFailMessage(label, sessionLink, includeName = false)
             val status: String
             val color: String
             val rowColor: Int
