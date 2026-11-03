@@ -2542,13 +2542,14 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad / 2, 0, 0)
         }
         var mapsDialog: AlertDialog? = null
+        var applySizes: (Pair<Long, Map<String, Long>>) -> Unit = {}
         fun refreshSizes() {
             if (OfflineMaps.queue().isNotEmpty()) return
             Thread {
                 val use = OfflineMaps.diskUse(this)
                 runOnUiThread {
                     if (mapsDialog?.isShowing != true || OfflineMaps.queue().isNotEmpty()) return@runOnUiThread
-                    paintSaved(use)
+                    applySizes(use)
                 }
             }.start()
         }
@@ -2655,6 +2656,7 @@ class MainActivity : AppCompatActivity() {
                 })
             }
         }
+        applySizes = { paintSaved(it) }
         startDownload = { states, force ->
             confirmMeteredDownload(states, force) { _ ->
                 paintSaved()
