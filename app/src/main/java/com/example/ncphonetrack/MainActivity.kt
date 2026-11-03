@@ -2500,7 +2500,7 @@ class MainActivity : AppCompatActivity() {
     private fun fetchIntervalMs(): Long {
         val steps = intArrayOf(500, 1000, 2000, 3000, 4000, 5000, 10000, 15000, 30000, 60000, 300000, 600000)
         val saved = prefs.getInt("fetch_interval_ms", 0)
-        val target = if (saved > 0) saved else prefs.getInt("fetch_interval_sec", 30) * 1000
+        val target = if (saved > 0) saved else 3000
         return steps.minBy { kotlin.math.abs(it - target) }.toLong()
     }
 
