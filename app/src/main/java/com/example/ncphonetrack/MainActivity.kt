@@ -2253,16 +2253,41 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, 0)
         }
-        val status = TextView(this).apply {
-            textSize = 14f
-            setPadding(0, pad / 2, 0, pad / 2)
-        }
         val results = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val saved = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun paintSaved() {
             saved.removeAllViews()
-            val rows = OfflineMaps.downloaded(prefs)
-            if (rows.isEmpty()) {
+            val active = OfflineMaps.queue()
+            val activeAbbr = active.map { it.abbr }.toSet()
+            active.forEach { job ->
+                saved.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, pad / 4, 0, pad / 4)
+                    addView(TextView(this@MainActivity).apply {
+                        text = job.name
+                        textSize = 16f
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    })
+                    if (job.queued) {
+                        addView(TextView(this@MainActivity).apply {
+                            text = "queued"
+                            textSize = 14f
+                            setTextColor(Color.parseColor("#E65100"))
+                            setTypeface(typeface, android.graphics.Typeface.BOLD)
+                        })
+                    } else {
+                        val percent = if (job.total <= 0) 0 else (job.done * 100 / job.total).coerceIn(0, 100)
+                        addView(android.widget.ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                            max = 100
+                            progress = percent
+                            layoutParams = LinearLayout.LayoutParams((140 * resources.displayMetrics.density).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT)
+                        })
+                    }
+                })
+            }
+            val rows = OfflineMaps.downloaded(prefs).filter { it.first.abbr !in activeAbbr }
+            if (rows.isEmpty() && active.isEmpty()) {
                 saved.addView(TextView(this).apply {
                     text = "No states downloaded."
                     setPadding(0, pad / 2, 0, pad / 2)
@@ -2292,9 +2317,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
         fun startDownload(states: List<UsState>, force: Boolean) {
-            confirmMeteredDownload(states, force) { line ->
-                status.text = line
-                if (line.endsWith("downloaded") || line.contains("failed")) paintSaved()
+            confirmMeteredDownload(states, force) { _ ->
+                paintSaved()
             }
         }
         box.addView(TextView(this).apply {
@@ -2343,7 +2367,6 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad / 4, 0, 0)
         })
         box.addView(results)
-        box.addView(status)
         box.addView(TextView(this).apply {
             text = "Downloaded"
             textSize = 16f

@@ -9,6 +9,7 @@ import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import java.io.File
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.tan
@@ -113,9 +114,6 @@ object OfflineMaps {
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    private val jobs = mutableListOf<Pair<UsState, Boolean>>()
-    @Volatile private var worker: Thread? = null
-
     fun base(id: String): BaseMap = bases.firstOrNull { it.id == id } ?: bases.first()
 
     fun tileSource(map: BaseMap): OnlineTileSourceBase {
@@ -155,6 +153,19 @@ object OfflineMaps {
 
     fun isFresh(at: Long): Boolean = System.currentTimeMillis() - at <= FRESH_MS
 
+    data class MapJob(val abbr: String, val name: String, val queued: Boolean, val done: Int, val total: Int)
+
+    private val pending = mutableListOf<Pair<UsState, Boolean>>()
+    @Volatile private var current: MapJob? = null
+    private val running = AtomicBoolean(false)
+
+    fun queue(): List<MapJob> = synchronized(pending) {
+        val list = mutableListOf<MapJob>()
+        current?.let { list.add(it) }
+        pending.forEach { list.add(MapJob(it.first.abbr, it.first.name, true, 0, 0)) }
+        list
+    }
+
     fun enqueue(
         context: Context,
         prefs: SharedPreferences,
@@ -163,49 +174,101 @@ object OfflineMaps {
         onStatus: (String) -> Unit
     ) {
         if (states.isEmpty()) return
-        synchronized(jobs) { states.forEach { jobs.add(it to force) } }
-        if (worker?.isAlive == true) return
-        val app = context.applicationContext
-        worker = Thread {
-            while (true) {
-                val job = synchronized(jobs) { if (jobs.isEmpty()) null else jobs.removeAt(0) } ?: break
-                val error = download(app, job.first, job.second, onStatus)
-                if (error == null) {
-                    mark(prefs, job.first)
-                    onStatus("${job.first.name} downloaded")
-                    LogManager.add("${job.first.name}: offline maps downloaded")
-                } else {
-                    onStatus(error)
-                    LogManager.add("${job.first.name}: $error")
-                }
+        val start = synchronized(pending) {
+            states.forEach { state ->
+                if (current?.abbr == state.abbr) return@forEach
+                if (pending.any { it.first.abbr == state.abbr }) return@forEach
+                pending.add(state to force)
             }
-            worker = null
-        }.also { it.start() }
+            if (running.get()) false else {
+                running.set(true)
+                true
+            }
+        }
+        onStatus("queued")
+        if (start) pump(context.applicationContext, prefs, onStatus)
     }
 
-    private fun download(context: Context, state: UsState, force: Boolean, onStatus: (String) -> Unit): String? {
+    private fun pump(context: Context, prefs: SharedPreferences, onStatus: (String) -> Unit) {
+        Thread {
+            try {
+                while (true) {
+                    val job = synchronized(pending) {
+                        if (pending.isEmpty()) {
+                            running.set(false)
+                            if (pending.isEmpty()) null else {
+                                running.set(true)
+                                pending.removeAt(0)
+                            }
+                        } else {
+                            pending.removeAt(0)
+                        }
+                    } ?: break
+                    val total = tileTotal(job.first)
+                    synchronized(pending) { current = MapJob(job.first.abbr, job.first.name, false, 0, total) }
+                    onStatus("${job.first.name} started")
+                    val error = download(context, job.first, job.second, total, onStatus)
+                    synchronized(pending) { current = null }
+                    if (error == null) {
+                        mark(prefs, job.first)
+                        onStatus("${job.first.name} downloaded")
+                        LogManager.add("${job.first.name}: offline maps downloaded")
+                    } else {
+                        onStatus(error)
+                        LogManager.add("${job.first.name}: $error")
+                    }
+                }
+            } finally {
+                synchronized(pending) {
+                    if (pending.isEmpty() && current == null) running.set(false)
+                }
+            }
+        }.start()
+    }
+
+    private fun tileTotal(state: UsState): Int {
+        var total = 0
+        for (zoom in zoomsFor(state)) total += tileCount(state, zoom)
+        return total * bases.size
+    }
+
+    private fun zoomsFor(state: UsState): List<Int> {
+        val zooms = mutableListOf<Int>()
+        var zoom = MIN_ZOOM
+        while (zoom <= MAX_ZOOM) {
+            val count = tileCount(state, zoom)
+            if (zoom > MIN_ZOOM && count > MAX_TILES_PER_ZOOM) break
+            zooms.add(zoom)
+            zoom++
+        }
+        return zooms
+    }
+
+    private fun download(
+        context: Context,
+        state: UsState,
+        force: Boolean,
+        total: Int,
+        onStatus: (String) -> Unit
+    ): String? {
         var attempted = 0
         var failed = 0
         for (map in bases) {
-            var zoom = MIN_ZOOM
-            while (zoom <= MAX_ZOOM) {
-                val count = tileCount(state, zoom)
-                if (zoom > MIN_ZOOM && count > MAX_TILES_PER_ZOOM) break
+            for (zoom in zoomsFor(state)) {
                 val tiles = tilesAt(state, zoom)
-                var done = 0
                 for ((x, y) in tiles) {
                     attempted++
-                    done++
-                    if (done == 1 || done % 40 == 0) {
-                        onStatus("${state.name}: ${map.label} zoom $zoom ($done/${tiles.size})")
+                    if (attempted == 1 || attempted % 20 == 0) {
+                        synchronized(pending) { current = MapJob(state.abbr, state.name, false, attempted, total) }
+                        onStatus("${state.name} $attempted/$total")
                     }
                     val dest = File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}")
                     if (!force && dest.isFile && dest.length() > 100) continue
                     if (!saveTile(map.url(zoom, x, y), dest)) failed++
                 }
-                zoom++
             }
         }
+        synchronized(pending) { current = MapJob(state.abbr, state.name, false, total, total) }
         if (attempted > 20 && failed * 5 > attempted) {
             return "${state.name} download failed ($failed tiles)"
         }
