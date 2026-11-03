@@ -2155,11 +2155,11 @@ class MainActivity : AppCompatActivity() {
                     val alpha = ageAlpha(data.timestamp, ageOut)
                     if (alpha <= 0.05f) return@forEach
                     val point = GeoPoint(data.lat, data.lon)
+                    val mine = name == ownDevice
                     lastPoints[name] = point
                     if (mine) rememberOwn(data.lat, data.lon)
                     val marker = Marker(map)
                     marker.position = point
-                    val mine = name == ownDevice
                     marker.title = if (mine) "You · $name" else name
                     marker.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
                     marker.icon = iconFor(personColor(token, name, ownDevice, others), 28, alpha)
