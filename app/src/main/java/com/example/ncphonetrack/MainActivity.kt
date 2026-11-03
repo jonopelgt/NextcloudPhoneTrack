@@ -574,24 +574,32 @@ class MainActivity : AppCompatActivity() {
             val active = enabled && activeToken.isNotBlank() &&
                 session.optString("url") == activeUrl &&
                 session.optString("token") == activeToken
-            val status: String
-            val color: String
+            val rowColor: Int
             when {
                 !enabled || !active -> {
                     status = "Off"
                     color = "#9E9E9E"
+                    rowColor = Color.TRANSPARENT
+                }
+                message != null && link.localUnavailable && !link.readFail && !link.pushFail -> {
+                    status = message
+                    color = "#424242"
+                    rowColor = Color.parseColor("#E0E0E0")
                 }
                 message != null -> {
                     status = message
-                    color = if (link.localUnavailable && !link.readFail && !link.pushFail) "#E65100" else "#C62828"
+                    color = "#C62828"
+                    rowColor = Color.TRANSPARENT
                 }
                 (link.readOk && link.pushFresh) || (link.readOk && (prefs.getString("logging_state", "") ?: "") == "off") -> {
                     status = "OK"
                     color = "#1B7F3A"
+                    rowColor = Color.TRANSPARENT
                 }
                 else -> {
                     status = "Waiting"
                     color = "#E65100"
+                    rowColor = Color.TRANSPARENT
                 }
             }
             val name = TextView(this).apply {
@@ -608,6 +616,7 @@ class MainActivity : AppCompatActivity() {
             sessionStatusList.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setPadding(0, 8, 0, 8)
+                setBackgroundColor(rowColor)
                 addView(name)
                 addView(state)
             })
@@ -621,6 +630,8 @@ class MainActivity : AppCompatActivity() {
         val verified = prefs.getBoolean("credentials_verified", false)
         val noneActive = loadSessions().none { it.optBoolean("enabled", true) }
         tvMapBanner.text = message ?: "Not connected"
+        val localOnly = link.localUnavailable && !link.readFail && !link.pushFail
+        tvMapBanner.setBackgroundColor(Color.parseColor(if (localOnly) "#757575" else "#C62828"))
         noSessionBanner.visibility = if (noneActive && mapVisible) View.VISIBLE else View.GONE
         tvMapBanner.visibility = if (message != null && !noneActive && mapVisible) View.VISIBLE else View.GONE
         loginBanner.visibility = if (!verified && mapVisible) View.VISIBLE else View.GONE
