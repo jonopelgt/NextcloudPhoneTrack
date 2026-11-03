@@ -3108,7 +3108,6 @@ class MainActivity : AppCompatActivity() {
         box.addView(lon)
         val durations = SharingControl.DURATIONS
         val durationLabels = durations.map { SharingControl.durationLabel(it) }
-        var durationAdjusting = false
         val remainingView = TextView(this).apply {
             text = "Timer off"
             setPadding(0, pad / 2, 0, pad / 2)
@@ -3123,21 +3122,9 @@ class MainActivity : AppCompatActivity() {
                 android.R.layout.simple_spinner_dropdown_item,
                 durationLabels
             )
-            val index = durations.indexOf(SharingControl.savedDuration(this@MainActivity)).coerceAtLeast(0)
-            setSelection(index)
+            setSelection(durations.indexOf(SharingControl.savedDuration(this@MainActivity)).coerceAtLeast(0))
             layoutParams = width
         }
-        durationAdjusting = true
-        durationSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                if (durationAdjusting) return
-                SharingControl.startTimer(this@MainActivity, durations[position])
-                refreshModeButton()
-                showRemaining()
-            }
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
-        }
-        durationSpinner.post { durationAdjusting = false }
         showRemaining()
         box.addView(TextView(this).apply {
             text = "Timer"
@@ -3145,7 +3132,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad, 0, pad / 4)
         })
         box.addView(TextView(this).apply {
-            text = "Pick a duration or Reset to start that time from now. Turning sharing on or off does not change the time left."
+            text = "Opening this page does not change the time left. Reset starts the selected duration from now. Turning sharing on or off does not change it."
             setPadding(0, 0, 0, pad / 2)
         })
         box.addView(durationSpinner)
@@ -3171,9 +3158,7 @@ class MainActivity : AppCompatActivity() {
             spoofAdjusting = true
             spoof.isChecked = prefs.getBoolean("spoof_enabled", false)
             spoofAdjusting = false
-            durationAdjusting = true
             durationSpinner.setSelection(durations.indexOf(SharingControl.savedDuration(this)).coerceAtLeast(0))
-            durationSpinner.post { durationAdjusting = false }
             showRemaining()
         }
         val shareClock = android.os.Handler(android.os.Looper.getMainLooper())
