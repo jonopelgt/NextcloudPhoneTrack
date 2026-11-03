@@ -358,7 +358,7 @@ class MainActivity : AppCompatActivity() {
         return n
     }
 
-    private fun markerIcon(color: Int, diameterDp: Int, alpha: Float): BitmapDrawable {
+    private fun markerIcon(color: Int, diameterDp: Int, alpha: Float, outline: Boolean): BitmapDrawable {
         val size = (diameterDp * resources.displayMetrics.density).toInt().coerceAtLeast(8)
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
@@ -366,17 +366,19 @@ class MainActivity : AppCompatActivity() {
         val a = (alpha.coerceIn(0f, 1f) * 255).toInt()
         paint.color = Color.argb(a, Color.red(color), Color.green(color), Color.blue(color))
         canvas.drawCircle(size / 2f, size / 2f, size / 2.6f, paint)
-        paint.color = Color.argb(a, 255, 255, 255)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = size / 8f
-        canvas.drawCircle(size / 2f, size / 2f, size / 2.6f, paint)
+        if (outline) {
+            paint.color = Color.argb(a, 255, 255, 255)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = size / 8f
+            canvas.drawCircle(size / 2f, size / 2f, size / 2.6f, paint)
+        }
         return BitmapDrawable(resources, bmp)
     }
 
-    private fun iconFor(color: Int, diameterDp: Int, alpha: Float): BitmapDrawable {
+    private fun iconFor(color: Int, diameterDp: Int, alpha: Float, outline: Boolean = true): BitmapDrawable {
         val bucket = (alpha * 20).toInt().coerceIn(1, 20)
-        val key = "$color:$diameterDp:$bucket"
-        return iconCache.getOrPut(key) { markerIcon(color, diameterDp, bucket / 20f) }
+        val key = "$color:$diameterDp:$bucket:$outline"
+        return iconCache.getOrPut(key) { markerIcon(color, diameterDp, bucket / 20f, outline) }
     }
 
     private fun colorKey(token: String, name: String) = "$token|$name"
@@ -1978,7 +1980,7 @@ class MainActivity : AppCompatActivity() {
                         dot.position = GeoPoint(point.lat, point.lon)
                         dot.title = "Track"
                         dot.snippet = "Age: ${ageText(point.timestamp)}"
-                        dot.icon = iconFor(color, 16, alpha)
+                        dot.icon = iconFor(color, 16, alpha, outline = false)
                         dot.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
                         val seenAt = point.timestamp
                         dot.relatedObject = name

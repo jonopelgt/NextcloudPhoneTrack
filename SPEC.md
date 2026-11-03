@@ -172,7 +172,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 71 (2026-11-02): Connection Status auto-scrolls to the latest message. It does not.
 - Rev 72 (2026-11-02): Spoof is a choice in the map location control menu, with the spy hat icon. It is not.
 - Rev 73 (2026-11-02): The session config shows the session owner. Only the owner can update the session on the server. Not built yet.
-- Rev 74 (2026-11-02): Track dots have no outline. They do. Not fixed yet.
+- Rev 74 (2026-11-02): Track dots have no outline.
 - Rev 75 (2026-11-02): Turning location spoof on immediately sends one position update. Not built yet.
 - Rev 76 (2026-11-02): Connection Status has an Export log button.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
@@ -189,3 +189,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 84 (2026-11-02): The Settings link opens that permission. A permission that is not granted opens its system prompt. If the prompt will not show, or it is already granted, the link opens that permission's own settings page.
 - Rev 85 (2026-11-02): All zoom fits every active user in the map window. It no longer follows only the newest position. An active user is one whose position has not reached the age-out time.
 - Rev 86 (2026-11-02): The Friends page lists the active session first.
+- Rev 87 (2026-11-02): Track history dots are solid color with no white outline. Current-position markers still have an outline.
