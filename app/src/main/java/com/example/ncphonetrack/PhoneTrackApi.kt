@@ -20,9 +20,9 @@ object PhoneTrackApi {
         LogManager.add("Server rate limit, pausing ${wait}s")
     }
 
-    fun getLastPositions(context: Context, baseUrl: String, token: String): Map<String, GeoPointData>? {
+    fun getLastPositions(context: Context, baseUrl: String, token: String, quiet: Boolean = false): Map<String, GeoPointData>? {
         if (rateLimited(context)) {
-            LogManager.add("Map update skipped, server rate limit")
+            if (!quiet) LogManager.add("Map update skipped, server rate limit")
             return null
         }
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
@@ -39,16 +39,16 @@ object PhoneTrackApi {
                 .header("Authorization", okhttp3.Credentials.basic(user, pass))
                 .header("OCS-APIRequest", "true")
                 .build()
-            LogManager.add("GET user last positions")
-            return executePositions(context, client, request, token)
+            if (!quiet) LogManager.add("GET user last positions")
+            return executePositions(context, client, request, token, quiet)
         }
         if (!publicToken.isNullOrBlank()) {
             val pubEnc = URLEncoder.encode(publicToken, "UTF-8").replace("+", "%20")
             val url = "$server/index.php/apps/phonetrack/api/getlastpositions/$pubEnc"
-            LogManager.add("GET public last positions")
-            return executePositions(context, client, Request.Builder().url(url).build(), publicToken)
+            if (!quiet) LogManager.add("GET public last positions")
+            return executePositions(context, client, Request.Builder().url(url).build(), publicToken, quiet)
         }
-        LogManager.add("Map skipped: public view token or Nextcloud login required")
+        if (!quiet) LogManager.add("Map skipped: public view token or Nextcloud login required")
         return null
     }
 
@@ -69,21 +69,22 @@ object PhoneTrackApi {
         context: Context,
         client: okhttp3.OkHttpClient,
         request: Request,
-        token: String
+        token: String,
+        quiet: Boolean = false
     ): Map<String, GeoPointData>? {
         return try {
             client.newCall(request).execute().use { response ->
-                LogManager.add("GET response: ${response.code}")
+                if (!quiet) LogManager.add("GET response: ${response.code}")
                 if (response.code == 429) {
                     noteRateLimit(context, response)
                     return null
                 }
                 if (response.code == 404) {
-                    LogManager.add("Session is not public or the public token is wrong")
+                    if (!quiet) LogManager.add("Session is not public or the public token is wrong")
                     return null
                 }
                 if (!response.isSuccessful) {
-                    LogManager.add("GET failed: HTTP ${response.code}")
+                    if (!quiet) LogManager.add("GET failed: HTTP ${response.code}")
                     return null
                 }
                 if (request.header("Authorization") != null) {
@@ -95,16 +96,16 @@ object PhoneTrackApi {
                 if (trimmed.startsWith("{")) {
                     val root = JSONObject(trimmed)
                     if (root.has("error") && !root.has(token)) {
-                        LogManager.add("GET failed: ${root.optString("error")}")
+                        if (!quiet) LogManager.add("GET failed: ${root.optString("error")}")
                         return null
                     }
                 }
                 val devices = parseLastPositions(trimmed, token)
-                LogManager.add("GET parsed ${devices.size} devices")
+                if (!quiet) LogManager.add("GET parsed ${devices.size} devices")
                 devices
             }
         } catch (e: Exception) {
-            LogManager.add("GET failed: ${e.message}")
+            if (!quiet) LogManager.add("GET failed: ${e.message}")
             null
         }
     }

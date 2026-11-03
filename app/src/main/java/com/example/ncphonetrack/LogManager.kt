@@ -11,6 +11,8 @@ object LogManager {
         }
     }
 
+    fun lines(): List<String> = synchronized(logs) { logs.toList() }
+
     fun getLogs(): String = synchronized(logs) { logs.joinToString("\n") }
 
     fun clear() = synchronized(logs) { logs.clear() }

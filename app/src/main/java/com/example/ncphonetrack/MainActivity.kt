@@ -552,8 +552,17 @@ class MainActivity : AppCompatActivity() {
             if (token.isNotBlank() && token == displayedToken()) prefs.getLong("last_success_epoch", 0L) else 0L
         }
         val stateName = prefs.getString("logging_state", "idle") ?: "idle"
-        val readResult = if (includeRead) prefs.getString("last_read_result", "") ?: "" else ""
-        val mapOk = if (includeRead) prefs.getLong("last_map_ok", 0L) else 0L
+        val (netResult, netEpoch) = sessionNet(token)
+        val readResult = when {
+            netResult.isNotBlank() -> netResult
+            includeRead -> prefs.getString("last_read_result", "") ?: ""
+            else -> ""
+        }
+        val mapOk = when {
+            netEpoch > 0L -> netEpoch
+            includeRead -> prefs.getLong("last_map_ok", 0L)
+            else -> 0L
+        }
         val readFresh = includeRead && readResult == "ok" && mapOk > 0L && now - mapOk <= fetchSec * 2L * 1000
         val readFail = includeRead && (readResult == "failed" || (readResult == "ok" && !readFresh))
         val pushFresh = result == "ok" && successEpoch > 0L && now - successEpoch <= publishSec * 2L * 1000
@@ -590,6 +599,59 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun sessionNet(token: String): Pair<String, Long> {
+        if (token.isBlank()) return "" to 0L
+        val all = try {
+            org.json.JSONObject(prefs.getString("session_net", "{}") ?: "{}")
+        } catch (_: Exception) {
+            org.json.JSONObject()
+        }
+        val item = all.optJSONObject(token) ?: return "" to 0L
+        return item.optString("result") to item.optLong("epoch")
+    }
+
+    private var netCheckRunning = false
+    private var lastNetCheck = 0L
+
+    private fun checkAllSessionNetworks() {
+        if (netCheckRunning || System.currentTimeMillis() - lastNetCheck < 15000L) return
+        val sessions = loadSessions().filter { it.optString("token").isNotBlank() && it.optString("url").isNotBlank() }
+        if (sessions.isEmpty()) return
+        netCheckRunning = true
+        lastNetCheck = System.currentTimeMillis()
+        Thread {
+            val results = try {
+                org.json.JSONObject(prefs.getString("session_net", "{}") ?: "{}")
+            } catch (_: Exception) {
+                org.json.JSONObject()
+            }
+            sessions.forEach { session ->
+                val token = session.optString("token")
+                val name = sessionLabel(session)
+                val reached = PhoneTrackApi.getLastPositions(this, session.optString("url"), token, quiet = true) != null
+                val result = if (reached) "ok" else "failed"
+                val previous = results.optJSONObject(token)?.optString("result").orEmpty()
+                results.put(token, org.json.JSONObject().put("result", result).put("epoch", System.currentTimeMillis()))
+                if (previous != result) LogManager.add("$name: connection $result")
+            }
+            prefs.edit().putString("session_net", results.toString()).apply()
+            netCheckRunning = false
+            runOnUiThread {
+                if (!isDestroyed && statusPanel.visibility == View.VISIBLE) refreshConnectionStatus()
+            }
+        }.start()
+    }
+
+    private fun selectedSessionLog(): String {
+        val name = displayedSessionName()
+        val lines = LogManager.lines()
+        val kept = if (name.isBlank()) lines else lines.filter { line ->
+            val message = line.substringAfter(' ').trim()
+            message.startsWith("$name:") || message.startsWith("$name ")
+        }
+        return kept.joinToString("\n").ifEmpty { "No messages yet" }
+    }
+
     private fun refreshConnectionStatus() {
         val name = displayedSessionName()
         val token = displayedToken()
@@ -609,6 +671,7 @@ class MainActivity : AppCompatActivity() {
         tvBuffer.text = named(name, "Buffered points: ${bufferedFor(token)}")
         refreshSessionStatusList()
         refreshMapBanner()
+        if (statusPanel.visibility == View.VISIBLE) checkAllSessionNetworks()
     }
 
     private fun refreshSessionStatusList() {
@@ -717,7 +780,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exportLog() {
-        val text = LogManager.getLogs().ifEmpty { "No messages yet" }
+        val text = selectedSessionLog()
         val dir = File(cacheDir, "logs").apply { mkdirs() }
         val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
         val file = File(dir, "phonetrack-log-$stamp.txt")
@@ -742,7 +805,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshLog() {
-        tvLog.text = LogManager.getLogs().ifEmpty { "No messages yet" }
+        tvLog.text = selectedSessionLog()
         if (followLogBottom) {
             logScroll.post {
                 val child = logScroll.getChildAt(0) ?: return@post
