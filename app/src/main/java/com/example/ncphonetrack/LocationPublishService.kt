@@ -247,10 +247,25 @@ class LocationPublishService : Service() {
         }
         try {
             fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                if (location != null) publishLocation(location) else requestCurrentFix()
+            }
+        } catch (e: SecurityException) {
+            LogManager.add("Location permission missing")
+        }
+    }
+
+    private fun requestCurrentFix() {
+        try {
+            fusedLocationClient.getCurrentLocation(
+                LocationRequest.PRIORITY_HIGH_ACCURACY,
+                CancellationTokenSource().token
+            ).addOnSuccessListener { location ->
                 if (location != null) publishLocation(location) else {
                     LogManager.add("No location to send")
                     prefs.edit().putString("logging_state", "no position").apply()
                 }
+            }.addOnFailureListener { error ->
+                LogManager.add("Current location failed: ${error.message}")
             }
         } catch (e: SecurityException) {
             LogManager.add("Location permission missing")

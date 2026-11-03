@@ -1796,6 +1796,7 @@ class MainActivity : AppCompatActivity() {
         val name = sessionLabel(session)
         updateStatusText("$name: shown on the map")
         startIfPermittedOrAsk()
+        publishNow()
     }
 
     private fun setSessionEnabled(session: JSONObject, enabled: Boolean) {
@@ -1811,7 +1812,10 @@ class MainActivity : AppCompatActivity() {
         if (enabled) {
             updateStatusText("$name: on")
             if (displayedSession() == null) showSessionOnMap(session)
-            else startIfPermittedOrAsk()
+            else {
+                startIfPermittedOrAsk()
+                publishNow()
+            }
         } else if (isActiveSession(session)) {
             updateStatusText("$name: off")
             val next = loadSessions().firstOrNull { it.optBoolean("enabled", true) }
@@ -2369,6 +2373,25 @@ class MainActivity : AppCompatActivity() {
         }
         startTrackingFromPrefs()
         promptBackgroundOnce()
+    }
+
+    private fun publishNow() {
+        if (positionUpdatesOff() || !checkPermissions()) return
+        val url = prefs.getString("url", "") ?: ""
+        val token = prefs.getString("token", "") ?: ""
+        if (!isValidBaseUrl(url) || token.isBlank()) return
+        val device = prefs.getString("nc_user", "")?.trim().orEmpty()
+            .ifEmpty { prefs.getString("device", "Android") ?: "Android" }
+        try {
+            ContextCompat.startForegroundService(this, Intent(this, LocationPublishService::class.java).apply {
+                action = LocationPublishService.ACTION_PUBLISH_ONCE
+                putExtra("url", url)
+                putExtra("token", token)
+                putExtra("device", device)
+            })
+        } catch (e: Exception) {
+            LogManager.add("Could not send position: ${e.message}")
+        }
     }
 
     private fun startTrackingFromPrefs() {
@@ -3130,10 +3153,7 @@ class MainActivity : AppCompatActivity() {
         durationAdjusting = true
         durationSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                if (durationAdjusting) return
-                SharingControl.startTimer(this@MainActivity, durations[position])
-                refreshModeButton()
-                showRemaining()
+                prefs.edit().putLong("share_timer_ms", durations[position]).apply()
             }
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
         }
@@ -3145,7 +3165,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad, 0, pad / 4)
         })
         box.addView(TextView(this).apply {
-            text = "Pick a duration or Reset to start that time from now. Turning sharing on or off does not change the time left."
+            text = "Pick a duration, then press Reset to start it. Opening this page does not change a running timer. Turning sharing on or off does not change the time left."
             setPadding(0, 0, 0, pad / 2)
         })
         box.addView(durationSpinner)
