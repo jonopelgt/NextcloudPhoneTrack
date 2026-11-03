@@ -3111,7 +3111,7 @@ class MainActivity : AppCompatActivity() {
         }
         val showRemaining = {
             val left = SharingControl.remaining(this)
-            remainingView.text = if (left > 0L) "Time left ${SharingControl.remainingLabel(left)}" else "Timer off"
+            remainingView.text = if (left > 0L) "Time left ${SharingControl.countdownLabel(left)}" else "Timer off"
         }
         val durationSpinner = android.widget.Spinner(this).apply {
             adapter = android.widget.ArrayAdapter(
@@ -3141,7 +3141,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad, 0, pad / 4)
         })
         box.addView(TextView(this).apply {
-            text = "Pick a duration to start or restart the timer. The longest is 4 days."
+            text = "Pick a duration or Reset to start that time from now. Turning sharing on or off does not change the time left."
             setPadding(0, 0, 0, pad / 2)
         })
         box.addView(durationSpinner)
@@ -3172,7 +3172,19 @@ class MainActivity : AppCompatActivity() {
             durationSpinner.post { durationAdjusting = false }
             showRemaining()
         }
-        dialog.setOnDismissListener { refreshLocationPage = null }
+        val shareClock = android.os.Handler(android.os.Looper.getMainLooper())
+        val tickShareClock = object : Runnable {
+            override fun run() {
+                if (!dialog.isShowing) return
+                SharingControl.expireIfDue(this@MainActivity)
+                showRemaining()
+                shareClock.postDelayed(this, 1000L)
+            }
+        }
+        dialog.setOnDismissListener {
+            shareClock.removeCallbacks(tickShareClock)
+            refreshLocationPage = null
+        }
         dialog.setOnShowListener {
             dialog.window?.setLayout(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -3180,6 +3192,8 @@ class MainActivity : AppCompatActivity() {
             )
             dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.WHITE))
             pinZoomControls(dialog)
+            shareClock.removeCallbacks(tickShareClock)
+            shareClock.post(tickShareClock)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val sharing = selectedMode != "quiet" || spoof.isChecked
                 val edit = prefs.edit()
@@ -3189,7 +3203,6 @@ class MainActivity : AppCompatActivity() {
                     .putString("spoof_lat", lat.text.toString().trim())
                     .putString("spoof_lon", lon.text.toString().trim())
                 if (selectedMode != "quiet") edit.putString("share_mode", selectedMode)
-                if (selectedMode == "quiet" && !spoof.isChecked) edit.putLong("share_timer_end", 0L)
                 edit.apply()
                 dialog.dismiss()
                 refreshModeButton()

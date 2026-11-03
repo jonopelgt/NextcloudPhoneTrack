@@ -66,9 +66,10 @@ object SharingControl {
     }
 
     fun set(context: Context, on: Boolean) {
+        expireIfDue(context)
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         val mode = prefs.getString("position_mode", "move") ?: "move"
-        val edit = prefs.edit().putBoolean("location_sharing", on).putLong("share_timer_end", 0L)
+        val edit = prefs.edit().putBoolean("location_sharing", on)
         if (on) {
             if (mode == "quiet") {
                 val resume = prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move"
@@ -81,7 +82,8 @@ object SharingControl {
             edit.putString("logging_state", "off")
         }
         edit.apply()
-        cancelAlarm(context)
+        val end = prefs.getLong("share_timer_end", 0L)
+        if (end > System.currentTimeMillis()) scheduleAlarm(context) else cancelAlarm(context)
         applyService(context)
         refreshSurfaces(context)
         context.sendBroadcast(Intent(ACTION_SHARING_CHANGED).setPackage(context.packageName))
@@ -183,6 +185,21 @@ object SharingControl {
             days > 0 -> "${days}d ${hours}h"
             hours > 0 -> "${hours}h ${mins}m"
             else -> "${mins}m"
+        }
+    }
+
+    fun countdownLabel(ms: Long): String {
+        val total = (ms / 1000L).coerceAtLeast(0L)
+        val days = total / 86_400
+        val hours = (total % 86_400) / 3_600
+        val mins = (total % 3_600) / 60
+        val secs = total % 60
+        val sec = secs.toString().padStart(2, '0')
+        val min = mins.toString().padStart(2, '0')
+        return when {
+            days > 0 -> "${days}d ${hours}h ${min}m ${sec}s"
+            hours > 0 -> "${hours}h ${min}m ${sec}s"
+            else -> "${mins}m ${sec}s"
         }
     }
 
