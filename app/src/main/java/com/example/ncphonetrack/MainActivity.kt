@@ -121,6 +121,19 @@ class MainActivity : AppCompatActivity() {
         tvBuffer = findViewById(R.id.tvBuffer)
         tvLog = findViewById(R.id.tvLog)
         logScroll = findViewById(R.id.logScroll)
+        val verbosity = findViewById<android.widget.SeekBar>(R.id.logVerbosity)
+        val verbosityLabel = findViewById<TextView>(R.id.tvLogVerbosity)
+        verbosity.progress = prefs.getInt("log_verbosity", 1).coerceIn(0, 2)
+        verbosityLabel.text = verbosityName(verbosity.progress)
+        verbosity.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                prefs.edit().putInt("log_verbosity", progress).apply()
+                verbosityLabel.text = verbosityName(progress)
+                if (::statusPanel.isInitialized && statusPanel.visibility == View.VISIBLE) refreshLog()
+            }
+            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+        })
         findViewById<Button>(R.id.btnExportLog).setOnClickListener { exportLog() }
         logScroll.setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -651,12 +664,35 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    private fun verbosityName(level: Int): String = when (level) {
+        0 -> "Quiet"
+        2 -> "Verbose"
+        else -> "Normal"
+    }
+
+    private fun logDetail(message: String): Int {
+        val text = message.lowercase()
+        if (text.startsWith("get ") || text.contains("get response") || text.contains("get parsed") ||
+            text.startsWith("fix lat") || text.contains("tracks parsed") || text.contains("tracks http") ||
+            text.contains("map updated") || text.contains("map update skipped")
+        ) return 2
+        if (text.contains("fail") || text.contains("error") || text.contains("denied") ||
+            text.contains("rejected") || text.contains("unavailable") || text.contains("stopped") ||
+            text.contains("permission") || text.contains("rate limit") || text.contains(": network") ||
+            text.contains("are off") || text.contains("no position") || text.contains("no location") ||
+            text.contains("not sent")
+        ) return 0
+        return 1
+    }
+
     private fun selectedSessionLog(): String {
         val name = displayedSessionName()
+        val verbosity = prefs.getInt("log_verbosity", 1).coerceIn(0, 2)
         val lines = LogManager.lines()
-        val kept = if (name.isBlank()) lines else lines.filter { line ->
+        val kept = lines.filter { line ->
             val message = line.substringAfter(' ').trim()
-            message.startsWith("$name:") || message.startsWith("$name ")
+            val forSession = name.isBlank() || message.startsWith("$name:") || message.startsWith("$name ")
+            forSession && logDetail(message) <= verbosity
         }
         return kept.joinToString("\n").ifEmpty { "No messages yet" }
     }
