@@ -2281,14 +2281,23 @@ class MainActivity : AppCompatActivity() {
                         addView(TextView(this@MainActivity).apply {
                             text = OfflineMaps.rateText(job.rateBps)
                             textSize = 13f
+                            setPadding(0, 0, pad / 3, 0)
+                        })
+                        addView(TextView(this@MainActivity).apply {
+                            text = "$percent%"
+                            textSize = 13f
                             setPadding(0, 0, pad / 2, 0)
                         })
                         addView(android.widget.ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
                             max = 100
                             progress = percent
-                            layoutParams = LinearLayout.LayoutParams((140 * resources.displayMetrics.density).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT)
+                            layoutParams = LinearLayout.LayoutParams((110 * resources.displayMetrics.density).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT)
                         })
                     }
+                    addView(stateAction("Cancel") {
+                        OfflineMaps.cancel(job.abbr)
+                        paintSaved()
+                    })
                 })
             }
             val rows = OfflineMaps.downloaded(prefs).filter { it.first.abbr !in activeAbbr }
@@ -2318,7 +2327,22 @@ class MainActivity : AppCompatActivity() {
                         setTextColor(Color.parseColor(if (fresh) "#1B7F3A" else "#757575"))
                         setTypeface(typeface, android.graphics.Typeface.BOLD)
                     })
+                    addView(stateAction(if (fresh) "Delete" else "Update") {
+                        if (fresh) {
+                            OfflineMaps.remove(this@MainActivity, prefs, state)
+                            paintSaved()
+                        } else {
+                            startDownload(listOf(state), true)
+                        }
+                    })
                 })
+            }
+        }
+        fun stateAction(label: String, onClick: () -> Unit): Button {
+            return Button(this).apply {
+                text = label
+                textSize = 12f
+                setOnClickListener { onClick() }
             }
         }
         fun startDownload(states: List<UsState>, force: Boolean) {
@@ -2441,7 +2465,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val state = OfflineMaps.stateAt(lat, lon)
-        if (state == null) {
+        if (state == null || OfflineMaps.isQueued(state.abbr)) {
             hereStateBusy = false
             return
         }

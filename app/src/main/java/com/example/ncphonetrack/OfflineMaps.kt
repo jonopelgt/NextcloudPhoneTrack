@@ -168,11 +168,39 @@ object OfflineMaps {
     private val running = AtomicBoolean(false)
     private var byteCount = 0L
     private var rateStart = 0L
+    @Volatile private var cancelAbbr: String? = null
 
     fun rateText(bps: Long): String {
         val kb = bps / 1000.0
         return if (kb >= 1000) String.format(Locale.US, "%.1f MB/s", kb / 1000.0)
         else String.format(Locale.US, "%.0f KB/s", kb)
+    }
+
+    fun isQueued(abbr: String): Boolean = synchronized(pending) {
+        current?.abbr == abbr || pending.any { it.first.abbr == abbr }
+    }
+
+    fun cancel(abbr: String) {
+        synchronized(pending) {
+            pending.removeAll { it.first.abbr == abbr }
+            if (current?.abbr == abbr) cancelAbbr = abbr
+        }
+    }
+
+    fun remove(context: Context, prefs: SharedPreferences, state: UsState) {
+        cancel(state.abbr)
+        val root = catalog(prefs)
+        root.remove(state.abbr)
+        prefs.edit().putString("offline_maps", root.toString()).apply()
+        Thread {
+            for (map in bases) {
+                for (zoom in zoomsFor(state)) {
+                    for ((x, y) in tilesAt(state, zoom)) {
+                        File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}").delete()
+                    }
+                }
+            }
+        }.start()
     }
 
     fun queue(): List<MapJob> = synchronized(pending) {
@@ -231,6 +259,8 @@ object OfflineMaps {
                         mark(prefs, job.first)
                         onStatus("${job.first.name} downloaded")
                         LogManager.add("${job.first.name}: offline maps downloaded")
+                    } else if (error == "cancelled") {
+                        onStatus("${job.first.name} cancelled")
                     } else {
                         onStatus(error)
                         LogManager.add("${job.first.name}: $error")
@@ -275,6 +305,10 @@ object OfflineMaps {
             for (zoom in zoomsFor(state)) {
                 val tiles = tilesAt(state, zoom)
                 for ((x, y) in tiles) {
+                    if (cancelAbbr == state.abbr) {
+                        cancelAbbr = null
+                        return "cancelled"
+                    }
                     attempted++
                     val dest = File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}")
                     if (!force && dest.isFile && dest.length() > 100) {
