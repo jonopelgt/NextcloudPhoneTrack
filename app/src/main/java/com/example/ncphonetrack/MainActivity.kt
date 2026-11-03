@@ -850,7 +850,9 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (!dialog.isShowing) return@runOnUiThread
                 list.removeAllViews()
-                rows.forEach { row ->
+                val activeToken = prefs.getString("token", "") ?: ""
+                val ordered = rows.sortedByDescending { it.enabled && it.token.isNotBlank() && it.token == activeToken }
+                ordered.forEach { row ->
                     val muted = !row.enabled || !row.reachable
                     val sessionColor = if (muted) Color.parseColor("#9E9E9E") else Color.BLACK
                     val userColor = if (muted) Color.parseColor("#757575") else Color.BLACK

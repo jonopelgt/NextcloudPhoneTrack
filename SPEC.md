@@ -54,7 +54,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 ### FR-6: Menu
 - Navigation drawer menu, from the top:
   - Map
-  - Friends (each session, with that session's users indented below it). A session turned off says disabled. A session whose users cannot be loaded says unavailable. Each person has a color that can be changed. This phone's user defaults to blue. Other people default to colors that are different from each other and from blue. Each device has a tracks switch. Tracks are off until turned on.
+  - Friends (each session, with that session's users indented below it). The active session is listed first. A session turned off says disabled. A session whose users cannot be loaded says unavailable. Each person has a color that can be changed. This phone's user defaults to blue. Other people default to colors that are different from each other and from blue. Each device has a tracks switch. Tracks are off until turned on.
   - Location (position update mode and location spoof). This page is separate from Settings.
   - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
@@ -188,3 +188,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 83 (2026-11-02): Settings has a Required permissions section. Each permission shows OK or not granted, with a Settings link on the right.
 - Rev 84 (2026-11-02): The Settings link opens that permission. A permission that is not granted opens its system prompt. If the prompt will not show, or it is already granted, the link opens that permission's own settings page.
 - Rev 85 (2026-11-02): All zoom fits every active user in the map window. It no longer follows only the newest position. An active user is one whose position has not reached the age-out time.
+- Rev 86 (2026-11-02): The Friends page lists the active session first.
