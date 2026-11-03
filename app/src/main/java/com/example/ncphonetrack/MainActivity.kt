@@ -123,7 +123,7 @@ class MainActivity : AppCompatActivity() {
         logScroll = findViewById(R.id.logScroll)
         val verbosity = findViewById<android.widget.SeekBar>(R.id.logVerbosity)
         val verbosityLabel = findViewById<TextView>(R.id.tvLogVerbosity)
-        verbosity.progress = prefs.getInt("log_verbosity", 1).coerceIn(0, 2)
+        verbosity.progress = prefs.getInt("log_verbosity", 1).coerceIn(0, 3)
         verbosityLabel.text = verbosityName(verbosity.progress)
         verbosity.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
@@ -668,6 +668,7 @@ class MainActivity : AppCompatActivity() {
     private fun verbosityName(level: Int): String = when (level) {
         0 -> "Quiet"
         2 -> "Verbose"
+        3 -> "Debug"
         else -> "Normal"
     }
 
@@ -688,14 +689,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectedSessionLog(): String {
         val name = displayedSessionName()
-        val verbosity = prefs.getInt("log_verbosity", 1).coerceIn(0, 2)
-        val lines = LogManager.lines()
-        val kept = lines.filter { line ->
+        val verbosity = prefs.getInt("log_verbosity", 1).coerceIn(0, 3)
+        val kept = LogManager.entries().filter { (line, detail) ->
             val message = line.substringAfter(' ').trim()
-            val forSession = name.isBlank() || message.startsWith("$name:") || message.startsWith("$name ")
-            forSession && logDetail(message) <= verbosity
+            val level = if (detail >= 0) detail else logDetail(message)
+            val forSession = verbosity >= 3 || name.isBlank() || message.startsWith("$name:") || message.startsWith("$name ")
+            forSession && level <= verbosity
         }
-        return kept.joinToString("\n").ifEmpty { "No messages yet" }
+        return kept.joinToString("\n") { it.first }.ifEmpty { "No messages yet" }
     }
 
     private fun refreshConnectionStatus() {

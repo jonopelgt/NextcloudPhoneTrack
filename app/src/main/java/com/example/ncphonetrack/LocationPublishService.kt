@@ -373,6 +373,12 @@ class LocationPublishService : Service() {
         return try {
             client.newCall(Request.Builder().url(url).post(body).build()).execute().use { response ->
                 val name = point.optString("name").ifBlank { "Session" }
+                LogManager.add(
+                    "$name: POST $url lat=${point.optDouble("lat")} lon=${point.optDouble("lon")} " +
+                        "acc=${point.optDouble("acc")} alt=${point.optDouble("alt")} bat=${point.optInt("bat")} " +
+                        "speed=${point.optDouble("speed")} bearing=${point.optDouble("bearing")}",
+                    3
+                )
                 LogManager.add("$name: POST ${response.code} ${response.message}")
                 if (response.code == 429) PhoneTrackApi.noteRateLimit(this, response)
                 if (response.isSuccessful) "ok" else "rejected"

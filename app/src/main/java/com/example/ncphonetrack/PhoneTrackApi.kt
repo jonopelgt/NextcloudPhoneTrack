@@ -74,6 +74,7 @@ object PhoneTrackApi {
     ): Map<String, GeoPointData>? {
         return try {
             client.newCall(request).execute().use { response ->
+                if (!quiet) LogManager.add("GET ${request.url}", 3)
                 if (!quiet) LogManager.add("GET response: ${response.code}")
                 if (response.code == 429) {
                     noteRateLimit(context, response)
@@ -101,6 +102,7 @@ object PhoneTrackApi {
                     }
                 }
                 val devices = parseLastPositions(trimmed, token)
+                if (!quiet) LogManager.add("GET body ${trimmed.take(500)}", 3)
                 if (!quiet) LogManager.add("GET parsed ${devices.size} devices")
                 devices
             }
