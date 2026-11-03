@@ -2315,24 +2315,10 @@ class MainActivity : AppCompatActivity() {
         refreshMapBanner()
     }
 
-    private fun positionUpdatesOff(): Boolean {
-        if (!prefs.getBoolean("location_sharing", true)) return true
-        return currentPositionMode() == "quiet" && !prefs.getBoolean("spoof_enabled", false)
-    }
+    private fun positionUpdatesOff(): Boolean = !SharingControl.isOn(this)
 
     private fun setLocationSharing(on: Boolean) {
-        val edit = prefs.edit().putBoolean("location_sharing", on)
-        if (on) {
-            if (currentPositionMode() == "quiet") {
-                val resume = prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move"
-                edit.putString("position_mode", resume)
-            }
-        } else {
-            if (currentPositionMode() != "quiet") edit.putString("share_mode", currentPositionMode())
-            edit.putString("position_mode", "quiet")
-            edit.putBoolean("spoof_enabled", false)
-        }
-        edit.apply()
+        SharingControl.set(this, on)
         if (!on) removeSpoofMarker()
         refreshModeButton()
         startTrackingFromPrefs()
@@ -3396,6 +3382,7 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         map.onResume()
+        refreshModeButton()
         refreshMapBanner()
         if (logTimer == null) startLogTimer()
         refreshSettingsPermissions?.invoke()
