@@ -70,7 +70,6 @@ class MainActivity : AppCompatActivity() {
     private var mapFollow = MapFollow.GROUP
     private var trackedUser: String? = null
     private val lastPoints = mutableMapOf<String, GeoPoint>()
-    private val lastSeen = mutableMapOf<String, Long>()
     private lateinit var btnZoomIn: TextView
     private lateinit var btnZoomOut: TextView
     private lateinit var btnGroupView: TextView
@@ -161,7 +160,7 @@ class MainActivity : AppCompatActivity() {
         }
         btnZoomIn.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble + 0.25) }
         btnZoomOut.setOnClickListener { map.controller.setZoom(map.zoomLevelDouble - 0.25) }
-        btnGroupView.setOnClickListener { zoomToLastObserved() }
+        btnGroupView.setOnClickListener { zoomToAll() }
         btnReticle.setOnClickListener { centerOnSelf() }
         mapControls.bringToFront()
         refreshZoomKeys()
@@ -1960,7 +1959,6 @@ class MainActivity : AppCompatActivity() {
                 refreshMapBanner()
                 map.overlays.clear()
                 lastPoints.clear()
-                lastSeen.clear()
                 val others = positions.keys.filter { it != ownDevice }.sorted()
                 tracked.forEach { name ->
                     val color = personColor(token, name, ownDevice, others)
@@ -1995,7 +1993,6 @@ class MainActivity : AppCompatActivity() {
                     if (alpha <= 0.05f) return@forEach
                     val point = GeoPoint(data.lat, data.lon)
                     lastPoints[name] = point
-                    lastSeen[name] = data.timestamp
                     val marker = Marker(map)
                     marker.position = point
                     val mine = name == ownDevice
@@ -2373,12 +2370,41 @@ class MainActivity : AppCompatActivity() {
         enterUserTrack(match)
     }
 
-    private fun zoomToLastObserved() {
-        val name = lastSeen.maxByOrNull { it.value }?.key
-        if (name != null && lastPoints.containsKey(name)) {
-            allMode = true
-            enterUserTrack(name, fromAll = true)
+    private fun zoomToAll() {
+        allMode = true
+        mapFollow = MapFollow.GROUP
+        trackedUser = null
+        refreshZoomKeys()
+        fitActiveUsers()
+    }
+
+    private fun fitActiveUsers(attempt: Int = 0) {
+        if (!::map.isInitialized) return
+        val points = lastPoints.values.toList()
+        if (points.isEmpty()) return
+        if (map.width < 2 || map.height < 2) {
+            if (attempt < 5) map.post { fitActiveUsers(attempt + 1) }
+            return
         }
+        if (points.size == 1) {
+            map.controller.setCenter(points[0])
+            map.controller.setZoom(16.0)
+            return
+        }
+        val pad = (56 * resources.displayMetrics.density).toInt()
+        map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), false, pad)
+        map.post { keepPointsInWindow(points, pad, 8) }
+    }
+
+    private fun keepPointsInWindow(points: List<GeoPoint>, pad: Int, steps: Int) {
+        if (steps <= 0 || map.zoomLevelDouble <= 3.0) return
+        val outside = points.any { point ->
+            val pixel = map.projection.toPixels(point, null)
+            pixel.x < pad || pixel.y < pad || pixel.x > map.width - pad || pixel.y > map.height - pad
+        }
+        if (!outside) return
+        map.controller.setZoom(map.zoomLevelDouble - 0.5)
+        map.post { keepPointsInWindow(points, pad, steps - 1) }
     }
 
     private fun activateSpoof(lat: Double, lon: Double) {
@@ -2461,15 +2487,7 @@ class MainActivity : AppCompatActivity() {
         when (mapFollow) {
             MapFollow.MANUAL -> Unit
             MapFollow.USER -> lastPoints[trackedUser]?.let { map.controller.setCenter(it) }
-            MapFollow.GROUP -> {
-                if (points.isEmpty()) return
-                if (points.size == 1) {
-                    map.controller.setCenter(points[0])
-                    map.controller.setZoom(16.0)
-                } else {
-                    map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), false, 100)
-                }
-            }
+            MapFollow.GROUP -> fitActiveUsers()
         }
     }
 
