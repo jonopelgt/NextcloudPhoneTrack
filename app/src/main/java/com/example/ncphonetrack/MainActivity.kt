@@ -59,7 +59,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvLog: TextView
     private lateinit var logScroll: android.widget.ScrollView
     private var followLogBottom = true
-    private var logScrollProgrammatic = false
     private val LOCATION_PERMISSION_REQUEST = 1001
     private val BACKGROUND_PERMISSION_REQUEST = 1002
     private var logTimer: Timer? = null
@@ -112,10 +111,14 @@ class MainActivity : AppCompatActivity() {
         tvBuffer = findViewById(R.id.tvBuffer)
         tvLog = findViewById(R.id.tvLog)
         logScroll = findViewById(R.id.logScroll)
-        logScroll.setOnScrollChangeListener { view, _, scrollY, _, _ ->
-            if (logScrollProgrammatic) return@setOnScrollChangeListener
-            val child = (view as android.widget.ScrollView).getChildAt(0) ?: return@setOnScrollChangeListener
-            followLogBottom = scrollY + view.height >= child.height - 24
+        logScroll.setOnTouchListener { _, event ->
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                logScroll.post {
+                    val child = logScroll.getChildAt(0) ?: return@post
+                    followLogBottom = logScroll.scrollY + logScroll.height >= child.height - 24
+                }
+            }
+            false
         }
         val btnMenu = findViewById<ImageButton>(R.id.btnMenu)
         val navView: NavigationView = findViewById(R.id.nav_view)
@@ -587,9 +590,8 @@ class MainActivity : AppCompatActivity() {
         tvLog.text = LogManager.getLogs().ifEmpty { "No messages yet" }
         if (followLogBottom) {
             logScroll.post {
-                logScrollProgrammatic = true
-                logScroll.fullScroll(View.FOCUS_DOWN)
-                logScroll.post { logScrollProgrammatic = false }
+                val child = logScroll.getChildAt(0) ?: return@post
+                logScroll.scrollTo(0, (child.height - logScroll.height).coerceAtLeast(0))
             }
         }
         refreshMapBanner()
@@ -2035,6 +2037,7 @@ class MainActivity : AppCompatActivity() {
         "manual" -> "Manual"
         "significant" -> "Significant"
         "rapid" -> "Rapid"
+        "spoof" -> "Spoof"
         else -> "Move"
     }
 
@@ -2043,13 +2046,15 @@ class MainActivity : AppCompatActivity() {
         "manual" -> R.drawable.ic_mode_manual
         "significant" -> R.drawable.ic_mode_walk
         "rapid" -> R.drawable.ic_mode_rocket
+        "spoof" -> R.drawable.ic_mode_spy
         else -> R.drawable.ic_mode_car
     }
 
     private fun refreshModeButton() {
         if (!::btnPositionMode.isInitialized) return
-        btnPositionMode.setImageResource(modeIcon(currentPositionMode()))
-        btnPositionMode.contentDescription = modeLabel(currentPositionMode())
+        val spoofing = prefs.getBoolean("spoof_enabled", false)
+        btnPositionMode.setImageResource(if (spoofing) R.drawable.ic_mode_spy else modeIcon(currentPositionMode()))
+        btnPositionMode.contentDescription = if (spoofing) "Location spoof" else modeLabel(currentPositionMode())
         btnPositionMode.invalidate()
     }
 
@@ -2059,13 +2064,32 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val current = currentPositionMode()
+        val spoofing = prefs.getBoolean("spoof_enabled", false)
         modePicker.removeAllViews()
         positionModes.forEach { mode ->
-            modePicker.addView(modeChoice(mode, mode == current) {
-                setPositionMode(mode)
+            modePicker.addView(modeChoice(mode, !spoofing && mode == current) {
                 modePicker.visibility = View.GONE
+                if (spoofing) {
+                    confirmChoice("Turn off location spoof?") {
+                        prefs.edit().putBoolean("spoof_enabled", false).apply()
+                        removeSpoofMarker()
+                        setPositionMode(mode)
+                    }
+                } else {
+                    setPositionMode(mode)
+                }
             })
         }
+        modePicker.addView(modeChoice("spoof", spoofing) {
+            modePicker.visibility = View.GONE
+            if (spoofing) return@modeChoice
+            confirmChoice("Turn on location spoof?") {
+                prefs.edit().putBoolean("spoof_enabled", true).apply()
+                refreshModeButton()
+                addSpoofMarker()
+                if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+            }
+        })
         modePicker.visibility = View.VISIBLE
         modePicker.bringToFront()
         btnPositionMode.bringToFront()
@@ -2121,7 +2145,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun sendCurrentPosition() {
-        if (currentPositionMode() == "quiet") return
+        if (currentPositionMode() == "quiet" && !prefs.getBoolean("spoof_enabled", false)) return
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
         if (!isValidBaseUrl(url) || token.isBlank()) {

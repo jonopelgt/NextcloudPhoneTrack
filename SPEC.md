@@ -169,8 +169,8 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 68 (2026-11-02): Track and marker age is shown in hours and minutes.
 - Rev 69 (2026-11-02): The All zoom control is hidden while the map is already in All mode.
 - Rev 70 (2026-11-02): A reticle at the bottom right of the map centers on this phone's user and switches zoom and track to follow that user.
-- Rev 71 (2026-11-02): Connection Status auto-scrolls to the latest message. It does not. Not fixed yet.
-- Rev 72 (2026-11-02): Spoof is a choice in the map location control menu, with the spy hat icon. It is not. Not built yet.
+- Rev 71 (2026-11-02): Connection Status auto-scrolls to the latest message. It does not.
+- Rev 72 (2026-11-02): Spoof is a choice in the map location control menu, with the spy hat icon. It is not.
 - Rev 43 (2026-11-02): Removing an accepted self-signed certificate clears the verified login. The map then shows the Not logged in banner.
 - Rev 44 (2026-11-02): The session builder Local view section labels the age-out field Age out.
 - Rev 45 (2026-11-02): The drawer has a Location page, separate from Settings. It sets an OwnTracks-style position update mode: Quiet, Manual, Significant, or Move. It also has a location spoof option.
