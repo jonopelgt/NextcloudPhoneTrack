@@ -628,7 +628,7 @@ class LocationPublishService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                "location_broadcast",
+                "location_broadcast_bar",
                 "Position broadcast",
                 NotificationManager.IMPORTANCE_DEFAULT
             )
@@ -640,13 +640,14 @@ class LocationPublishService : Service() {
     }
 
     private fun createNotification(): Notification {
-        return NotificationCompat.Builder(this, "location_broadcast")
+        return NotificationCompat.Builder(this, "location_broadcast_bar")
             .setContentTitle("Position broadcast")
             .setContentText("Location sharing is active")
             .setSmallIcon(R.drawable.ic_stat_broadcast)
             .setOngoing(true)
-            .setSilent(true)
             .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
 
