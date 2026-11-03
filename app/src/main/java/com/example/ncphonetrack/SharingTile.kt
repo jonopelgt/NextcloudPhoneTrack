@@ -1,5 +1,8 @@
 package com.example.ncphonetrack
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
@@ -21,5 +24,12 @@ class SharingTile : TileService() {
         tile.label = "Location sharing"
         if (Build.VERSION.SDK_INT >= 29) tile.subtitle = if (on) "On" else "Off"
         tile.updateTile()
+    }
+}
+
+class SharingRepost : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent?) {
+        if (!SharingControl.isOn(context)) return
+        SharingControl.repost(context)
     }
 }

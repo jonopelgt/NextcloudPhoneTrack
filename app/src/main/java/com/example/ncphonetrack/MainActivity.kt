@@ -104,6 +104,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val sharingFilter = android.content.IntentFilter(SharingControl.ACTION_SHARING_CHANGED)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(sharingChanged, sharingFilter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(sharingChanged, sharingFilter)
+        }
         drawerLayout = findViewById(R.id.drawer_layout)
         statusPanel = findViewById(R.id.status_panel)
         tvStatusUrl = findViewById(R.id.tvStatusUrl)
@@ -953,6 +959,8 @@ class MainActivity : AppCompatActivity() {
     private var sessionsList: LinearLayout? = null
     private var refreshingNames = false
     private var refreshSettingsPermissions: (() -> Unit)? = null
+    private var refreshSettingsSharing: (() -> Unit)? = null
+    private var refreshLocationPage: (() -> Unit)? = null
     private var serverTokens: Set<String>? = null
     private var dismissedMissing = setOf<String>()
     private val createdTokens = mutableSetOf<String>()
@@ -1117,7 +1125,8 @@ class MainActivity : AppCompatActivity() {
                     points.keys.sorted(),
                     session.optBoolean("enabled", true),
                     positions != null,
-                    points
+                    points,
+                    positions?.mapValues { (_, data) -> data.timestamp }.orEmpty()
                 )
             }
             runOnUiThread {
@@ -1198,7 +1207,8 @@ class MainActivity : AppCompatActivity() {
                                 }
                             }
                             val nameView = TextView(this).apply {
-                                text = user
+                                val seen = lastSeenLabel(row.seen[user] ?: 0L)
+                                text = if (seen.isBlank()) user else "$user ($seen)"
                                 textSize = 15f
                                 setTextColor(userColor)
                                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -1256,6 +1266,7 @@ class MainActivity : AppCompatActivity() {
                     if (checked == !positionUpdatesOff()) return@setOnCheckedChangeListener
                     setLocationSharing(checked)
                 }
+                refreshSettingsSharing = { isChecked = !positionUpdatesOff() }
             })
         })
         val urlField = EditText(this).apply {
@@ -1411,7 +1422,10 @@ class MainActivity : AppCompatActivity() {
                 verifyLogin(url, user, pass)
             }
         }
-        dialog.setOnDismissListener { refreshSettingsPermissions = null }
+        dialog.setOnDismissListener {
+            refreshSettingsPermissions = null
+            refreshSettingsSharing = null
+        }
         dialog.show()
         pinZoomControls(dialog)
     }
@@ -3054,6 +3068,14 @@ class MainActivity : AppCompatActivity() {
             .setNeutralButton("Send now", null)
             .setNegativeButton("Cancel", null)
             .create()
+        refreshLocationPage = {
+            selectedMode = currentPositionMode()
+            renderModes()
+            spoofAdjusting = true
+            spoof.isChecked = prefs.getBoolean("spoof_enabled", false)
+            spoofAdjusting = false
+        }
+        dialog.setOnDismissListener { refreshLocationPage = null }
         dialog.setOnShowListener {
             dialog.window?.setLayout(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -3443,7 +3465,32 @@ class MainActivity : AppCompatActivity() {
         }
     }
     override fun onPause() { super.onPause(); map.onPause(); stopLogTimer() }
+    private val sharingChanged = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: android.content.Intent?) {
+            refreshModeButton()
+            refreshMapBanner()
+            startTrackingFromPrefs()
+            refreshSettingsSharing?.invoke()
+            refreshLocationPage?.invoke()
+        }
+    }
+
+    private fun lastSeenLabel(timestampSec: Long): String {
+        if (timestampSec <= 0L) return ""
+        val millis = timestampSec * 1000
+        val then = java.util.Calendar.getInstance().apply { timeInMillis = millis }
+        val now = java.util.Calendar.getInstance()
+        val sameDay = then.get(java.util.Calendar.YEAR) == now.get(java.util.Calendar.YEAR) &&
+            then.get(java.util.Calendar.DAY_OF_YEAR) == now.get(java.util.Calendar.DAY_OF_YEAR)
+        val pattern = if (sameDay) "h:mm a" else "M/d h:mm a"
+        return android.text.format.DateFormat.format(pattern, millis).toString()
+    }
+
     override fun onDestroy() {
+        try {
+            unregisterReceiver(sharingChanged)
+        } catch (_: Exception) {
+        }
         fetchTimer?.cancel()
         fetchTimer = null
         super.onDestroy()
@@ -3459,5 +3506,6 @@ private data class FriendRow(
     val users: List<String>,
     val enabled: Boolean,
     val reachable: Boolean,
-    val points: Map<String, GeoPoint>
+    val points: Map<String, GeoPoint>,
+    val seen: Map<String, Long>
 )

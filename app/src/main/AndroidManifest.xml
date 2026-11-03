@@ -54,6 +54,10 @@
                 android:resource="@xml/sharing_widget_info" />
         </receiver>
 
+        <receiver
+            android:name=".SharingRepost"
+            android:exported="false" />
+
         <service
             android:name=".SharingTile"
             android:exported="true"

@@ -3,6 +3,7 @@ package com.example.ncphonetrack
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -640,15 +641,25 @@ class LocationPublishService : Service() {
     }
 
     private fun createNotification(): Notification {
-        return NotificationCompat.Builder(this, "location_broadcast_bar")
+        val repost = PendingIntent.getBroadcast(
+            this,
+            2,
+            Intent(this, SharingRepost::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val built = NotificationCompat.Builder(this, "location_broadcast_bar")
             .setContentTitle("Position broadcast")
             .setContentText("Location sharing is active")
             .setSmallIcon(R.drawable.ic_stat_broadcast)
             .setOngoing(true)
+            .setAutoCancel(false)
             .setOnlyAlertOnce(true)
+            .setDeleteIntent(repost)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
+        built.flags = built.flags or Notification.FLAG_ONGOING_EVENT or Notification.FLAG_NO_CLEAR
+        return built
     }
 
     override fun onDestroy() {

@@ -34,6 +34,12 @@ object SharingControl {
         edit.apply()
         applyService(context)
         refreshSurfaces(context)
+        context.sendBroadcast(Intent(ACTION_SHARING_CHANGED).setPackage(context.packageName))
+    }
+
+    fun repost(context: Context) {
+        if (!isOn(context)) return
+        applyService(context)
     }
 
     private fun applyService(context: Context) {
@@ -81,4 +87,6 @@ object SharingControl {
         }
         TileService.requestListeningState(context, ComponentName(context, SharingTile::class.java))
     }
+
+    const val ACTION_SHARING_CHANGED = "com.example.ncphonetrack.SHARING_CHANGED"
 }
