@@ -1071,6 +1071,16 @@ class MainActivity : AppCompatActivity() {
                             setTextColor(sessionColor)
                             setTypeface(typeface, android.graphics.Typeface.BOLD)
                             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                            setOnClickListener {
+                                val session = loadSessions().find { it.optString("token") == row.token } ?: return@setOnClickListener
+                                dialog.dismiss()
+                                statusPanel.visibility = View.GONE
+                                showSessionOnMap(session, keepView = true)
+                                lastPoints.clear()
+                                lastPoints.putAll(row.points)
+                                zoomToAll()
+                                refreshMapBanner()
+                            }
                         })
                         if (index == 0 && showTracks) {
                             addView(TextView(this@MainActivity).apply {
