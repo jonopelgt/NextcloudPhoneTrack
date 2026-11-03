@@ -316,6 +316,10 @@ class LocationPublishService : Service() {
 
     private fun publishLocation(location: Location) {
         val fix = spoofedLocation() ?: location
+        prefs.edit()
+            .putString("own_lat", fix.latitude.toString())
+            .putString("own_lon", fix.longitude.toString())
+            .apply()
         val targets = enabledTargets()
         if (targets.isEmpty()) {
             LogManager.add("Fix not sent: no enabled session")

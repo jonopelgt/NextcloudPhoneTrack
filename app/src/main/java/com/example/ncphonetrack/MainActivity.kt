@@ -2156,6 +2156,7 @@ class MainActivity : AppCompatActivity() {
                     if (alpha <= 0.05f) return@forEach
                     val point = GeoPoint(data.lat, data.lon)
                     lastPoints[name] = point
+                    if (mine) rememberOwn(data.lat, data.lon)
                     val marker = Marker(map)
                     marker.position = point
                     val mine = name == ownDevice
@@ -2745,15 +2746,40 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Sending position", Toast.LENGTH_SHORT).show()
     }
 
+    private fun rememberOwn(lat: Double, lon: Double) {
+        prefs.edit().putString("own_lat", lat.toString()).putString("own_lon", lon.toString()).apply()
+    }
+
+    private fun ownLastPoint(): GeoPoint? {
+        val lat = prefs.getString("own_lat", null)?.toDoubleOrNull() ?: return null
+        val lon = prefs.getString("own_lon", null)?.toDoubleOrNull() ?: return null
+        return GeoPoint(lat, lon)
+    }
+
+    private fun isSelf(name: String?): Boolean {
+        if (name.isNullOrBlank()) return false
+        val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+        val device = prefs.getString("device", "")?.trim().orEmpty()
+        return name.equals(user, true) || (device.isNotBlank() && name.equals(device, true))
+    }
+
     private fun centerOnSelf() {
         val name = prefs.getString("nc_user", "")?.trim().orEmpty()
-        val match = lastPoints.keys.firstOrNull { it.equals(name, true) }
-        if (match == null) {
-            Toast.makeText(this, "Your position is not on the map", Toast.LENGTH_SHORT).show()
+        val match = lastPoints.keys.firstOrNull { isSelf(it) }
+        val point = match?.let { lastPoints[it] } ?: ownLastPoint()
+        if (point == null) {
+            Toast.makeText(this, "unknown", Toast.LENGTH_SHORT).show()
             return
         }
         allMode = false
-        enterUserTrack(match)
+        mapFollow = MapFollow.USER
+        trackedUser = match ?: name.ifBlank { deviceName() }
+        refreshZoomKeys()
+        map.controller.animateTo(point)
+    }
+
+    private fun deviceName(): String {
+        return prefs.getString("device", "")?.trim().orEmpty().ifBlank { "Android" }
     }
 
     private fun zoomToAll() {
@@ -2872,7 +2898,10 @@ class MainActivity : AppCompatActivity() {
     private fun applyMapFollow(points: List<GeoPoint>) {
         when (mapFollow) {
             MapFollow.MANUAL -> Unit
-            MapFollow.USER -> lastPoints[trackedUser]?.let { map.controller.setCenter(it) }
+            MapFollow.USER -> {
+                val point = lastPoints[trackedUser] ?: if (isSelf(trackedUser)) ownLastPoint() else null
+                point?.let { map.controller.setCenter(it) }
+            }
             MapFollow.GROUP -> fitActiveUsers()
         }
     }
