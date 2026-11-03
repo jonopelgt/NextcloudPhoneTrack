@@ -1240,6 +1240,24 @@ class MainActivity : AppCompatActivity() {
             setPadding(pad, 0, pad, 0)
         }
         val width = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, pad, 0, pad / 2)
+            addView(TextView(this@MainActivity).apply {
+                text = "Location sharing"
+                textSize = 16f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(android.widget.Switch(this@MainActivity).apply {
+                isChecked = !positionUpdatesOff()
+                setOnCheckedChangeListener { _, checked ->
+                    if (checked == !positionUpdatesOff()) return@setOnCheckedChangeListener
+                    setLocationSharing(checked)
+                }
+            })
+        })
         val urlField = EditText(this).apply {
             hint = "Nextcloud server"
             setText(prefs.getString("nc_auth_url", "") ?: "")
@@ -2298,7 +2316,27 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun positionUpdatesOff(): Boolean {
+        if (!prefs.getBoolean("location_sharing", true)) return true
         return currentPositionMode() == "quiet" && !prefs.getBoolean("spoof_enabled", false)
+    }
+
+    private fun setLocationSharing(on: Boolean) {
+        val edit = prefs.edit().putBoolean("location_sharing", on)
+        if (on) {
+            if (currentPositionMode() == "quiet") {
+                val resume = prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move"
+                edit.putString("position_mode", resume)
+            }
+        } else {
+            if (currentPositionMode() != "quiet") edit.putString("share_mode", currentPositionMode())
+            edit.putString("position_mode", "quiet")
+            edit.putBoolean("spoof_enabled", false)
+        }
+        edit.apply()
+        if (!on) removeSpoofMarker()
+        refreshModeButton()
+        startTrackingFromPrefs()
+        refreshMapBanner()
     }
 
     private fun promptBackgroundOnce() {
@@ -3017,12 +3055,15 @@ class MainActivity : AppCompatActivity() {
             dialog.window?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.WHITE))
             pinZoomControls(dialog)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                prefs.edit()
+                val sharing = selectedMode != "quiet" || spoof.isChecked
+                val edit = prefs.edit()
                     .putString("position_mode", selectedMode)
+                    .putBoolean("location_sharing", sharing)
                     .putBoolean("spoof_enabled", spoof.isChecked)
                     .putString("spoof_lat", lat.text.toString().trim())
                     .putString("spoof_lon", lon.text.toString().trim())
-                    .apply()
+                if (selectedMode != "quiet") edit.putString("share_mode", selectedMode)
+                edit.apply()
                 dialog.dismiss()
                 refreshModeButton()
                 if (!spoof.isChecked) removeSpoofMarker()
@@ -3158,7 +3199,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setPositionMode(mode: String) {
-        prefs.edit().putString("position_mode", mode).apply()
+        val sharing = mode != "quiet" || prefs.getBoolean("spoof_enabled", false)
+        val edit = prefs.edit().putString("position_mode", mode).putBoolean("location_sharing", sharing)
+        if (mode != "quiet") edit.putString("share_mode", mode)
+        edit.apply()
         refreshModeButton()
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
     }

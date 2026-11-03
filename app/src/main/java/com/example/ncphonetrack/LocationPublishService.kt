@@ -627,19 +627,26 @@ class LocationPublishService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel("location", "Location Tracking", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(
+                "location_broadcast",
+                "Position broadcast",
+                NotificationManager.IMPORTANCE_DEFAULT
+            )
+            channel.setSound(null, null)
+            channel.enableVibration(false)
+            channel.setShowBadge(false)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun createNotification(): Notification {
-        return NotificationCompat.Builder(this, "location")
-            .setContentTitle("PhoneTrack Sharing")
-            .setContentText(enabledTargets().joinToString(", ") {
-                it.optString("name").ifBlank { "Unnamed session" }
-            }.ifBlank { "Publishing location to Nextcloud" })
-            .setSmallIcon(R.drawable.ic_pin_broadcast)
+        return NotificationCompat.Builder(this, "location_broadcast")
+            .setContentTitle("Position broadcast")
+            .setContentText("Location sharing is active")
+            .setSmallIcon(R.drawable.ic_stat_broadcast)
             .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
             .build()
     }
 
