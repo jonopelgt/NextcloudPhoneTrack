@@ -135,6 +135,7 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
         })
         findViewById<ImageButton>(R.id.btnCopyLog).setOnClickListener { copyLog() }
+        findViewById<Button>(R.id.btnClearLog).setOnClickListener { clearLog() }
         findViewById<Button>(R.id.btnExportLog).setOnClickListener { exportLog() }
         logScroll.setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -856,6 +857,11 @@ class MainActivity : AppCompatActivity() {
         val clipboard = getSystemService(android.content.ClipboardManager::class.java)
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PhoneTrack log", text))
         Toast.makeText(this, "Copied", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun clearLog() {
+        LogManager.clear()
+        refreshLog()
     }
 
     private fun exportLog() {
