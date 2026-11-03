@@ -266,7 +266,7 @@ object PhoneTrackApi {
     private fun addObject(out: MutableList<RemoteSession>, item: JSONObject) {
         val token = item.optString("token")
         if (token.isBlank()) return
-        out.add(RemoteSession(item.optString("name").ifBlank { token.take(8) }, token, item.optString("publicviewtoken")))
+        out.add(RemoteSession(item.optString("name").ifBlank { token.take(8) }, token, item.optString("publicviewtoken"), item.optString("user")))
     }
 
     fun createRemoteSession(
@@ -748,6 +748,6 @@ data class SessionDetail(
     val devices: List<RemoteDevice>
 )
 
-data class RemoteSession(val name: String, val token: String, val publicToken: String = "")
+data class RemoteSession(val name: String, val token: String, val publicToken: String = "", val owner: String = "")
 
 data class CreatedSession(val id: Int, val name: String, val token: String, val publicToken: String)

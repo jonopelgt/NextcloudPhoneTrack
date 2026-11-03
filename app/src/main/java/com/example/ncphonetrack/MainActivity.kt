@@ -845,11 +845,20 @@ class MainActivity : AppCompatActivity() {
                 val label = TextView(this).apply {
                     text = sessionLabel(session)
                     textSize = 16f
+                }
+                val title = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    setOnClickListener { radio.performClick() }
-                    setOnLongClickListener { anchor ->
-                        showSessionHoldMenu(anchor, session)
-                        true
+                    addView(label)
+                    val owner = session.optString("owner")
+                    if (owner.isNotBlank()) {
+                        addView(TextView(this@MainActivity).apply {
+                            text = owner
+                            textSize = 14f
+                            setTextColor(Color.parseColor("#616161"))
+                            setPadding((8 * resources.displayMetrics.density).toInt(), 0, 0, 0)
+                        })
                     }
                 }
                 val toggle = androidx.appcompat.widget.SwitchCompat(this).apply {
@@ -871,7 +880,7 @@ class MainActivity : AppCompatActivity() {
                         true
                     }
                     addView(radio)
-                    addView(label)
+                    addView(title)
                     addView(toggle)
                 })
             }
@@ -1444,6 +1453,7 @@ class MainActivity : AppCompatActivity() {
                     put("url", baseUrl)
                     put("token", item.token)
                     put("public_token", item.publicToken)
+                    put("owner", item.owner)
                     put("device", android.os.Build.MODEL)
                     put("enabled", false)
                 })
@@ -1451,6 +1461,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 if (item.name.isNotBlank()) existing.put("name", item.name)
                 if (item.publicToken.isNotBlank()) existing.put("public_token", item.publicToken)
+                if (item.owner.isNotBlank()) existing.put("owner", item.owner)
                 if (existing.optString("url").isBlank()) existing.put("url", baseUrl)
             }
         }
@@ -1992,6 +2003,7 @@ class MainActivity : AppCompatActivity() {
                 put("url", baseUrl)
                 put("token", created.token)
                 put("public_token", created.publicToken)
+                put("owner", prefs.getString("nc_user", "")?.trim().orEmpty())
                 if (created.id > 0) put("id", created.id)
                 put("device", prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty { android.os.Build.MODEL })
                 put("enabled", false)
