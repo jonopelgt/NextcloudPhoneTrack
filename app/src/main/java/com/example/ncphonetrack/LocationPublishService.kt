@@ -473,6 +473,20 @@ class LocationPublishService : Service() {
         }
     }
 
+    private fun dropDisabled(allowed: Set<String>): Int {
+        synchronized(bufferLock) {
+            val arr = readBuffer()
+            val kept = org.json.JSONArray()
+            var dropped = 0
+            for (i in 0 until arr.length()) {
+                val point = arr.getJSONObject(i)
+                if (point.optString("token") in allowed) kept.put(point) else dropped++
+            }
+            if (dropped > 0) writeBuffer(kept)
+            return dropped
+        }
+    }
+
     private fun trySend() {
         if (!online()) {
             markBuffered("network")
@@ -491,6 +505,9 @@ class LocationPublishService : Service() {
             scheduleDrain(1000L - (now - burstWindowStart))
             return
         }
+        val allowed = enabledTargets().map { it.optString("token") }.filter { it.isNotBlank() }.toSet()
+        val dropped = dropDisabled(allowed)
+        if (dropped > 0) LogManager.add("Dropped $dropped buffered points for sessions that are off")
         val seen = mutableSetOf<String>()
         val client = logClient()
         while (burstSent < BURST) {

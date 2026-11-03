@@ -563,6 +563,7 @@ class MainActivity : AppCompatActivity() {
         val now = System.currentTimeMillis()
         val publishSec = prefs.getInt("publish_interval_sec", 60).coerceIn(5, 3600)
         val fetchMs = fetchIntervalMs()
+        val readWindow = maxOf(fetchMs * 2, 20_000L)
         val (pushResult, pushEpoch) = sessionPush(token)
         val result = pushResult.ifBlank {
             if (token.isNotBlank() && token == displayedToken()) prefs.getString("last_result", "") ?: "" else ""
@@ -573,18 +574,17 @@ class MainActivity : AppCompatActivity() {
         val stateName = prefs.getString("logging_state", "idle") ?: "idle"
         val updatesOff = positionUpdatesOff()
         val (netResult, netEpoch) = sessionNet(token)
+        val mapRead = if (includeRead) prefs.getLong("last_map_ok", 0L) else 0L
+        val mapFresh = mapRead > 0L && now - mapRead <= readWindow
         val readResult = when {
+            includeRead && mapFresh && prefs.getString("last_read_result", "") == "ok" -> "ok"
             netResult.isNotBlank() -> netResult
             includeRead -> prefs.getString("last_read_result", "") ?: ""
             else -> ""
         }
-        val mapOk = when {
-            netEpoch > 0L -> netEpoch
-            includeRead -> prefs.getLong("last_map_ok", 0L)
-            else -> 0L
-        }
-        val usingNet = netResult.isNotBlank()
-        val readFresh = (usingNet || includeRead) && readResult == "ok" && mapOk > 0L && now - mapOk <= fetchMs * 2
+        val mapOk = maxOf(netEpoch, mapRead)
+        val usingNet = netResult.isNotBlank() || mapFresh
+        val readFresh = (usingNet || includeRead) && readResult == "ok" && mapOk > 0L && now - mapOk <= readWindow
         val readFail = (usingNet || includeRead) && (readResult == "failed" || (readResult == "ok" && !readFresh))
         val pushFresh = result == "ok" && successEpoch > 0L && now - successEpoch <= publishSec * 2L * 1000
         val quiet = stateName == "off" || updatesOff
