@@ -182,7 +182,6 @@ class MainActivity : AppCompatActivity() {
             showModeMenu("position")
             true
         }
-        btnSharing.setOnClickListener { showModeMenu("sharing") }
         btnSharing.setOnLongClickListener {
             showModeMenu("sharing")
             true
@@ -859,7 +858,12 @@ class MainActivity : AppCompatActivity() {
         tvMapBanner.text = message ?: named(name, "Not connected")
         val localOnly = link.localUnavailable && !link.readFail && !link.pushFail
         tvMapBanner.setBackgroundColor(Color.parseColor(if (localOnly) "#757575" else "#C62828"))
-        sessionBanner.text = name
+        sessionBanner.text = if (SharingControl.remaining(this) > 0L && !positionUpdatesOff()) {
+            val left = SharingControl.hourMinuteLabel(SharingControl.remaining(this))
+            if (name.isBlank()) left else "$name $left"
+        } else {
+            name
+        }
         sessionBanner.visibility = if (name.isNotBlank() && !noneActive && mapVisible) View.VISIBLE else View.GONE
         noSessionBanner.visibility = if (noneActive && mapVisible) View.VISIBLE else View.GONE
         tvMapBanner.visibility = if (message != null && !noneActive && mapVisible) View.VISIBLE else View.GONE
@@ -3368,7 +3372,7 @@ class MainActivity : AppCompatActivity() {
             })
             modePicker.addView(modeChoice("on", sharingOn && !timing) {
                 closeModeMenu()
-                SharingControl.set(this, true)
+                SharingControl.set(this, true, clearTimer = true)
                 refreshModeButton()
             })
         }

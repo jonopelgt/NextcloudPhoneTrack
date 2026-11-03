@@ -64,12 +64,12 @@ object SharingControl {
         context.sendBroadcast(Intent(ACTION_TIMER_TICK).setPackage(context.packageName))
     }
 
-    fun set(context: Context, on: Boolean) {
+    fun set(context: Context, on: Boolean, clearTimer: Boolean = false) {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
         val end = prefs.getLong("share_timer_end", 0L)
         val edit = prefs.edit().putBoolean("location_sharing", on)
-        if (end > 0L && now >= end) edit.putLong("share_timer_end", 0L)
+        if (clearTimer || (end > 0L && now >= end)) edit.putLong("share_timer_end", 0L)
         if (on) {
             val mode = prefs.getString("position_mode", "move") ?: "move"
             if (mode == "quiet") {
@@ -184,6 +184,11 @@ object SharingControl {
             hours > 0 -> "${hours}h ${mins}m"
             else -> "${mins}m"
         }
+    }
+
+    fun hourMinuteLabel(ms: Long): String {
+        val totalMin = (ms / 60000L).coerceAtLeast(0L)
+        return "${totalMin / 60}h ${totalMin % 60}m"
     }
 
     fun countdownLabel(ms: Long): String {
