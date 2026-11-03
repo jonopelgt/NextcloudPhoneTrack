@@ -1663,7 +1663,17 @@ class MainActivity : AppCompatActivity() {
             text = "Age out"
             setPadding(0, pad / 2, 0, 0)
         })
-        box.addView(ageField)
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            addView(ageField.apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "minutes"
+                setPadding(pad / 2, 0, 0, 0)
+            })
+        })
         var sessionId = existing?.optInt("id", 0) ?: 0
         var publicToken = existing?.optString("public_token").orEmpty()
         val creating = existing == null
