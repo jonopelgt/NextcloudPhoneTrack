@@ -2278,6 +2278,11 @@ class MainActivity : AppCompatActivity() {
                         })
                     } else {
                         val percent = if (job.total <= 0) 0 else (job.done * 100 / job.total).coerceIn(0, 100)
+                        addView(TextView(this@MainActivity).apply {
+                            text = OfflineMaps.rateText(job.rateBps)
+                            textSize = 13f
+                            setPadding(0, 0, pad / 2, 0)
+                        })
                         addView(android.widget.ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
                             max = 100
                             progress = percent

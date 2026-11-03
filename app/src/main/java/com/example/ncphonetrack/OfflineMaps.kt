@@ -8,6 +8,7 @@ import org.json.JSONObject
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.cos
@@ -153,16 +154,31 @@ object OfflineMaps {
 
     fun isFresh(at: Long): Boolean = System.currentTimeMillis() - at <= FRESH_MS
 
-    data class MapJob(val abbr: String, val name: String, val queued: Boolean, val done: Int, val total: Int)
+    data class MapJob(
+        val abbr: String,
+        val name: String,
+        val queued: Boolean,
+        val done: Int,
+        val total: Int,
+        val rateBps: Long
+    )
 
     private val pending = mutableListOf<Pair<UsState, Boolean>>()
     @Volatile private var current: MapJob? = null
     private val running = AtomicBoolean(false)
+    private var byteCount = 0L
+    private var rateStart = 0L
+
+    fun rateText(bps: Long): String {
+        val kb = bps / 1000.0
+        return if (kb >= 1000) String.format(Locale.US, "%.1f MB/s", kb / 1000.0)
+        else String.format(Locale.US, "%.0f KB/s", kb)
+    }
 
     fun queue(): List<MapJob> = synchronized(pending) {
         val list = mutableListOf<MapJob>()
         current?.let { list.add(it) }
-        pending.forEach { list.add(MapJob(it.first.abbr, it.first.name, true, 0, 0)) }
+        pending.forEach { list.add(MapJob(it.first.abbr, it.first.name, true, 0, 0, 0L)) }
         list
     }
 
@@ -205,7 +221,9 @@ object OfflineMaps {
                         }
                     } ?: break
                     val total = tileTotal(job.first)
-                    synchronized(pending) { current = MapJob(job.first.abbr, job.first.name, false, 0, total) }
+                    byteCount = 0L
+                    rateStart = System.currentTimeMillis()
+                    synchronized(pending) { current = MapJob(job.first.abbr, job.first.name, false, 0, total, 0L) }
                     onStatus("${job.first.name} started")
                     val error = download(context, job.first, job.second, total, onStatus)
                     synchronized(pending) { current = null }
@@ -258,42 +276,53 @@ object OfflineMaps {
                 val tiles = tilesAt(state, zoom)
                 for ((x, y) in tiles) {
                     attempted++
-                    if (attempted == 1 || attempted % 20 == 0) {
-                        synchronized(pending) { current = MapJob(state.abbr, state.name, false, attempted, total) }
+                    val dest = File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}")
+                    if (!force && dest.isFile && dest.length() > 100) {
+                        // already saved
+                    } else {
+                        val wrote = saveTile(map.url(zoom, x, y), dest)
+                        if (wrote < 0) failed++ else byteCount += wrote
+                    }
+                    if (attempted == 1 || attempted % 10 == 0) {
+                        noteProgress(state, attempted, total)
                         onStatus("${state.name} $attempted/$total")
                     }
-                    val dest = File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}")
-                    if (!force && dest.isFile && dest.length() > 100) continue
-                    if (!saveTile(map.url(zoom, x, y), dest)) failed++
                 }
             }
         }
-        synchronized(pending) { current = MapJob(state.abbr, state.name, false, total, total) }
+        noteProgress(state, total, total)
         if (attempted > 20 && failed * 5 > attempted) {
             return "${state.name} download failed ($failed tiles)"
         }
         return null
     }
 
-    private fun saveTile(url: String, dest: File): Boolean {
+    private fun noteProgress(state: UsState, done: Int, total: Int) {
+        val elapsed = (System.currentTimeMillis() - rateStart).coerceAtLeast(1)
+        val bps = byteCount * 1000L / elapsed
+        synchronized(pending) { current = MapJob(state.abbr, state.name, false, done, total, bps) }
+    }
+
+    private fun saveTile(url: String, dest: File): Long {
         return try {
             val request = Request.Builder().url(url).header("User-Agent", "NextcloudPhoneTrack").build()
             client.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return false
-                val body = response.body ?: return false
+                if (!response.isSuccessful) return -1L
+                val body = response.body ?: return -1L
                 dest.parentFile?.mkdirs()
                 val tmp = File(dest.absolutePath + ".part")
                 body.byteStream().use { input -> tmp.outputStream().use { input.copyTo(it) } }
-                if (tmp.length() < 100) {
+                val size = tmp.length()
+                if (size < 100) {
                     tmp.delete()
-                    false
+                    -1L
                 } else {
                     if (dest.exists()) dest.delete()
-                    tmp.renameTo(dest)
+                    if (tmp.renameTo(dest)) size else -1L
                 }
             }
         } catch (_: Exception) {
-            false
+            -1L
         }
     }
 
