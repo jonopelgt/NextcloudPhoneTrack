@@ -13,6 +13,7 @@ import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
@@ -698,6 +699,7 @@ class MainActivity : AppCompatActivity() {
     private var sessionsDialog: AlertDialog? = null
     private var sessionsList: LinearLayout? = null
     private var refreshingNames = false
+    private var refreshSettingsPermissions: (() -> Unit)? = null
 
     private fun showSessions(reloadNames: Boolean = true) {
         val sessions = loadSessions()
@@ -948,6 +950,52 @@ class MainActivity : AppCompatActivity() {
         box.addView(userField)
         box.addView(passField)
         box.addView(TextView(this).apply {
+            text = "Required permissions"
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad, 0, pad / 4)
+        })
+        val permissionList = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = width
+        }
+        box.addView(permissionList)
+        fun showPermissions() {
+            permissionList.removeAllViews()
+            requiredPermissions().forEach { item ->
+                val granted = ContextCompat.checkSelfPermission(this, item.permission) == PackageManager.PERMISSION_GRANTED
+                val label = TextView(this).apply {
+                    text = item.label
+                    textSize = 16f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                val status = TextView(this).apply {
+                    text = if (granted) "OK" else "not granted"
+                    textSize = 16f
+                    setTextColor(Color.parseColor(if (granted) "#1B7F3A" else "#C62828"))
+                    setTypeface(typeface, android.graphics.Typeface.BOLD)
+                    setPadding(pad / 2, 0, pad / 2, 0)
+                }
+                val link = TextView(this).apply {
+                    text = "Settings"
+                    textSize = 16f
+                    setTextColor(Color.parseColor("#1565C0"))
+                    paintFlags = paintFlags or Paint.UNDERLINE_TEXT_FLAG
+                    setOnClickListener { openPermissionSettings(item.destination) }
+                }
+                permissionList.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(0, pad / 3, 0, pad / 3)
+                    addView(label)
+                    addView(status)
+                    addView(link)
+                })
+            }
+        }
+        showPermissions()
+        refreshSettingsPermissions = { showPermissions() }
+        box.addView(TextView(this).apply {
             text = "Accepted self-signed certificates"
             textSize = 16f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -1035,8 +1083,40 @@ class MainActivity : AppCompatActivity() {
                 verifyLogin(url, user, pass)
             }
         }
+        dialog.setOnDismissListener { refreshSettingsPermissions = null }
         dialog.show()
         pinZoomControls(dialog)
+    }
+
+    private data class RequiredPermission(val label: String, val permission: String, val destination: String)
+
+    private fun requiredPermissions(): List<RequiredPermission> {
+        val items = mutableListOf(
+            RequiredPermission("Precise location", Manifest.permission.ACCESS_FINE_LOCATION, "app"),
+            RequiredPermission("Approximate location", Manifest.permission.ACCESS_COARSE_LOCATION, "app")
+        )
+        if (Build.VERSION.SDK_INT >= 29) {
+            items.add(RequiredPermission("Background location", Manifest.permission.ACCESS_BACKGROUND_LOCATION, "app"))
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            items.add(RequiredPermission("Notifications", Manifest.permission.POST_NOTIFICATIONS, "notifications"))
+        }
+        return items
+    }
+
+    private fun openPermissionSettings(destination: String) {
+        val intent = if (destination == "notifications" && Build.VERSION.SDK_INT >= 26) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            }
+        } else {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null))
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not open settings", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun verifyLogin(url: String, user: String, pass: String) {
@@ -2354,6 +2434,7 @@ class MainActivity : AppCompatActivity() {
         map.onResume()
         refreshMapBanner()
         if (logTimer == null) startLogTimer()
+        refreshSettingsPermissions?.invoke()
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
         if (fetchTimer == null && url.isNotBlank() && token.isNotBlank() && checkPermissions() && activeSessionEnabled()) {

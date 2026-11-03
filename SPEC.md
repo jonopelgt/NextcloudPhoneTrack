@@ -58,7 +58,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
   - Location (position update mode and location spoof). This page is separate from Settings.
   - Sessions (list of saved PhoneTrack sessions)
   - Connection Status (shows logging state, last update)
-  - Settings (Nextcloud server, username, and app password, with a button to clear the login, and a section listing accepted self-signed certificates). A server address without http:// or https:// is saved as https://.
+  - Settings (Nextcloud server, username, and app password, with a button to clear the login, a Required permissions section, and a section listing accepted self-signed certificates). A server address without http:// or https:// is saved as https://. Required permissions lists each permission this phone must grant. The status is OK or not granted. A Settings link on the right opens the system page for that permission.
   - About (app info, version, purpose)
 - If login fails because the server certificate is not trusted, the app shows that certificate for review and does not continue until the user accepts or cancels.
 - The main map shows a bottom overlay when the active session cannot be read, cannot be updated, or both. It says Connection fail read, Connection fail push, or Connection fail read and push. The overlay hides when neither is failing. If every session is turned off, that overlay says No active sessions instead, and it stacks with the other map banners.
@@ -185,3 +185,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 80 (2026-11-02): Connection Status Export log writes the current log to a text file and opens the share sheet so it can be saved or opened.
 - Rev 81 (2026-11-02): Turning on a session sends a position immediately. If Play location does not start, the phone location provider is used. A session with no position sent yet says Waiting, not Failed. Location off is reported as location off.
 - Rev 82 (2026-11-02): The connection message says Connection fail read, Connection fail push, or Connection fail read and push. It no longer says Failed for both.
+- Rev 83 (2026-11-02): Settings has a Required permissions section. Each permission shows OK or not granted, with a Settings link on the right.
