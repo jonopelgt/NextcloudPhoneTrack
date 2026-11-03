@@ -225,7 +225,14 @@
                 android:id="@+id/tvStatusUrl"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="URL: "
+                android:text="Session name: "
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvStatusCreator"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Session creator: "
                 android:textStyle="bold" />
 
             <TextView

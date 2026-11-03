@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var drawerLayout: DrawerLayout
     private lateinit var statusPanel: LinearLayout
     private lateinit var tvStatusUrl: TextView
+    private lateinit var tvStatusCreator: TextView
     private lateinit var tvStatusToken: TextView
     private lateinit var tvLoggingState: TextView
     private lateinit var tvConnection: TextView
@@ -106,6 +107,7 @@ class MainActivity : AppCompatActivity() {
         drawerLayout = findViewById(R.id.drawer_layout)
         statusPanel = findViewById(R.id.status_panel)
         tvStatusUrl = findViewById(R.id.tvStatusUrl)
+        tvStatusCreator = findViewById(R.id.tvStatusCreator)
         tvStatusToken = findViewById(R.id.tvStatusToken)
         tvLoggingState = findViewById(R.id.tvLoggingState)
         tvConnection = findViewById(R.id.tvConnection)
@@ -479,10 +481,10 @@ class MainActivity : AppCompatActivity() {
     private fun showStatusPanel() {
         statusPanel.visibility = View.VISIBLE
         statusPanel.bringToFront()
-        val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
         val name = displayedSessionName()
-        tvStatusUrl.text = if (name.isBlank()) "URL: $url" else "$name"
+        tvStatusUrl.text = "Session name: ${name.ifBlank { "—" }}"
+        tvStatusCreator.text = "Session creator: ${displayedSession()?.optString("owner").orEmpty().ifBlank { "—" }}"
         tvStatusToken.text = "Token: $token"
         val state = prefs.getString("logging_state", "idle") ?: "idle"
         val result = sessionPush(token).first.ifBlank { prefs.getString("last_result", "none") ?: "none" }
@@ -669,7 +671,8 @@ class MainActivity : AppCompatActivity() {
             if (token.isNotBlank()) prefs.getString("last_result", "") ?: "" else ""
         }
         val state = prefs.getString("logging_state", "idle") ?: "idle"
-        tvStatusUrl.text = if (name.isBlank()) "URL: ${prefs.getString("url", "") ?: ""}" else name
+        tvStatusUrl.text = "Session name: ${name.ifBlank { "—" }}"
+        tvStatusCreator.text = "Session creator: ${displayedSession()?.optString("owner").orEmpty().ifBlank { "—" }}"
         tvStatusToken.text = "Token: $token"
         val detail = named(name, "Logging: $state (${resultLabel(result)})")
         tvLoggingState.text = if (message == null) detail else "$message\n$detail"
@@ -690,6 +693,23 @@ class MainActivity : AppCompatActivity() {
         }
         val shown = displayedToken()
         val quiet = (prefs.getString("logging_state", "") ?: "") == "off"
+        sessionStatusList.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            val gap = (48 * resources.displayMetrics.density).toInt()
+            setPadding(gap, 0, 0, 4)
+            addView(TextView(this@MainActivity).apply {
+                text = "Session name"
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Session creator"
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
+        })
         sessions.forEach { session ->
             val enabled = session.optBoolean("enabled", true)
             val token = session.optString("token")
@@ -737,6 +757,12 @@ class MainActivity : AppCompatActivity() {
                 textSize = 16f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
+            val creator = TextView(this).apply {
+                text = session.optString("owner").ifBlank { "—" }
+                textSize = 14f
+                setTextColor(Color.parseColor("#616161"))
+                setPadding((8 * resources.displayMetrics.density).toInt(), 0, 8, 0)
+            }
             val state = TextView(this).apply {
                 text = status
                 textSize = 16f
@@ -764,6 +790,7 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { radio.performClick() }
                 addView(radio)
                 addView(name)
+                addView(creator)
                 addView(state)
             })
         }
