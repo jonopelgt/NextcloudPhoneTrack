@@ -126,6 +126,12 @@ object OfflineMaps {
         }
     }
 
+    fun stateAt(lat: Double, lon: Double): UsState? {
+        return states.filter { state ->
+            lat <= state.north && lat >= state.south && lon >= state.west && lon <= state.east
+        }.minByOrNull { (it.north - it.south) * (it.east - it.west) }
+    }
+
     fun search(query: String): List<UsState> {
         val q = query.trim()
         if (q.isEmpty()) return emptyList()

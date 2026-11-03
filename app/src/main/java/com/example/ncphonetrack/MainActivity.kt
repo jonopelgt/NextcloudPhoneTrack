@@ -29,6 +29,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.drawerlayout.widget.DrawerLayout
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.material.navigation.NavigationView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -261,6 +264,7 @@ class MainActivity : AppCompatActivity() {
             }
             promptBackgroundOnce()
         }
+        offerHereState()
     }
 
     private fun correctSavedServerUrl() {
@@ -2054,6 +2058,7 @@ class MainActivity : AppCompatActivity() {
             if (checkPermissions()) {
                 startTrackingFromPrefs()
                 promptBackgroundOnce()
+                offerHereState()
             } else {
                 updateStatusText("Location permission denied")
                 Toast.makeText(this, "Location permission is required to share your position.", Toast.LENGTH_LONG).show()
@@ -2286,30 +2291,9 @@ class MainActivity : AppCompatActivity() {
             }
         }
         fun startDownload(states: List<UsState>, force: Boolean) {
-            if (states.isEmpty()) {
-                Toast.makeText(this, "All downloaded states are up to date", Toast.LENGTH_SHORT).show()
-                return
-            }
-            val go = {
-                status.text = "Starting download…"
-                OfflineMaps.enqueue(this, prefs, states, force) { line ->
-                    runOnUiThread {
-                        if (isDestroyed) return@runOnUiThread
-                        status.text = line
-                        if (line.endsWith("downloaded") || line.contains("failed")) paintSaved()
-                    }
-                }
-            }
-            val cm = getSystemService(android.net.ConnectivityManager::class.java)
-            if (cm?.isActiveNetworkMetered == true) {
-                AlertDialog.Builder(this)
-                    .setTitle("Metered connection")
-                    .setMessage("This connection is metered. Download offline maps anyway?")
-                    .setPositiveButton("Download") { _, _ -> go() }
-                    .setNegativeButton("Cancel", null)
-                    .show()
-            } else {
-                go()
+            confirmMeteredDownload(states, force) { line ->
+                status.text = line
+                if (line.endsWith("downloaded") || line.contains("failed")) paintSaved()
             }
         }
         box.addView(TextView(this).apply {
@@ -2395,7 +2379,87 @@ class MainActivity : AppCompatActivity() {
             .also { dialog ->
                 dialog.show()
                 pinZoomControls(dialog)
+                offerHereState()
             }
+    }
+
+    private var hereStateDialog: AlertDialog? = null
+    private var hereStateBusy = false
+
+    private fun offerHereState() {
+        if (OfflineMaps.downloaded(prefs).isNotEmpty()) return
+        if (hereStateBusy || hereStateDialog?.isShowing == true) return
+        if (!checkPermissions()) return
+        hereStateBusy = true
+        val client = LocationServices.getFusedLocationProviderClient(this)
+        client.lastLocation.addOnSuccessListener { loc ->
+            if (loc != null) {
+                askToDownloadState(loc.latitude, loc.longitude)
+            } else {
+                client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, CancellationTokenSource().token)
+                    .addOnSuccessListener { fresh ->
+                        if (fresh != null) askToDownloadState(fresh.latitude, fresh.longitude)
+                        else hereStateBusy = false
+                    }
+                    .addOnFailureListener { hereStateBusy = false }
+            }
+        }.addOnFailureListener { hereStateBusy = false }
+    }
+
+    private fun askToDownloadState(lat: Double, lon: Double) {
+        if (isDestroyed || OfflineMaps.downloaded(prefs).isNotEmpty() || hereStateDialog?.isShowing == true) {
+            hereStateBusy = false
+            return
+        }
+        val state = OfflineMaps.stateAt(lat, lon)
+        if (state == null) {
+            hereStateBusy = false
+            return
+        }
+        hereStateDialog = AlertDialog.Builder(this)
+            .setTitle("Download ${state.name}?")
+            .setMessage("No offline map is saved. Download all five maps for ${state.name}, where this phone is?")
+            .setPositiveButton("Download") { _, _ ->
+                confirmMeteredDownload(listOf(state), false) { line ->
+                    if (line.endsWith("downloaded") || line.contains("failed")) {
+                        Toast.makeText(this, line, Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNegativeButton("Not now", null)
+            .setOnDismissListener {
+                hereStateDialog = null
+                hereStateBusy = false
+            }
+            .create()
+        hereStateDialog?.show()
+    }
+
+    private fun confirmMeteredDownload(states: List<UsState>, force: Boolean, onLine: (String) -> Unit) {
+        if (states.isEmpty()) {
+            Toast.makeText(this, "All downloaded states are up to date", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val go = {
+            onLine("Starting download…")
+            OfflineMaps.enqueue(this, prefs, states, force) { line ->
+                runOnUiThread {
+                    if (isDestroyed) return@runOnUiThread
+                    onLine(line)
+                }
+            }
+        }
+        val cm = getSystemService(android.net.ConnectivityManager::class.java)
+        if (cm?.isActiveNetworkMetered == true) {
+            AlertDialog.Builder(this)
+                .setTitle("Metered connection")
+                .setMessage("This connection is metered. Download offline maps anyway?")
+                .setPositiveButton("Download") { _, _ -> go() }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } else {
+            go()
+        }
     }
 
     private fun pinZoomControls(dialog: AlertDialog) {
