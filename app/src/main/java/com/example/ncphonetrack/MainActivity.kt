@@ -2248,9 +2248,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyBaseMap(id: String) {
         if (!::map.isInitialized) return
-        map.setTileSource(OfflineMaps.tileSource(OfflineMaps.base(id)))
-        map.setUseDataConnection(true)
-        map.invalidate()
+        OfflineMaps.installBase(this, map, OfflineMaps.base(id))
     }
 
     private fun showMaps() {

@@ -2,11 +2,20 @@ package com.example.ncphonetrack
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
+import android.util.LruCache
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import org.osmdroid.tileprovider.MapTileProviderBasic
+import org.osmdroid.tileprovider.modules.MapTileModuleProviderBase
+import org.osmdroid.tileprovider.tilesource.ITileSource
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
+import org.osmdroid.views.MapView
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -29,6 +38,7 @@ data class BaseMap(
     val label: String,
     val ext: String,
     val arcgis: Boolean,
+    val maxZoom: Int,
     val url: (Int, Int, Int) -> String
 )
 
@@ -39,19 +49,19 @@ object OfflineMaps {
     private const val MAX_TILES_PER_ZOOM = 4000
 
     val bases = listOf(
-        BaseMap("organic", "Organic Maps", ".png", false) { z, x, y ->
+        BaseMap("organic", "Organic Maps", ".png", false, 19) { z, x, y ->
             "https://tile.openstreetmap.org/$z/$x/$y.png"
         },
-        BaseMap("osmand", "OsmAnd", ".png", false) { z, x, y ->
+        BaseMap("osmand", "OsmAnd", ".png", false, 19) { z, x, y ->
             "https://tile.osmand.net/hd/$z/$x/$y.png"
         },
-        BaseMap("magic", "Magic Earth", ".png", false) { z, x, y ->
+        BaseMap("magic", "Magic Earth", ".png", false, 19) { z, x, y ->
             "https://basemaps.cartocdn.com/rastertiles/voyager/$z/$x/$y.png"
         },
-        BaseMap("openandro", "OpenAndroMaps", ".png", false) { z, x, y ->
+        BaseMap("openandro", "OpenAndroMaps", ".png", false, 17) { z, x, y ->
             "https://tile.opentopomap.org/$z/$x/$y.png"
         },
-        BaseMap("usgs", "USGS topo", ".jpg", true) { z, x, y ->
+        BaseMap("usgs", "USGS topo", ".jpg", true, 19) { z, x, y ->
             "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/$z/$y/$x"
         }
     )
@@ -118,9 +128,95 @@ object OfflineMaps {
     fun base(id: String): BaseMap = bases.firstOrNull { it.id == id } ?: bases.first()
 
     fun tileSource(map: BaseMap): OnlineTileSourceBase {
-        return object : OnlineTileSourceBase(map.id, 0, 19, 256, map.ext, arrayOf("https://localhost/")) {
+        val ceiling = if (map.maxZoom < 19) 21 else map.maxZoom
+        return object : OnlineTileSourceBase(map.id, 0, ceiling, 256, map.ext, arrayOf("https://localhost/")) {
             override fun getTileURLString(index: Long): String {
-                return map.url(MapTileIndex.getZoom(index), MapTileIndex.getX(index), MapTileIndex.getY(index))
+                val zoom = MapTileIndex.getZoom(index)
+                if (zoom > map.maxZoom) return "http://127.0.0.1/overzoom-blocked"
+                return map.url(zoom, MapTileIndex.getX(index), MapTileIndex.getY(index))
+            }
+        }
+    }
+
+    fun installBase(context: Context, mapView: MapView, base: BaseMap) {
+        val source = tileSource(base)
+        if (base.maxZoom < 19) {
+            mapView.setTileProvider(OverzoomTileProvider(context, source, base))
+            mapView.maxZoomLevel = 21.0
+        } else {
+            mapView.setTileProvider(MapTileProviderBasic(context, source))
+            mapView.maxZoomLevel = 19.0
+        }
+        mapView.setUseDataConnection(true)
+        mapView.invalidate()
+    }
+
+    private class OverzoomTileProvider(
+        context: Context,
+        source: ITileSource,
+        base: BaseMap
+    ) : MapTileProviderBasic(context, source) {
+        init {
+            val index = mTileProviderList.indexOfFirst { it.usesDataConnection }.coerceAtLeast(0)
+            mTileProviderList.add(index, OverzoomModule(context, base))
+        }
+    }
+
+    private class OverzoomModule(
+        private val context: Context,
+        private val base: BaseMap
+    ) : MapTileModuleProviderBase(2, 40) {
+        private val parents = LruCache<String, Bitmap>(24)
+
+        override fun getUsesDataConnection(): Boolean = true
+        override fun getMinimumZoomLevel(): Int = base.maxZoom + 1
+        override fun getMaximumZoomLevel(): Int = 21
+        override fun setTileSource(tileSource: ITileSource?) = Unit
+        override fun getName(): String = "overzoom"
+        override fun getThreadGroupName(): String = "overzoom"
+        override fun getTileLoader(): TileLoader = object : TileLoader() {
+            override fun loadTile(pMapTileIndex: Long): Drawable? {
+                val zoom = MapTileIndex.getZoom(pMapTileIndex)
+                val diff = zoom - base.maxZoom
+                if (diff <= 0 || diff > 4) return null
+                val x = MapTileIndex.getX(pMapTileIndex)
+                val y = MapTileIndex.getY(pMapTileIndex)
+                val parent = parentBitmap(x shr diff, y shr diff) ?: return null
+                val scaled = scaleQuadrant(parent, x, y, diff)
+                return BitmapDrawable(context.resources, scaled)
+            }
+        }
+
+        private fun parentBitmap(x: Int, y: Int): Bitmap? {
+            val key = "$x/$y"
+            parents.get(key)?.let { return it }
+            val bitmap = fetchBitmap(base.url(base.maxZoom, x, y)) ?: return null
+            parents.put(key, bitmap)
+            return bitmap
+        }
+
+        private fun scaleQuadrant(src: Bitmap, x: Int, y: Int, diff: Int): Bitmap {
+            val parts = 1 shl diff
+            val cellW = (src.width / parts).coerceAtLeast(1)
+            val cellH = (src.height / parts).coerceAtLeast(1)
+            val left = (x and (parts - 1)) * cellW
+            val top = (y and (parts - 1)) * cellH
+            val crop = Bitmap.createBitmap(src, left, top, cellW, cellH)
+            val scaled = Bitmap.createScaledBitmap(crop, src.width, src.height, true)
+            if (crop != scaled) crop.recycle()
+            return scaled
+        }
+
+        private fun fetchBitmap(url: String): Bitmap? {
+            return try {
+                val request = Request.Builder().url(url).header("User-Agent", "NextcloudPhoneTrack").build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return null
+                    val bytes = response.body?.bytes() ?: return null
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                }
+            } catch (_: Exception) {
+                null
             }
         }
     }
