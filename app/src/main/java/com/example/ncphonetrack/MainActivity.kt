@@ -254,7 +254,9 @@ class MainActivity : AppCompatActivity() {
 
         val savedUrl = prefs.getString("url", null)
         val savedToken = prefs.getString("token", null)
-        if (!savedUrl.isNullOrBlank() && !savedToken.isNullOrBlank() && isValidBaseUrl(savedUrl) && checkPermissions() && activeSessionEnabled()) {
+        if (!savedUrl.isNullOrBlank() && !savedToken.isNullOrBlank() && isValidBaseUrl(savedUrl) && activeSessionEnabled() &&
+            (checkPermissions() || positionUpdatesOff())
+        ) {
             startTrackingFromPrefs()
             updateStatusText("Auto-started tracking")
             if (Build.VERSION.SDK_INT >= 33 &&
@@ -552,6 +554,7 @@ class MainActivity : AppCompatActivity() {
             if (token.isNotBlank() && token == displayedToken()) prefs.getLong("last_success_epoch", 0L) else 0L
         }
         val stateName = prefs.getString("logging_state", "idle") ?: "idle"
+        val updatesOff = positionUpdatesOff()
         val (netResult, netEpoch) = sessionNet(token)
         val readResult = when {
             netResult.isNotBlank() -> netResult
@@ -566,11 +569,11 @@ class MainActivity : AppCompatActivity() {
         val readFresh = includeRead && readResult == "ok" && mapOk > 0L && now - mapOk <= fetchSec * 2L * 1000
         val readFail = includeRead && (readResult == "failed" || (readResult == "ok" && !readFresh))
         val pushFresh = result == "ok" && successEpoch > 0L && now - successEpoch <= publishSec * 2L * 1000
-        val quiet = stateName == "off"
-        val localUnavailable = !quiet && stateName != "manual" && stateName != "stopped" &&
+        val quiet = stateName == "off" || updatesOff
+        val localUnavailable = updatesOff || (!quiet && stateName != "manual" && stateName != "stopped" &&
             (stateName == "location off" || stateName == "permission denied" ||
-                stateName == "waiting for GPS" || stateName == "no position")
-        val pushFail = !localUnavailable && result == "network"
+                stateName == "waiting for GPS" || stateName == "no position"))
+        val pushFail = !updatesOff && !localUnavailable && result == "network"
         val noAttempt = result.isBlank() || result == "none"
         val pushWaiting = !quiet && !localUnavailable && !pushFresh && !pushFail && noAttempt && stateName != "stopped"
         return LinkState(readFail, pushFail, localUnavailable, pushWaiting, readFresh, pushFresh)
@@ -2141,7 +2144,7 @@ class MainActivity : AppCompatActivity() {
         ) {
             needed.add(Manifest.permission.POST_NOTIFICATIONS)
         }
-        if (needed.isNotEmpty() && !checkPermissions()) {
+        if (needed.isNotEmpty() && !checkPermissions() && !positionUpdatesOff()) {
             ActivityCompat.requestPermissions(this, needed.toTypedArray(), LOCATION_PERMISSION_REQUEST)
             return
         }
@@ -2158,11 +2161,21 @@ class MainActivity : AppCompatActivity() {
         val device = prefs.getString("device", "Android") ?: "Android"
         if (!isValidBaseUrl(url) || token.isBlank() || !activeSessionEnabled()) return
         val positionId = prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty { device }
-        startLocationService(url, token, positionId)
+        if (positionUpdatesOff()) {
+            stopService(Intent(this, LocationPublishService::class.java))
+            prefs.edit().putString("logging_state", "off").apply()
+        } else {
+            startLocationService(url, token, positionId)
+        }
         startFetchingPositions(url, token, positionId)
         val names = loadSessions().filter { it.optBoolean("enabled", true) }.joinToString(", ") { sessionLabel(it) }
         updateStatusText(if (names.isBlank()) "Tracking started" else "Tracking $names")
         updateStatusText("${displayedSessionName()}: map")
+        refreshMapBanner()
+    }
+
+    private fun positionUpdatesOff(): Boolean {
+        return currentPositionMode() == "quiet" && !prefs.getBoolean("spoof_enabled", false)
     }
 
     private fun promptBackgroundOnce() {
@@ -3099,7 +3112,9 @@ class MainActivity : AppCompatActivity() {
         refreshSettingsPermissions?.invoke()
         val url = prefs.getString("url", "") ?: ""
         val token = prefs.getString("token", "") ?: ""
-        if (fetchTimer == null && url.isNotBlank() && token.isNotBlank() && checkPermissions() && activeSessionEnabled()) {
+        if (fetchTimer == null && url.isNotBlank() && token.isNotBlank() && activeSessionEnabled() &&
+            (checkPermissions() || positionUpdatesOff())
+        ) {
             startTrackingFromPrefs()
         }
     }
