@@ -501,29 +501,52 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun refreshConnectionStatus() {
+    private data class LinkState(val readFail: Boolean, val pushFail: Boolean, val pushWaiting: Boolean, val readOk: Boolean)
+
+    private fun linkState(): LinkState {
+        val now = System.currentTimeMillis()
+        val publishSec = prefs.getInt("publish_interval_sec", 60).coerceIn(5, 3600)
+        val fetchSec = prefs.getInt("fetch_interval_sec", 30).coerceIn(5, 3600)
         val result = prefs.getString("last_result", "") ?: ""
-        val intervalSec = prefs.getInt("publish_interval_sec", 60).coerceIn(5, 3600)
-        val storedOk = prefs.getLong("last_success_epoch", 0L)
-        val lastOk = if (storedOk > 0L) {
-            storedOk
-        } else if (result == "ok" || result == "buffer cleared") {
-            prefs.getLong("last_publish_epoch", 0L)
-        } else {
-            0L
-        }
+        val stateName = prefs.getString("logging_state", "idle") ?: "idle"
+        val readResult = prefs.getString("last_read_result", "") ?: ""
+        val mapOk = prefs.getLong("last_map_ok", 0L)
+        val readFresh = readResult == "ok" && mapOk > 0L && now - mapOk <= fetchSec * 2L * 1000
+        val readFail = readResult == "failed" || (readResult == "ok" && !readFresh)
+        val pushFresh = (result == "ok" || result == "buffer cleared") &&
+            prefs.getLong("last_success_epoch", 0L) > 0L &&
+            now - prefs.getLong("last_success_epoch", 0L) <= publishSec * 2L * 1000
+        val quiet = stateName == "off"
+        val noAttempt = result.isBlank() || result == "none"
+        val pushWaiting = !quiet && !pushFresh && noAttempt &&
+            stateName != "location off" && stateName != "permission denied" && stateName != "stopped"
+        val pushFail = !quiet && !pushFresh && !pushWaiting
+        return LinkState(readFail, pushFail, pushWaiting, readFresh)
+    }
+
+    private fun connectionFailMessage(link: LinkState): String? = when {
+        link.readFail && link.pushFail -> "Connection fail read and push"
+        link.readFail -> "Connection fail read"
+        link.pushFail -> "Connection fail push"
+        else -> null
+    }
+
+    private fun refreshConnectionStatus() {
+        val link = linkState()
+        val message = connectionFailMessage(link)
+        val result = prefs.getString("last_result", "") ?: ""
+        val state = prefs.getString("logging_state", "idle") ?: "idle"
+        val detail = "Logging: $state (${resultLabel(result)})"
+        tvLoggingState.text = if (message == null) detail else "$message\n$detail"
+        val lastOk = prefs.getLong("last_success_epoch", 0L)
         val ageSec = if (lastOk <= 0L) Long.MAX_VALUE else (System.currentTimeMillis() - lastOk) / 1000
-        val latestFailed = result != "ok" && result != "buffer cleared"
-        val stale = ageSec > intervalSec * 2L
-        val ok = !latestFailed && !stale
-        tvLoggingState.text = "Logging: ${prefs.getString("logging_state", "idle") ?: "idle"} (${resultLabel(result)})"
         tvLastUpdate.text = if (lastOk <= 0L) "Last update: never" else "Last update: ${ageSec}s ago"
         tvBuffer.text = "Buffered points: ${prefs.getInt("buffer_count", 0)}"
-        refreshSessionStatusList(ok)
+        refreshSessionStatusList(link)
         refreshMapBanner()
     }
 
-    private fun refreshSessionStatusList(trackingOk: Boolean) {
+    private fun refreshSessionStatusList(link: LinkState) {
         sessionStatusList.removeAllViews()
         val sessions = loadSessions()
         if (sessions.isEmpty()) {
@@ -532,40 +555,30 @@ class MainActivity : AppCompatActivity() {
         }
         val activeUrl = prefs.getString("url", "") ?: ""
         val activeToken = prefs.getString("token", "") ?: ""
-        val result = prefs.getString("last_result", "") ?: ""
+        val message = connectionFailMessage(link)
         sessions.forEach { session ->
             val enabled = session.optBoolean("enabled", true)
             val active = enabled && activeToken.isNotBlank() &&
                 session.optString("url") == activeUrl &&
                 session.optString("token") == activeToken
-            val stateName = prefs.getString("logging_state", "idle") ?: "idle"
-            val waiting = active && !trackingOk &&
-                (result.isBlank() || result == "none") &&
-                stateName != "location off" &&
-                stateName != "permission denied" &&
-                stateName != "stopped"
             val status: String
             val color: String
             when {
-                !enabled -> {
+                !enabled || !active -> {
                     status = "Off"
                     color = "#9E9E9E"
                 }
-                active && trackingOk -> {
+                message != null -> {
+                    status = message
+                    color = "#C62828"
+                }
+                link.readOk && !link.pushWaiting -> {
                     status = "OK"
                     color = "#1B7F3A"
                 }
-                active && waiting -> {
+                else -> {
                     status = "Waiting"
                     color = "#E65100"
-                }
-                active -> {
-                    status = "Failed"
-                    color = "#C62828"
-                }
-                else -> {
-                    status = "Off"
-                    color = "#9E9E9E"
                 }
             }
             val name = TextView(this).apply {
@@ -589,23 +602,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshMapBanner() {
-        val loggedIn = !prefs.getString("nc_user", "").isNullOrBlank() &&
-            !prefs.getString("nc_pass", "").isNullOrBlank()
-        val intervalSec = maxOf(
-            prefs.getInt("publish_interval_sec", 60),
-            prefs.getInt("fetch_interval_sec", 30)
-        ).coerceIn(5, 3600)
-        val now = System.currentTimeMillis()
-        val result = prefs.getString("last_result", "") ?: ""
-        val publishFresh = (result == "ok" || result == "buffer cleared") &&
-            now - prefs.getLong("last_success_epoch", 0L) <= intervalSec * 2L * 1000
-        val mapFresh = now - prefs.getLong("last_map_ok", 0L) <= intervalSec * 2L * 1000
-        val connected = loggedIn && !PhoneTrackApi.rateLimited(this) && !activeSessionFailed() && (publishFresh || mapFresh)
+        val link = linkState()
+        val message = connectionFailMessage(link)
         val mapVisible = statusPanel.visibility != View.VISIBLE
         val verified = prefs.getBoolean("credentials_verified", false)
         val noneActive = loadSessions().none { it.optBoolean("enabled", true) }
+        tvMapBanner.text = message ?: "Not connected"
         noSessionBanner.visibility = if (noneActive && mapVisible) View.VISIBLE else View.GONE
-        tvMapBanner.visibility = if (!connected && !noneActive && mapVisible) View.VISIBLE else View.GONE
+        tvMapBanner.visibility = if (message != null && !noneActive && mapVisible) View.VISIBLE else View.GONE
         loginBanner.visibility = if (!verified && mapVisible) View.VISIBLE else View.GONE
     }
 
@@ -1233,7 +1237,16 @@ class MainActivity : AppCompatActivity() {
         }
         prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
         if (enabled) {
-            prefs.edit().putString("url", url).putString("token", token).putString("device", device).apply()
+            prefs.edit()
+                .putString("url", url)
+                .putString("token", token)
+                .putString("device", device)
+                .remove("last_result")
+                .remove("last_success_epoch")
+                .remove("last_publish_epoch")
+                .remove("last_read_result")
+                .remove("last_map_ok")
+                .apply()
             armActivationZoom()
             startIfPermittedOrAsk()
         } else if (isActiveSession(session)) {
@@ -1811,11 +1824,15 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (epoch != mapEpoch) return@runOnUiThread
                 if (positions == null) {
+                    prefs.edit().putString("last_read_result", "failed").apply()
                     updateStatusText("Map update failed")
-                    refreshMapBanner()
+                    refreshConnectionStatus()
                     return@runOnUiThread
                 }
-                prefs.edit().putLong("last_map_ok", System.currentTimeMillis()).apply()
+                prefs.edit()
+                    .putString("last_read_result", "ok")
+                    .putLong("last_map_ok", System.currentTimeMillis())
+                    .apply()
                 refreshMapBanner()
                 map.overlays.clear()
                 lastPoints.clear()
@@ -1904,13 +1921,8 @@ class MainActivity : AppCompatActivity() {
             it.optBoolean("enabled", true) && it.optString("url") == url && it.optString("token") == token
         }
         if (!active) return false
-        val result = prefs.getString("last_result", "") ?: ""
-        val intervalSec = prefs.getInt("publish_interval_sec", 60).coerceIn(5, 3600)
-        val storedOk = prefs.getLong("last_success_epoch", 0L)
-        val lastOk = if (storedOk > 0L) storedOk else 0L
-        val ageSec = if (lastOk <= 0L) Long.MAX_VALUE else (System.currentTimeMillis() - lastOk) / 1000
-        val latestFailed = result.isNotBlank() && result != "ok" && result != "buffer cleared"
-        return latestFailed || ageSec > intervalSec * 2L
+        val link = linkState()
+        return link.readFail || link.pushFail
     }
 
     private fun armActivationZoom() {
