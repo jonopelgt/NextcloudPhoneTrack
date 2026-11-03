@@ -27,6 +27,7 @@ import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.tasks.CancellationTokenSource
+import java.util.concurrent.RejectedExecutionException
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -328,7 +329,7 @@ class LocationPublishService : Service() {
         }
         LogManager.add("Fix lat=${fix.latitude} lon=${fix.longitude}")
         prefs.edit().putString("logging_state", "tracking").apply()
-        io.execute {
+        submit {
             targets.forEach { session ->
                 val name = session.optString("name").ifBlank { "Unnamed session" }
                 val point = pointFrom(fix)
@@ -340,6 +341,14 @@ class LocationPublishService : Service() {
                 LogManager.add("$name: queued position")
             }
             trySend()
+        }
+    }
+
+    private fun submit(work: () -> Unit) {
+        if (io.isShutdown) return
+        try {
+            io.execute(work)
+        } catch (_: RejectedExecutionException) {
         }
     }
 
@@ -588,12 +597,12 @@ class LocationPublishService : Service() {
         if (!drainScheduled.compareAndSet(false, true)) return
         mainHandler.postDelayed({
             drainScheduled.set(false)
-            io.execute { trySend() }
+            submit { trySend() }
         }, delayMs.coerceAtLeast(0L))
     }
 
     private fun flushBufferAsync() {
-        io.execute { trySend() }
+        submit { trySend() }
     }
 
     private fun recordResult(point: JSONObject, result: String) {

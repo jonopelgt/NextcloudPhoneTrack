@@ -1114,41 +1114,139 @@ class MainActivity : AppCompatActivity() {
             compareByDescending<JSONObject> { it.optString("token").isNotBlank() && it.optString("token") == displayToken }
                 .thenByDescending { it.optBoolean("enabled", true) }
         )
-        val pointsByToken = mutableMapOf<String, Map<String, GeoPoint>>()
+        data class FriendLoad(
+            val points: Map<String, GeoPoint>,
+            val seen: Map<String, Long>,
+            val reachable: Boolean
+        )
+        val loaded = mutableMapOf<String, FriendLoad>()
         var tracksLabel: TextView? = null
+        fun paintUsers(
+            token: String,
+            session: JSONObject,
+            usersBox: LinearLayout,
+            titleView: TextView,
+            enabled: Boolean,
+            data: FriendLoad
+        ) {
+            val userColor = if (enabled && data.reachable) Color.BLACK else Color.parseColor("#757575")
+            if (enabled && !data.reachable) {
+                titleView.text = "${sessionLabel(session)} (unavailable)"
+                titleView.setTextColor(Color.parseColor("#9E9E9E"))
+            }
+            if (usersBox.visibility != View.VISIBLE) return
+            usersBox.removeAllViews()
+            val users = data.points.keys.sorted()
+            if (users.isEmpty()) {
+                usersBox.addView(TextView(this).apply {
+                    text = if (data.reachable) "No users reported" else "Users could not be loaded"
+                    setTextColor(userColor)
+                    setPadding(indent, 0, 0, pad / 2)
+                })
+                return
+            }
+            tracksLabel?.visibility = View.VISIBLE
+            val ownName = session.optString("device")
+            val others = users.filter { it != ownName && it != prefs.getString("nc_user", "")?.trim() }
+            users.forEach { user ->
+                val chip = View(this).apply {
+                    val d = (22 * resources.displayMetrics.density).toInt()
+                    layoutParams = LinearLayout.LayoutParams(d, d).apply { marginEnd = pad / 2 }
+                    setBackgroundColor(personColor(token, user, ownName, others))
+                    setOnClickListener {
+                        pickColor { hex ->
+                            savePersonColor(token, user, hex)
+                            setBackgroundColor(parseHex(hex))
+                        }
+                    }
+                }
+                val nameView = TextView(this).apply {
+                    val seenAt = lastSeenLabel(data.seen[user] ?: 0L)
+                    text = if (seenAt.isBlank()) user else "$user ($seenAt)"
+                    textSize = 15f
+                    setTextColor(userColor)
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    setOnClickListener {
+                        dialog.dismiss()
+                        statusPanel.visibility = View.GONE
+                        loadSessions().find { it.optString("token") == token }?.let {
+                            showSessionOnMap(it, keepView = true)
+                        }
+                        lastPoints.clear()
+                        lastPoints.putAll(data.points)
+                        enterUserTrack(user)
+                        refreshMapBanner()
+                    }
+                }
+                val track = android.widget.Switch(this).apply {
+                    contentDescription = "Tracks"
+                    isChecked = tracksOn(token, user)
+                    setOnCheckedChangeListener { _, on -> saveTracks(token, user, on) }
+                }
+                usersBox.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = android.view.Gravity.CENTER_VERTICAL
+                    setPadding(indent, pad / 4, 0, pad / 4)
+                    addView(chip)
+                    addView(nameView)
+                    addView(track)
+                })
+            }
+        }
         ordered.forEachIndexed { index, session ->
             val token = session.optString("token")
             val enabled = session.optBoolean("enabled", true)
             val sessionColor = if (enabled) Color.BLACK else Color.parseColor("#9E9E9E")
+            val selected = token.isNotBlank() && token == displayToken
+            val usersBox = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = if (selected) View.VISIBLE else View.GONE
+            }
             val titleView = TextView(this).apply {
                 text = if (enabled) sessionLabel(session) else "${sessionLabel(session)} (disabled)"
                 textSize = 16f
                 setTextColor(sessionColor)
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                setOnClickListener {
-                    val current = loadSessions().find { it.optString("token") == token } ?: return@setOnClickListener
-                    dialog.dismiss()
-                    statusPanel.visibility = View.GONE
-                    showSessionOnMap(current, keepView = true)
-                    lastPoints.clear()
-                    pointsByToken[token]?.let { lastPoints.putAll(it) }
-                    zoomToAll()
-                    refreshMapBanner()
-                }
             }
-            val usersBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            usersBox.addView(TextView(this).apply {
-                text = "Loading users…"
-                setTextColor(Color.parseColor("#757575"))
-                setPadding(indent, 0, 0, pad / 2)
-            })
+            titleView.setOnClickListener {
+                if (usersBox.visibility != View.VISIBLE) {
+                    usersBox.visibility = View.VISIBLE
+                    val data = loaded[token]
+                    if (data == null) {
+                        usersBox.removeAllViews()
+                        usersBox.addView(TextView(this).apply {
+                            text = "Loading users…"
+                            setTextColor(Color.parseColor("#757575"))
+                            setPadding(indent, 0, 0, pad / 2)
+                        })
+                    } else {
+                        paintUsers(token, session, usersBox, titleView, enabled, data)
+                    }
+                    return@setOnClickListener
+                }
+                val current = loadSessions().find { it.optString("token") == token } ?: return@setOnClickListener
+                dialog.dismiss()
+                statusPanel.visibility = View.GONE
+                showSessionOnMap(current, keepView = true)
+                lastPoints.clear()
+                loaded[token]?.points?.let { lastPoints.putAll(it) }
+                zoomToAll()
+                refreshMapBanner()
+            }
+            if (selected) {
+                usersBox.addView(TextView(this).apply {
+                    text = "Loading users…"
+                    setTextColor(Color.parseColor("#757575"))
+                    setPadding(indent, 0, 0, pad / 2)
+                })
+            }
             list.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
                 setPadding(0, pad, 0, pad / 4)
                 addView(android.widget.RadioButton(this@MainActivity).apply {
-                    isChecked = token.isNotBlank() && token == displayToken
+                    isChecked = selected
                     isClickable = false
                     isFocusable = false
                     contentDescription = "Shown on the map"
@@ -1167,73 +1265,15 @@ class MainActivity : AppCompatActivity() {
             list.addView(usersBox)
             Thread {
                 val positions = PhoneTrackApi.getLastPositions(this, session.optString("url"), token)
-                val points = positions?.mapValues { (_, data) -> GeoPoint(data.lat, data.lon) }.orEmpty()
-                val seen = positions?.mapValues { (_, data) -> data.timestamp }.orEmpty()
+                val data = FriendLoad(
+                    positions?.mapValues { (_, item) -> GeoPoint(item.lat, item.lon) }.orEmpty(),
+                    positions?.mapValues { (_, item) -> item.timestamp }.orEmpty(),
+                    positions != null
+                )
                 runOnUiThread {
                     if (!dialog.isShowing || isFinishing) return@runOnUiThread
-                    pointsByToken[token] = points
-                    val reachable = positions != null
-                    val userColor = if (enabled && reachable) Color.BLACK else Color.parseColor("#757575")
-                    if (enabled && !reachable) {
-                        titleView.text = "${sessionLabel(session)} (unavailable)"
-                        titleView.setTextColor(Color.parseColor("#9E9E9E"))
-                    }
-                    usersBox.removeAllViews()
-                    val users = points.keys.sorted()
-                    if (users.isEmpty()) {
-                        usersBox.addView(TextView(this).apply {
-                            text = if (reachable) "No users reported" else "Users could not be loaded"
-                            setTextColor(userColor)
-                            setPadding(indent, 0, 0, pad / 2)
-                        })
-                        return@runOnUiThread
-                    }
-                    tracksLabel?.visibility = View.VISIBLE
-                    val ownName = session.optString("device")
-                    val others = users.filter { it != ownName && it != prefs.getString("nc_user", "")?.trim() }
-                    users.forEach { user ->
-                        val chip = View(this).apply {
-                            val d = (22 * resources.displayMetrics.density).toInt()
-                            layoutParams = LinearLayout.LayoutParams(d, d).apply { marginEnd = pad / 2 }
-                            setBackgroundColor(personColor(token, user, ownName, others))
-                            setOnClickListener {
-                                pickColor { hex ->
-                                    savePersonColor(token, user, hex)
-                                    setBackgroundColor(parseHex(hex))
-                                }
-                            }
-                        }
-                        val nameView = TextView(this).apply {
-                            val seenAt = lastSeenLabel(seen[user] ?: 0L)
-                            text = if (seenAt.isBlank()) user else "$user ($seenAt)"
-                            textSize = 15f
-                            setTextColor(userColor)
-                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                            setOnClickListener {
-                                dialog.dismiss()
-                                statusPanel.visibility = View.GONE
-                                loadSessions().find { it.optString("token") == token }?.let {
-                                    showSessionOnMap(it, keepView = true)
-                                }
-                                lastPoints.putAll(points)
-                                enterUserTrack(user)
-                                refreshMapBanner()
-                            }
-                        }
-                        val track = android.widget.Switch(this).apply {
-                            contentDescription = "Tracks"
-                            isChecked = tracksOn(token, user)
-                            setOnCheckedChangeListener { _, on -> saveTracks(token, user, on) }
-                        }
-                        usersBox.addView(LinearLayout(this).apply {
-                            orientation = LinearLayout.HORIZONTAL
-                            gravity = android.view.Gravity.CENTER_VERTICAL
-                            setPadding(indent, pad / 4, 0, pad / 4)
-                            addView(chip)
-                            addView(nameView)
-                            addView(track)
-                        })
-                    }
+                    loaded[token] = data
+                    paintUsers(token, session, usersBox, titleView, enabled, data)
                 }
             }.start()
         }
