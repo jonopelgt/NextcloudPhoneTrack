@@ -574,6 +574,8 @@ class MainActivity : AppCompatActivity() {
             val active = enabled && activeToken.isNotBlank() &&
                 session.optString("url") == activeUrl &&
                 session.optString("token") == activeToken
+            val status: String
+            val color: String
             val rowColor: Int
             when {
                 !enabled || !active -> {
