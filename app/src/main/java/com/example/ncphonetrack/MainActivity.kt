@@ -177,9 +177,9 @@ class MainActivity : AppCompatActivity() {
         btnZoomIn = findViewById(R.id.btnZoomIn)
         btnZoomOut = findViewById(R.id.btnZoomOut)
         zoomSlide = findViewById(R.id.zoomSlide)
-        zoomSlide.limits = { 6.0 to map.maxZoomLevel }
+        zoomSlide.limits = { 6.0 to 19.0 }
         zoomSlide.onZoom = { level ->
-            pendingSlideZoom = level.coerceAtLeast(6.0).coerceAtMost(map.maxZoomLevel)
+            pendingSlideZoom = level.coerceIn(6.0, 19.0)
             OfflineMaps.scaleOnly = true
             if (!slideFramePosted) {
                 slideFramePosted = true
@@ -794,13 +794,13 @@ class MainActivity : AppCompatActivity() {
             val gap = (48 * resources.displayMetrics.density).toInt()
             setPadding(gap, 0, 0, 4)
             addView(TextView(this@MainActivity).apply {
-                text = "Session name"
+                text = "Session"
                 textSize = 12f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             })
             addView(TextView(this@MainActivity).apply {
-                text = "Session creator"
+                text = "Creator"
                 textSize = 12f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
             })
@@ -3264,21 +3264,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun zoomAroundFollow(level: Double) {
-        val zoom = level.coerceAtLeast(6.0).coerceAtMost(map.maxZoomLevel)
-        val name = trackedUser
-        val point = if (mapFollow == MapFollow.USER && name != null) {
-            lastPoints[name] ?: if (isSelf(name)) ownLastPoint() else null
-        } else {
-            null
-        }
         map.controller.stopAnimation(false)
-        if (point != null && map.width > 0 && map.height > 0) {
-            map.controller.setCenter(point)
-            map.controller.zoomToFixing(zoom, map.width / 2, map.height / 2)
-            map.controller.setCenter(point)
-        } else {
-            map.controller.setZoom(zoom)
-        }
+        map.controller.setZoom(level.coerceIn(6.0, 19.0))
     }
 
     private fun keepFollow(changeZoom: () -> Unit) {
@@ -3300,8 +3287,20 @@ class MainActivity : AppCompatActivity() {
         val name = trackedUser ?: return
         val point = lastPoints[name] ?: if (isSelf(name)) ownLastPoint() else null
         if (point == null) return
+        centerAboveBanner(point)
+    }
+
+    private fun mapBottomInset(): Int {
+        if (!::sessionBanner.isInitialized) return 0
+        fun shown(view: android.view.View) = if (view.visibility == View.VISIBLE) view.height else 0
+        return shown(sessionBanner) + shown(tvMapBanner) + shown(noSessionBanner) + shown(loginBanner)
+    }
+
+    private fun centerAboveBanner(point: GeoPoint) {
         map.controller.stopAnimation(false)
         map.controller.setCenter(point)
+        val lift = mapBottomInset() / 2
+        if (lift > 0) map.controller.scrollBy(0, lift)
     }
 
     private fun reloadHighestTiles() {
@@ -3815,7 +3814,7 @@ class MainActivity : AppCompatActivity() {
         mapFollow = MapFollow.USER
         trackedUser = match ?: name.ifBlank { deviceName() }
         refreshZoomKeys()
-        map.controller.animateTo(point)
+        centerAboveBanner(point)
     }
 
     private fun deviceName(): String {
@@ -3843,13 +3842,15 @@ class MainActivity : AppCompatActivity() {
             val same = kotlin.math.abs(here.latitude - points[0].latitude) < 0.00001 &&
                 kotlin.math.abs(here.longitude - points[0].longitude) < 0.00001
             if (same && kotlin.math.abs(map.zoomLevelDouble - 16.0) < 0.2) return
-            map.controller.setCenter(points[0])
             map.controller.setZoom(16.0)
+            centerAboveBanner(points[0])
             return
         }
         val pad = (56 * resources.displayMetrics.density).toInt()
         if (pointsInWindow(points, pad)) return
         map.zoomToBoundingBox(BoundingBox.fromGeoPoints(points), false, pad)
+        val lift = mapBottomInset() / 2
+        if (lift > 0) map.controller.scrollBy(0, lift)
         map.post { keepPointsInWindow(points, pad, 8) }
     }
 
@@ -3857,7 +3858,7 @@ class MainActivity : AppCompatActivity() {
         if (map.zoomLevelDouble <= 0.0) return false
         return points.all { point ->
             val pixel = map.projection.toPixels(point, null)
-            pixel.x >= pad && pixel.y >= pad && pixel.x <= map.width - pad && pixel.y <= map.height - pad
+            pixel.x >= pad && pixel.y >= pad && pixel.x <= map.width - pad && pixel.y <= map.height - pad - mapBottomInset()
         }
     }
 
@@ -3865,7 +3866,7 @@ class MainActivity : AppCompatActivity() {
         if (steps <= 0 || map.zoomLevelDouble <= 3.0) return
         val outside = points.any { point ->
             val pixel = map.projection.toPixels(point, null)
-            pixel.x < pad || pixel.y < pad || pixel.x > map.width - pad || pixel.y > map.height - pad
+            pixel.x < pad || pixel.y < pad || pixel.x > map.width - pad || pixel.y > map.height - pad - mapBottomInset()
         }
         if (!outside) return
         map.controller.setZoom(map.zoomLevelDouble - 0.5)
@@ -3925,7 +3926,7 @@ class MainActivity : AppCompatActivity() {
         mapFollow = MapFollow.USER
         trackedUser = name
         refreshZoomKeys()
-        lastPoints[name]?.let { map.controller.animateTo(it) }
+        lastPoints[name]?.let { centerAboveBanner(it) }
     }
 
     private fun enterGroupView() {
@@ -3989,7 +3990,7 @@ class MainActivity : AppCompatActivity() {
             MapFollow.MANUAL -> Unit
             MapFollow.USER -> {
                 val point = lastPoints[trackedUser] ?: if (isSelf(trackedUser)) ownLastPoint() else null
-                point?.let { map.controller.setCenter(it) }
+                point?.let { centerAboveBanner(it) }
             }
             MapFollow.GROUP -> fitActiveUsers()
         }

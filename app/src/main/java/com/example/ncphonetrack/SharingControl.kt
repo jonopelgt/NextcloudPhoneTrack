@@ -190,7 +190,19 @@ object SharingControl {
     fun untilClock(context: Context): String {
         val end = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE).getLong("share_timer_end", 0L)
         if (end <= 0L) return ""
-        return android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(end))
+        val time = android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(end))
+        val now = java.util.Calendar.getInstance()
+        val then = java.util.Calendar.getInstance().apply { timeInMillis = end }
+        val today = now.get(java.util.Calendar.YEAR) to now.get(java.util.Calendar.DAY_OF_YEAR)
+        val stop = then.get(java.util.Calendar.YEAR) to then.get(java.util.Calendar.DAY_OF_YEAR)
+        val tomorrow = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, 1) }
+        val next = tomorrow.get(java.util.Calendar.YEAR) to tomorrow.get(java.util.Calendar.DAY_OF_YEAR)
+        val day = then.getDisplayName(java.util.Calendar.DAY_OF_WEEK, java.util.Calendar.LONG, java.util.Locale.getDefault())
+        return when (stop) {
+            today -> time
+            next -> "tomorrow $time"
+            else -> "$day $time"
+        }
     }
 
     fun remainingWithUntil(context: Context): String {

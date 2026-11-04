@@ -87,7 +87,12 @@ class ZoomSlide(context: Context, attrs: AttributeSet?) : View(context, attrs) {
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
-                val dy = (event.rawY - startY).coerceIn(-travel, travel)
+                val (minZoom, maxZoom) = limits()
+                val span = (maxZoom - minZoom).toFloat().coerceAtLeast(0.1f)
+                val start = startZoom.coerceIn(minZoom, maxZoom)
+                val upTravel = travel * ((maxZoom - start) / span).toFloat()
+                val downTravel = travel * ((start - minZoom) / span).toFloat()
+                val dy = (event.rawY - startY).coerceIn(-upTravel, downTravel)
                 translationY = dy
                 val next = zoomFor(dy)
                 shown = next
@@ -106,14 +111,10 @@ class ZoomSlide(context: Context, attrs: AttributeSet?) : View(context, attrs) {
 
     private fun zoomFor(dy: Float): Double {
         val (minZoom, maxZoom) = limits()
+        val span = (maxZoom - minZoom).coerceAtLeast(0.1)
         val start = startZoom.coerceIn(minZoom, maxZoom)
-        return if (dy <= 0f) {
-            val t = (-dy / travel).coerceIn(0f, 1f)
-            start + (maxZoom - start) * t
-        } else {
-            val t = (dy / travel).coerceIn(0f, 1f)
-            start - (start - minZoom) * t
-        }
+        val next = start - dy * (span / travel)
+        return next.coerceIn(minZoom, maxZoom)
     }
 
     private fun zoomLabel(zoom: Double): String {
