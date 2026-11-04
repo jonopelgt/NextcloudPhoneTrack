@@ -1743,7 +1743,7 @@ class MainActivity : AppCompatActivity() {
                     put("token", item.token)
                     put("public_token", item.publicToken)
                     put("owner", item.owner)
-                    put("device", LocationPublishService.defaultPostedName(this))
+                    put("device", LocationPublishService.defaultPostedName(this@MainActivity))
                     put("enabled", false)
                 })
                 added += 1
