@@ -189,14 +189,14 @@ object OfflineMaps {
                     return BitmapDrawable(context.resources, bitmap)
                 }
                 var diff = 1
+                var parent: Bitmap? = null
                 while (zoom - diff >= MIN_ZOOM && diff <= 8) {
-                    val parent = parentBitmap(x shr diff, y shr diff, zoom - diff) ?: run {
-                        diff++
-                        continue
-                    }
-                    return BitmapDrawable(context.resources, scaleQuadrant(parent, x, y, diff))
+                    parent = parentBitmap(x shr diff, y shr diff, zoom - diff)
+                    if (parent != null) break
+                    diff++
                 }
-                return null
+                if (parent == null) return null
+                return BitmapDrawable(context.resources, scaleTileQuadrant(parent, x, y, diff))
             }
         }
 
