@@ -65,10 +65,7 @@ class LocationPublishService : Service() {
             ?: prefs.getString("url", "") ?: ""
         token = intent?.getStringExtra("token")?.takeIf { it.isNotBlank() }
             ?: prefs.getString("token", "") ?: ""
-        deviceName = prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty {
-            intent?.getStringExtra("device")?.takeIf { it.isNotBlank() }
-                ?: prefs.getString("device", "Android") ?: "Android"
-        }
+        deviceName = defaultPostedName(this)
 
         createNotificationChannel()
         startForeground(1, createNotification())
@@ -751,5 +748,12 @@ class LocationPublishService : Service() {
         const val ACTION_PUBLISH_ONCE = "com.example.ncphonetrack.PUBLISH_ONCE"
         private const val MAX_BUFFER = 7200
         private const val BURST = 3
+
+        fun defaultPostedName(context: Context): String {
+            val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+            val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+            val model = android.os.Build.MODEL?.trim().orEmpty().ifBlank { "Android" }
+            return if (user.isBlank()) model else "$user-$model"
+        }
     }
 }

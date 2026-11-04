@@ -114,6 +114,7 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        backfillPostedNames()
         val sharingFilter = android.content.IntentFilter(SharingControl.ACTION_SHARING_CHANGED)
         sharingFilter.addAction(SharingControl.ACTION_TIMER_TICK)
         if (Build.VERSION.SDK_INT >= 33) {
@@ -468,7 +469,7 @@ class MainActivity : AppCompatActivity() {
         val hex = when {
             !saved.isNullOrBlank() -> saved
             !serverColor.isNullOrBlank() -> serverColor
-            name == ownName || name == prefs.getString("nc_user", "")?.trim() -> "#1565C0"
+            name == ownName || isSelf(name) -> "#1565C0"
             else -> colorChoices.drop(1)[others.indexOf(name).coerceAtLeast(0) % (colorChoices.size - 1)]
         }
         return parseHex(hex)
@@ -1507,6 +1508,7 @@ class MainActivity : AppCompatActivity() {
                     .putString("nc_user", user)
                     .putString("nc_pass", pass)
                     .commit()
+                backfillPostedNames()
                 dialog.dismiss()
                 Toast.makeText(this, "Checking login…", Toast.LENGTH_SHORT).show()
                 refreshMapBanner()
@@ -1741,7 +1743,7 @@ class MainActivity : AppCompatActivity() {
                     put("token", item.token)
                     put("public_token", item.publicToken)
                     put("owner", item.owner)
-                    put("device", android.os.Build.MODEL)
+                    put("device", LocationPublishService.defaultPostedName(this))
                     put("enabled", false)
                 })
                 added += 1
@@ -1954,6 +1956,11 @@ class MainActivity : AppCompatActivity() {
             isEnabled = false
             layoutParams = width
         }
+        val postedField = EditText(this).apply {
+            val stored = existing?.optString("device").orEmpty()
+            setText(if (stored.isBlank()) LocationPublishService.defaultPostedName(this@MainActivity) else stored)
+            layoutParams = width
+        }
         val searchField = EditText(this).apply {
             hint = "Search friends"
             layoutParams = width
@@ -2084,6 +2091,12 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad, 0, pad / 4)
         })
         box.addView(creatorField)
+        box.addView(TextView(this).apply {
+            text = "Posted name"
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, pad, 0, pad / 4)
+        })
+        box.addView(postedField)
         val ownsServer = existing == null || ownsSession(existing)
         if (!ownsServer) {
             searchField.isEnabled = false
@@ -2248,6 +2261,9 @@ class MainActivity : AppCompatActivity() {
                 val name = nameField.text.toString().trim()
                 val age = ageField.text.toString().trim().toIntOrNull()?.coerceIn(1, 7 * 24 * 60) ?: 15
                 val purgeValue = purgeValues[purge.selectedItemPosition]
+                val posted = postedField.text.toString().trim().ifBlank {
+                    LocationPublishService.defaultPostedName(this)
+                }
                 if (name.isBlank()) {
                     Toast.makeText(this, "Session name is required", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
@@ -2261,11 +2277,15 @@ class MainActivity : AppCompatActivity() {
                         if (item.optString("token") == token) {
                             item.put("name", name)
                             item.put("age_out_min", age)
+                            item.put("device", posted)
+                            item.put("device_set", true)
                             if (sessionId > 0) item.put("id", sessionId)
                             if (publicToken.isNotBlank()) item.put("public_token", publicToken)
                         }
                     }
-                    prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
+                    val edit = prefs.edit().putString("sessions", JSONArray(sessions).toString())
+                    if (prefs.getString("token", "") == token) edit.putString("device", posted)
+                    edit.apply()
                     if (!ownsSession(existing)) {
                         Toast.makeText(this, "Saved on this phone. Only the owner can change the session on the server.", Toast.LENGTH_LONG).show()
                         showSessions()
@@ -2312,7 +2332,7 @@ class MainActivity : AppCompatActivity() {
                         if (created == null) {
                             Toast.makeText(this, error ?: "Could not create the session", Toast.LENGTH_LONG).show()
                         } else {
-                            rememberCreatedSession(server, created)
+                            rememberCreatedSession(server, created, posted)
                             val sessions = loadSessions()
                             sessions.forEach { item ->
                                 if (item.optString("token") == created.token) item.put("age_out_min", age)
@@ -2340,7 +2360,7 @@ class MainActivity : AppCompatActivity() {
         pinZoomControls(dialog)
     }
 
-    private fun rememberCreatedSession(baseUrl: String, created: CreatedSession) {
+    private fun rememberCreatedSession(baseUrl: String, created: CreatedSession, posted: String) {
         createdTokens.add(created.token)
         val sessions = loadSessions().toMutableList()
         if (sessions.none { it.optString("token") == created.token }) {
@@ -2351,11 +2371,35 @@ class MainActivity : AppCompatActivity() {
                 put("public_token", created.publicToken)
                 put("owner", prefs.getString("nc_user", "")?.trim().orEmpty())
                 if (created.id > 0) put("id", created.id)
-                put("device", prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty { android.os.Build.MODEL })
+                put("device", posted.ifBlank { LocationPublishService.defaultPostedName(this@MainActivity) })
+                put("device_set", true)
                 put("enabled", false)
             })
             prefs.edit().putString("sessions", JSONArray(sessions).toString()).apply()
         }
+    }
+
+    private fun backfillPostedNames() {
+        val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+        if (user.isBlank()) return
+        val model = android.os.Build.MODEL?.trim().orEmpty()
+        val fallback = LocationPublishService.defaultPostedName(this)
+        val sessions = loadSessions()
+        var changed = false
+        sessions.forEach { item ->
+            if (item.optBoolean("device_set", false)) return@forEach
+            val device = item.optString("device").trim()
+            if (device.isBlank() || device == user || device == model || device == "Android") {
+                item.put("device", fallback)
+            }
+            item.put("device_set", true)
+            changed = true
+        }
+        if (!changed) return
+        val edit = prefs.edit().putString("sessions", JSONArray(sessions).toString())
+        val active = sessions.find { it.optString("token") == prefs.getString("token", "") }
+        if (active != null) edit.putString("device", active.optString("device"))
+        edit.apply()
     }
 
     private fun confirmDeleteSession(session: JSONObject) {
@@ -3806,7 +3850,11 @@ class MainActivity : AppCompatActivity() {
         if (name.isNullOrBlank()) return false
         val user = prefs.getString("nc_user", "")?.trim().orEmpty()
         val device = prefs.getString("device", "")?.trim().orEmpty()
-        return name.equals(user, true) || (device.isNotBlank() && name.equals(device, true))
+        val posted = LocationPublishService.defaultPostedName(this)
+        return name.equals(user, true) ||
+            (device.isNotBlank() && name.equals(device, true)) ||
+            name.equals(posted, true) ||
+            loadSessions().any { it.optString("device").equals(name, true) }
     }
 
     private fun cycleFollow() {
