@@ -276,6 +276,13 @@ object OfflineMaps {
             return viewedFile(context, base, MapTileIndex.getZoom(index), MapTileIndex.getX(index), MapTileIndex.getY(index)).delete()
         }
 
+        override fun loadTile(source: ITileSource, index: Long): Drawable? {
+            val dest = viewedFile(context, base, MapTileIndex.getZoom(index), MapTileIndex.getX(index), MapTileIndex.getY(index))
+            if (!dest.isFile || dest.length() <= 100) return null
+            val bitmap = BitmapFactory.decodeFile(dest.path) ?: return null
+            return BitmapDrawable(context.resources, bitmap)
+        }
+
         override fun onDetach() = Unit
     }
 
