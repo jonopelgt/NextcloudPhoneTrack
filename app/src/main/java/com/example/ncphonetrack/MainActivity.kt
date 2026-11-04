@@ -2756,7 +2756,7 @@ class MainActivity : AppCompatActivity() {
                 val missing = OfflineMaps.statesMissingSize(prefs)
                 missing.forEach { state ->
                     if (OfflineMaps.queue().any { it.abbr == state.abbr }) return@forEach
-                    val bytes = OfflineMaps.measureState(this, state)
+                    val bytes = OfflineMaps.measureState(this, state, OfflineMaps.storedZoom(prefs, state.abbr))
                     OfflineMaps.saveBytes(prefs, state, bytes)
                     runOnUiThread {
                         if (mapsDialog?.isShowing == true) showSaved()
@@ -2847,9 +2847,9 @@ class MainActivity : AppCompatActivity() {
                     })
                     addView(TextView(this@MainActivity).apply {
                         text = when {
-                            fresh && sizeText != null -> "$whenText ($sizeText)  OK"
-                            sizeText != null -> "$whenText ($sizeText)"
-                            fresh -> "$whenText  OK"
+                            fresh && sizeText != null -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)} ($sizeText)  OK"
+                            sizeText != null -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)} ($sizeText)"
+                            fresh -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)}  OK"
                             else -> whenText
                         }
                         textSize = 14f
@@ -2869,7 +2869,7 @@ class MainActivity : AppCompatActivity() {
         }
         showSaved = { paintSaved() }
         startDownload = { states, force ->
-            confirmMeteredDownload(states, force) { _ ->
+            chooseMapZoom(states, force) { _ ->
                 paintSaved()
             }
         }
@@ -3029,7 +3029,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Download ${state.name}?")
             .setMessage("No offline map is saved. Download all five maps for ${state.name}, where this phone is?")
             .setPositiveButton("Download") { _, _ ->
-                confirmMeteredDownload(listOf(state), false) { line ->
+                chooseMapZoom(listOf(state), false) { line ->
                     if (line.endsWith("downloaded") || line.contains("failed")) {
                         Toast.makeText(this, line, Toast.LENGTH_LONG).show()
                     }
@@ -3044,14 +3044,41 @@ class MainActivity : AppCompatActivity() {
         hereStateDialog?.show()
     }
 
-    private fun confirmMeteredDownload(states: List<UsState>, force: Boolean, onLine: (String) -> Unit) {
+    private fun chooseMapZoom(states: List<UsState>, force: Boolean, onLine: (String) -> Unit) {
+        if (states.isEmpty()) {
+            Toast.makeText(this, "All downloaded states are up to date", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val group = android.widget.RadioGroup(this).apply { orientation = android.widget.RadioGroup.VERTICAL }
+        (12..16).forEach { zoom ->
+            val bytes = states.sumOf { OfflineMaps.estimateBytes(it, zoom) }
+            group.addView(android.widget.RadioButton(this).apply {
+                id = zoom
+                text = "Zoom $zoom    ${OfflineMaps.compactSize(bytes)}"
+                textSize = 16f
+            })
+        }
+        group.check(12)
+        val title = if (states.size == 1) states.first().name else "Offline maps"
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setMessage("Choose the closest zoom to store. The size is an estimate for all five maps.")
+            .setView(group)
+            .setPositiveButton("Download") { _, _ ->
+                confirmMeteredDownload(states, force, group.checkedRadioButtonId, onLine)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmMeteredDownload(states: List<UsState>, force: Boolean, zoom: Int, onLine: (String) -> Unit) {
         if (states.isEmpty()) {
             Toast.makeText(this, "All downloaded states are up to date", Toast.LENGTH_SHORT).show()
             return
         }
         val go = {
             onLine("Starting download…")
-            OfflineMaps.enqueue(this, prefs, states, force) { line ->
+            OfflineMaps.enqueue(this, prefs, states, force, zoom) { line ->
                 runOnUiThread {
                     if (isDestroyed) return@runOnUiThread
                     onLine(line)
@@ -3741,7 +3768,29 @@ class MainActivity : AppCompatActivity() {
         if (::btnPositionMode.isInitialized && mapContext) btnPositionMode.bringToFront()
         if (::btnSharing.isInitialized && mapContext) btnSharing.bringToFront()
         if (::btnReticle.isInitialized && mapContext) btnReticle.bringToFront()
+        refreshReticle()
         if (!mapContext && ::statusPanel.isInitialized && statusPanel.visibility == View.VISIBLE) statusPanel.bringToFront()
+    }
+
+    private fun refreshReticle() {
+        if (!::btnReticle.isInitialized) return
+        val name = trackedUser
+        val following = mapFollow == MapFollow.USER && !name.isNullOrBlank()
+        if (!following) {
+            btnReticle.setImageResource(R.drawable.ic_reticle)
+            return
+        }
+        val token = prefs.getString("token", "") ?: ""
+        val color = personColor(token, name!!, prefs.getString("nc_user", "")?.trim().orEmpty(), emptyList())
+        val size = (24 * resources.displayMetrics.density).toInt().coerceAtLeast(24)
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        val base = ContextCompat.getDrawable(this, R.drawable.ic_reticle)?.mutate()
+        base?.setBounds(0, 0, size, size)
+        base?.draw(canvas)
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+        canvas.drawCircle(size / 2f, size / 2f, size * 0.12f, paint)
+        btnReticle.setImageDrawable(android.graphics.drawable.BitmapDrawable(resources, bitmap))
     }
 
     private fun applyMapFollow(points: List<GeoPoint>) {

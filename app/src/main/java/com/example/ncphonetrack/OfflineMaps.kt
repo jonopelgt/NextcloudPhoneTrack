@@ -146,26 +146,71 @@ object OfflineMaps {
     }
 
     fun installBase(context: Context, mapView: MapView, base: BaseMap) {
-        val source = tileSource(base)
-        if (base.maxZoom < 19) {
-            mapView.setTileProvider(OverzoomTileProvider(context, source, base))
-            mapView.maxZoomLevel = 21.0
-        } else {
-            mapView.setTileProvider(MapTileProviderBasic(context, source))
-            mapView.maxZoomLevel = 19.0
-        }
+        mapView.setTileProvider(OfflineTileProvider(context, tileSource(base), base))
+        mapView.maxZoomLevel = if (base.maxZoom < 19) 21.0 else 19.0
         mapView.setUseDataConnection(true)
         mapView.invalidate()
     }
 
-    private class OverzoomTileProvider(
+    private class OfflineTileProvider(
         context: Context,
         source: ITileSource,
         base: BaseMap
     ) : MapTileProviderBasic(context, source) {
         init {
-            val index = mTileProviderList.indexOfFirst { it.usesDataConnection }.coerceAtLeast(0)
-            mTileProviderList.add(index, OverzoomModule(context, base))
+            mTileProviderList.add(0, LocalTileModule(context, base))
+            if (base.maxZoom < 19) {
+                val index = mTileProviderList.indexOfFirst { it.usesDataConnection }.coerceAtLeast(0)
+                mTileProviderList.add(index, OverzoomModule(context, base))
+            }
+        }
+    }
+
+    private class LocalTileModule(
+        private val context: Context,
+        private val base: BaseMap
+    ) : MapTileModuleProviderBase(2, 80) {
+        private val parents = LruCache<String, Bitmap>(48)
+
+        override fun getUsesDataConnection(): Boolean = false
+        override fun getMinimumZoomLevel(): Int = 0
+        override fun getMaximumZoomLevel(): Int = 21
+        override fun setTileSource(tileSource: ITileSource?) = Unit
+        override fun getName(): String = "local-${base.id}"
+        override fun getThreadGroupName(): String = "localtiles"
+        override fun getTileLoader(): TileLoader = object : TileLoader() {
+            override fun loadTile(pMapTileIndex: Long): Drawable? {
+                val zoom = MapTileIndex.getZoom(pMapTileIndex)
+                val x = MapTileIndex.getX(pMapTileIndex)
+                val y = MapTileIndex.getY(pMapTileIndex)
+                val exact = tileFile(zoom, x, y)
+                if (exact.isFile && exact.length() > 100) {
+                    val bitmap = BitmapFactory.decodeFile(exact.path) ?: return null
+                    return BitmapDrawable(context.resources, bitmap)
+                }
+                var diff = 1
+                while (zoom - diff >= MIN_ZOOM && diff <= 8) {
+                    val parent = parentBitmap(x shr diff, y shr diff, zoom - diff) ?: run {
+                        diff++
+                        continue
+                    }
+                    return BitmapDrawable(context.resources, scaleQuadrant(parent, x, y, diff))
+                }
+                return null
+            }
+        }
+
+        private fun tileFile(zoom: Int, x: Int, y: Int) =
+            File(tileCache(context), "${base.id}/$zoom/$x/$y${base.ext}")
+
+        private fun parentBitmap(x: Int, y: Int, zoom: Int): Bitmap? {
+            val file = tileFile(zoom, x, y)
+            if (!file.isFile || file.length() <= 100) return null
+            val key = "${base.id}/$zoom/$x/$y"
+            parents.get(key)?.let { return it }
+            val bitmap = BitmapFactory.decodeFile(file.path) ?: return null
+            parents.put(key, bitmap)
+            return bitmap
         }
     }
 
@@ -202,17 +247,7 @@ object OfflineMaps {
             return bitmap
         }
 
-        private fun scaleQuadrant(src: Bitmap, x: Int, y: Int, diff: Int): Bitmap {
-            val parts = 1 shl diff
-            val cellW = (src.width / parts).coerceAtLeast(1)
-            val cellH = (src.height / parts).coerceAtLeast(1)
-            val left = (x and (parts - 1)) * cellW
-            val top = (y and (parts - 1)) * cellH
-            val crop = Bitmap.createBitmap(src, left, top, cellW, cellH)
-            val scaled = Bitmap.createScaledBitmap(crop, src.width, src.height, true)
-            if (crop != scaled) crop.recycle()
-            return scaled
-        }
+        private fun scaleQuadrant(src: Bitmap, x: Int, y: Int, diff: Int): Bitmap = scaleTileQuadrant(src, x, y, diff)
 
         private fun fetchBitmap(url: String): Bitmap? {
             return try {
@@ -240,6 +275,29 @@ object OfflineMaps {
         return states.filter {
             it.name.contains(q, true) || it.abbr.equals(q, true)
         }.take(8)
+    }
+
+    private fun scaleTileQuadrant(src: Bitmap, x: Int, y: Int, diff: Int): Bitmap {
+        val parts = 1 shl diff
+        val cellW = (src.width / parts).coerceAtLeast(1)
+        val cellH = (src.height / parts).coerceAtLeast(1)
+        val left = (x and (parts - 1)) * cellW
+        val top = (y and (parts - 1)) * cellH
+        val crop = Bitmap.createBitmap(src, left, top, cellW, cellH)
+        val scaled = Bitmap.createScaledBitmap(crop, src.width, src.height, true)
+        if (crop != scaled) crop.recycle()
+        return scaled
+    }
+
+    fun storedZoom(prefs: SharedPreferences, abbr: String): Int {
+        val zoom = catalog(prefs).optJSONObject(abbr)?.optInt("zoom", MAX_ZOOM) ?: MAX_ZOOM
+        return zoom.coerceIn(MIN_ZOOM, 16)
+    }
+
+    fun estimateBytes(state: UsState, maxZoom: Int): Long {
+        var tiles = 0
+        for (zoom in MIN_ZOOM..maxZoom.coerceIn(MIN_ZOOM, 16)) tiles += tileCount(state, zoom)
+        return tiles.toLong() * bases.size * 20_000L
     }
 
     fun downloaded(prefs: SharedPreferences): List<Pair<UsState, Long>> {
@@ -274,10 +332,10 @@ object OfflineMaps {
         prefs.edit().putString("offline_maps", root.toString()).apply()
     }
 
-    fun measureState(context: Context, state: UsState): Long {
+    fun measureState(context: Context, state: UsState, maxZoom: Int = MAX_ZOOM): Long {
         var total = 0L
         for (map in bases) {
-            for (zoom in zoomsFor(state)) {
+            for (zoom in zoomsThrough(maxZoom)) {
                 for ((x, y) in tilesAt(state, zoom)) {
                     val file = File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}")
                     if (file.isFile) total += file.length()
@@ -303,7 +361,8 @@ object OfflineMaps {
         val rateBps: Long
     )
 
-    private val pending = mutableListOf<Pair<UsState, Boolean>>()
+    private data class PendingMap(val state: UsState, val force: Boolean, val zoom: Int)
+    private val pending = mutableListOf<PendingMap>()
     @Volatile private var current: MapJob? = null
     private val running = AtomicBoolean(false)
     private var byteCount = 0L
@@ -317,12 +376,12 @@ object OfflineMaps {
     }
 
     fun isQueued(abbr: String): Boolean = synchronized(pending) {
-        current?.abbr == abbr || pending.any { it.first.abbr == abbr }
+        current?.abbr == abbr || pending.any { it.state.abbr == abbr }
     }
 
     fun cancel(abbr: String) {
         synchronized(pending) {
-            pending.removeAll { it.first.abbr == abbr }
+            pending.removeAll { it.state.abbr == abbr }
             if (current?.abbr == abbr) cancelAbbr = abbr
         }
     }
@@ -335,7 +394,7 @@ object OfflineMaps {
         prefs.edit().putString("offline_maps", root.toString()).apply()
         Thread {
             for (map in bases) {
-                for (zoom in zoomsFor(state)) {
+                for (zoom in MIN_ZOOM..16) {
                     for ((x, y) in tilesAt(state, zoom)) {
                         File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}").delete()
                     }
@@ -347,7 +406,7 @@ object OfflineMaps {
     fun queue(): List<MapJob> = synchronized(pending) {
         val list = mutableListOf<MapJob>()
         current?.let { list.add(it) }
-        pending.forEach { list.add(MapJob(it.first.abbr, it.first.name, true, 0, 0, 0L)) }
+        pending.forEach { list.add(MapJob(it.state.abbr, it.state.name, true, 0, 0, 0L)) }
         list
     }
 
@@ -356,14 +415,16 @@ object OfflineMaps {
         prefs: SharedPreferences,
         states: List<UsState>,
         force: Boolean,
+        zoom: Int,
         onStatus: (String) -> Unit
     ) {
         if (states.isEmpty()) return
+        val chosen = zoom.coerceIn(12, 16)
         val start = synchronized(pending) {
             states.forEach { state ->
                 if (current?.abbr == state.abbr) return@forEach
-                if (pending.any { it.first.abbr == state.abbr }) return@forEach
-                pending.add(state to force)
+                if (pending.any { it.state.abbr == state.abbr }) return@forEach
+                pending.add(PendingMap(state, force, chosen))
             }
             if (running.get()) false else {
                 running.set(true)
@@ -389,22 +450,22 @@ object OfflineMaps {
                             pending.removeAt(0)
                         }
                     } ?: break
-                    val total = tileTotal(job.first)
+                    val total = tileTotal(job.state, job.zoom)
                     byteCount = 0L
                     rateStart = System.currentTimeMillis()
-                    synchronized(pending) { current = MapJob(job.first.abbr, job.first.name, false, 0, total, 0L) }
-                    onStatus("${job.first.name} started")
-                    val error = download(context, job.first, job.second, total, onStatus)
+                    synchronized(pending) { current = MapJob(job.state.abbr, job.state.name, false, 0, total, 0L) }
+                    onStatus("${job.state.name} started")
+                    val error = download(context, job.state, job.force, job.zoom, total, onStatus)
                     synchronized(pending) { current = null }
                     if (error == null) {
-                        mark(prefs, job.first, measureState(context, job.first))
-                        onStatus("${job.first.name} downloaded")
-                        LogManager.add("${job.first.name}: offline maps downloaded")
+                        mark(prefs, job.state, measureState(context, job.state, job.zoom), job.zoom)
+                        onStatus("${job.state.name} downloaded")
+                        LogManager.add("${job.state.name}: offline maps downloaded")
                     } else if (error == "cancelled") {
-                        onStatus("${job.first.name} cancelled")
+                        onStatus("${job.state.name} cancelled")
                     } else {
                         onStatus(error)
-                        LogManager.add("${job.first.name}: $error")
+                        LogManager.add("${job.state.name}: $error")
                     }
                 }
             } finally {
@@ -415,35 +476,28 @@ object OfflineMaps {
         }.start()
     }
 
-    private fun tileTotal(state: UsState): Int {
+    private fun tileTotal(state: UsState, maxZoom: Int): Int {
         var total = 0
-        for (zoom in zoomsFor(state)) total += tileCount(state, zoom)
+        for (zoom in zoomsThrough(maxZoom)) total += tileCount(state, zoom)
         return total * bases.size
     }
 
-    private fun zoomsFor(state: UsState): List<Int> {
-        val zooms = mutableListOf<Int>()
-        var zoom = MIN_ZOOM
-        while (zoom <= MAX_ZOOM) {
-            val count = tileCount(state, zoom)
-            if (zoom > MIN_ZOOM && count > MAX_TILES_PER_ZOOM) break
-            zooms.add(zoom)
-            zoom++
-        }
-        return zooms
-    }
+    private fun zoomsThrough(maxZoom: Int): List<Int> = (MIN_ZOOM..maxZoom.coerceIn(MIN_ZOOM, 16)).toList()
+
+    private fun zoomsFor(state: UsState): List<Int> = zoomsThrough(MAX_ZOOM)
 
     private fun download(
         context: Context,
         state: UsState,
         force: Boolean,
+        maxZoom: Int,
         total: Int,
         onStatus: (String) -> Unit
     ): String? {
         var attempted = 0
         var failed = 0
         for (map in bases) {
-            for (zoom in zoomsFor(state)) {
+            for (zoom in zoomsThrough(maxZoom)) {
                 val tiles = tilesAt(state, zoom)
                 for ((x, y) in tiles) {
                     if (cancelAbbr == state.abbr) {
@@ -611,12 +665,13 @@ object OfflineMaps {
         }
     }
 
-    private fun mark(prefs: SharedPreferences, state: UsState, bytes: Long) {
+    private fun mark(prefs: SharedPreferences, state: UsState, bytes: Long, zoom: Int) {
         val root = catalog(prefs)
         root.put(state.abbr, JSONObject()
             .put("at", System.currentTimeMillis())
             .put("name", state.name)
-            .put("bytes", bytes))
+            .put("bytes", bytes)
+            .put("zoom", zoom))
         prefs.edit().putString("offline_maps", root.toString()).apply()
     }
 }
