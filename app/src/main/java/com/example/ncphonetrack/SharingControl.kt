@@ -187,6 +187,18 @@ object SharingControl {
         }
     }
 
+    fun untilClock(context: Context): String {
+        val end = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE).getLong("share_timer_end", 0L)
+        if (end <= 0L) return ""
+        return android.text.format.DateFormat.getTimeFormat(context).format(java.util.Date(end))
+    }
+
+    fun remainingWithUntil(context: Context): String {
+        val left = hourMinuteLabel(remaining(context))
+        val until = untilClock(context)
+        return if (until.isBlank()) left else "$left, until $until"
+    }
+
     fun hourMinuteLabel(ms: Long): String {
         val totalMin = (ms / 60000L).coerceAtLeast(0L)
         return "${totalMin / 60}h ${totalMin % 60}m"

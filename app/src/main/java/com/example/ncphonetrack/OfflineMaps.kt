@@ -148,6 +148,9 @@ object OfflineMaps {
     @Volatile
     var scaleOnly: Boolean = false
 
+    @Volatile
+    var tileEpoch: Int = 0
+
     fun installBase(context: Context, mapView: MapView, base: BaseMap) {
         mapView.setTileProvider(OfflineTileProvider(context, tileSource(base), base))
         mapView.maxZoomLevel = if (base.maxZoom < 19) 21.0 else 19.0
@@ -184,22 +187,26 @@ object OfflineMaps {
         override fun getThreadGroupName(): String = "localtiles"
         override fun getTileLoader(): TileLoader = object : TileLoader() {
             override fun loadTile(pMapTileIndex: Long): Drawable? {
+                val epoch = tileEpoch
                 val zoom = MapTileIndex.getZoom(pMapTileIndex)
                 val x = MapTileIndex.getX(pMapTileIndex)
                 val y = MapTileIndex.getY(pMapTileIndex)
                 if (scaleOnly) {
+                    if (epoch != tileEpoch) return null
                     scaled.get(pMapTileIndex)?.let { return BitmapDrawable(context.resources, it) }
                     return scaledParent(x, y, zoom)?.also { scaled.put(pMapTileIndex, it) }
                         ?.let { BitmapDrawable(context.resources, it) }
                 }
                 val exact = tileFile(zoom, x, y)
                 if (exact.isFile && exact.length() > 100) {
+                    if (epoch != tileEpoch) return null
                     val bitmap = BitmapFactory.decodeFile(exact.path) ?: return null
                     return BitmapDrawable(context.resources, bitmap)
                 }
                 val (lat, lon) = tileLatLon(zoom, x, y)
                 val ceiling = storedCeiling(context, lat, lon)
                 if (ceiling != null && zoom > ceiling) {
+                    if (epoch != tileEpoch) return null
                     val bitmap = scaledParent(x, y, zoom) ?: return null
                     return BitmapDrawable(context.resources, bitmap)
                 }

@@ -366,6 +366,7 @@ class LocationPublishService : Service() {
             return
         }
         LogManager.add("Fix lat=${fix.latitude} lon=${fix.longitude}")
+        logFixClocks(fix)
         prefs.edit().putString("logging_state", "tracking").apply()
         submit {
             targets.forEach { session ->
@@ -380,6 +381,19 @@ class LocationPublishService : Service() {
             }
             trySend()
         }
+    }
+
+    private fun logFixClocks(location: Location) {
+        val now = System.currentTimeMillis()
+        val elapsedAge = if (location.elapsedRealtimeNanos > 0L) {
+            (android.os.SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos) / 1_000_000L
+        } else {
+            -1L
+        }
+        LogManager.add(
+            "Fix clocks phone ${now / 1000} fix ${location.time / 1000} elapsed ${elapsedAge}ms provider ${location.provider ?: "unknown"}",
+            3
+        )
     }
 
     private fun submit(work: () -> Unit) {
@@ -423,6 +437,7 @@ class LocationPublishService : Service() {
                 val name = point.optString("name").ifBlank { "Session" }
                 LogManager.add(
                     "$name: POST $url lat=${point.optDouble("lat")} lon=${point.optDouble("lon")} " +
+                        "ts=${point.optLong("timestamp")} buffer ${bufferCount()} " +
                         "acc=${point.optDouble("acc")} alt=${point.optDouble("alt")} bat=${point.optInt("bat")} " +
                         "speed=${point.optDouble("speed")} bearing=${point.optDouble("bearing")}",
                     3

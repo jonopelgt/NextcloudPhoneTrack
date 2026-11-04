@@ -186,7 +186,7 @@ class MainActivity : AppCompatActivity() {
                 map.postOnAnimation {
                     slideFramePosted = false
                     val target = pendingSlideZoom ?: return@postOnAnimation
-                    keepFollow { map.controller.setZoom(target) }
+                    keepFollow { zoomAroundFollow(target) }
                 }
             }
         }
@@ -198,7 +198,7 @@ class MainActivity : AppCompatActivity() {
                 slideFramePosted = false
                 val target = pendingSlideZoom
                 pendingSlideZoom = null
-                if (target != null) keepFollow { map.controller.setZoom(target) }
+                if (target != null) keepFollow { zoomAroundFollow(target) }
                 else recenterFollow()
                 reloadHighestTiles()
             }
@@ -902,7 +902,7 @@ class MainActivity : AppCompatActivity() {
         val localOnly = link.localUnavailable && !link.readFail && !link.pushFail
         tvMapBanner.setBackgroundColor(Color.parseColor(if (localOnly) "#757575" else "#C62828"))
         sessionBanner.text = if (SharingControl.remaining(this) > 0L && !positionUpdatesOff()) {
-            val left = SharingControl.hourMinuteLabel(SharingControl.remaining(this))
+            val left = SharingControl.remainingWithUntil(this)
             if (name.isBlank()) "($left)" else "$name ($left)"
         } else {
             name
@@ -2684,7 +2684,7 @@ class MainActivity : AppCompatActivity() {
         val left = SharingControl.remaining(this)
         val sharing = when {
             positionUpdatesOff() -> "Off"
-            left > 0L -> "Timer ${SharingControl.hourMinuteLabel(left)}"
+            left > 0L -> "Timer ${SharingControl.remainingWithUntil(this)}"
             else -> "On"
         }
         val position = if (prefs.getBoolean("spoof_enabled", false)) "Spoof" else modeLabel(currentPositionMode())
@@ -3263,6 +3263,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun zoomAroundFollow(level: Double) {
+        val zoom = level.coerceAtLeast(6.0).coerceAtMost(map.maxZoomLevel)
+        val name = trackedUser
+        val point = if (mapFollow == MapFollow.USER && name != null) {
+            lastPoints[name] ?: if (isSelf(name)) ownLastPoint() else null
+        } else {
+            null
+        }
+        map.controller.stopAnimation(false)
+        if (point != null && map.width > 0 && map.height > 0) {
+            map.controller.setCenter(point)
+            map.controller.zoomToFixing(zoom, map.width / 2, map.height / 2)
+            map.controller.setCenter(point)
+        } else {
+            map.controller.setZoom(zoom)
+        }
+    }
+
     private fun keepFollow(changeZoom: () -> Unit) {
         val follow = mapFollow
         val tracked = trackedUser
@@ -3289,9 +3307,15 @@ class MainActivity : AppCompatActivity() {
     private fun reloadHighestTiles() {
         if (!::map.isInitialized) return
         OfflineMaps.scaleOnly = false
+        OfflineMaps.tileEpoch++
         map.setUseDataConnection(true)
         map.tileProvider.clearTileCache()
         map.invalidate()
+        map.postDelayed({
+            if (OfflineMaps.scaleOnly || !::map.isInitialized) return@postDelayed
+            map.tileProvider.clearTileCache()
+            map.invalidate()
+        }, 400)
     }
 
     private fun zoomKey(label: String, onClick: () -> Unit): TextView {
@@ -3398,7 +3422,13 @@ class MainActivity : AppCompatActivity() {
         }
         val showRemaining = {
             val left = SharingControl.remaining(this)
-            remainingView.text = if (left > 0L) "Time left ${SharingControl.countdownLabel(left)}" else "Timer off"
+            val until = SharingControl.untilClock(this)
+            remainingView.text = if (left > 0L) {
+                val clock = if (until.isBlank()) "" else ", until $until"
+                "Time left ${SharingControl.countdownLabel(left)}$clock"
+            } else {
+                "Timer off"
+            }
         }
         val durationSpinner = android.widget.Spinner(this).apply {
             adapter = android.widget.ArrayAdapter(
