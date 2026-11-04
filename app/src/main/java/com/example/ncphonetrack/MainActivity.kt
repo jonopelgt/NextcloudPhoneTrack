@@ -3888,11 +3888,12 @@ class MainActivity : AppCompatActivity() {
             btnReticle.setImageResource(R.drawable.ic_reticle)
             return
         }
+        val followed = name ?: return
         val token = prefs.getString("token", "") ?: ""
         val own = prefs.getString("device", "")?.trim().orEmpty()
             .ifBlank { prefs.getString("nc_user", "")?.trim().orEmpty() }
         val others = lastPoints.keys.filter { it != own }.sorted()
-        val color = personColor(token, name, own, others)
+        val color = personColor(token, followed, own, others)
         btnReticle.clearColorFilter()
         val size = (24 * resources.displayMetrics.density).toInt().coerceAtLeast(24)
         val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
