@@ -78,6 +78,7 @@ class MainActivity : AppCompatActivity() {
     private val lastPoints = mutableMapOf<String, GeoPoint>()
     private lateinit var btnZoomIn: TextView
     private lateinit var btnZoomOut: TextView
+    private lateinit var zoomSlide: ZoomSlide
     private lateinit var btnGroupView: TextView
     private lateinit var btnReticle: ImageButton
     private var allMode = false
@@ -171,6 +172,17 @@ class MainActivity : AppCompatActivity() {
         map.controller.setCenter(GeoPoint(42.7654, -71.4676))
         btnZoomIn = findViewById(R.id.btnZoomIn)
         btnZoomOut = findViewById(R.id.btnZoomOut)
+        zoomSlide = findViewById(R.id.zoomSlide)
+        zoomSlide.limits = { map.minZoomLevel to map.maxZoomLevel }
+        zoomSlide.onZoom = { level -> map.controller.setZoom(level) }
+        zoomSlide.setZoom(map.zoomLevelDouble)
+        map.addMapListener(object : org.osmdroid.events.MapListener {
+            override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean = false
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
+                zoomSlide.setZoom(map.zoomLevelDouble)
+                return false
+            }
+        })
         btnGroupView = findViewById(R.id.btnGroupView)
         btnReticle = findViewById(R.id.btnReticle)
         mapControls = findViewById(R.id.mapControls)
@@ -3762,6 +3774,10 @@ class MainActivity : AppCompatActivity() {
         mapControls.visibility = if (mapContext) View.VISIBLE else View.GONE
         btnZoomIn.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
         btnZoomOut.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
+        if (::zoomSlide.isInitialized) {
+            zoomSlide.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
+            zoomSlide.setZoom(map.zoomLevelDouble)
+        }
         btnGroupView.visibility = if (mapContext && !allMode) View.VISIBLE else View.GONE
         if (::btnReticle.isInitialized) btnReticle.visibility = if (mapContext) View.VISIBLE else View.GONE
         if (::mapControls.isInitialized && mapContext) mapControls.bringToFront()
