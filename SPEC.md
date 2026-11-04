@@ -103,7 +103,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Builds signed consistently for over-the-air style updates.
 
 ## 7. Problem reports
-Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository. Each report has a number, the problem, the fix, the status, and the build that implemented it. Status is Open or Implemented. Reports through 158 were imported from the revision history below, and the problem and the fix are that history line. New reports continue after that. PR 159 is implemented in 0.73 run 113. A report is added when it is filed. Each build updates that report's fix, status, and build, and updates the requirements in this specification with the behavior that shipped. The build cell is the published revision and run, such as 0.72 run 111.
+Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository, on the PRs sheet. Each report has a number, the problem, the fix, the status, and the build that implemented it. Status is Open or Implemented. Reports through 158 were imported from the revision history below, and the problem and the fix are that history line. New reports continue after that. PR 159 is implemented in 0.73 run 113. A report is added when it is filed. Each build updates that report's fix, status, and build, and updates the requirements in this specification with the behavior that shipped. The build cell is the published revision and run, such as 0.72 run 111. TODOs are not problem reports. They are kept on the TODOs sheet in the same file, with their own numbers. A TODO has a number, the task, the notes, and the status. Status is Open or Done.
 
 ## 8. Revision History
 - Rev 1 (2026-11-01): Initial MVP scaffold matching this specification.
