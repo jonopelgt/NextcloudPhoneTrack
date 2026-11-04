@@ -15,13 +15,14 @@ import kotlin.math.round
 
 class ZoomSlide(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     var onZoom: ((Double) -> Unit)? = null
+    var onGesture: ((Boolean) -> Unit)? = null
     var limits: () -> Pair<Double, Double> = { 0.0 to 21.0 }
 
     private var shown = 12.0
     private var startZoom = 12.0
     private var startY = 0f
     private val travel: Float
-        get() = 320f * resources.displayMetrics.density
+        get() = 280f * resources.displayMetrics.density
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#111111") }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -82,6 +83,7 @@ class ZoomSlide(context: Context, attrs: AttributeSet?) : View(context, attrs) {
                 startZoom = shown
                 parent?.requestDisallowInterceptTouchEvent(true)
                 animate().cancel()
+                onGesture?.invoke(true)
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -94,6 +96,7 @@ class ZoomSlide(context: Context, attrs: AttributeSet?) : View(context, attrs) {
                 return true
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                onGesture?.invoke(false)
                 animate().translationY(0f).setDuration(160).start()
                 return true
             }

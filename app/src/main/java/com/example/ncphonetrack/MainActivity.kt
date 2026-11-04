@@ -74,6 +74,7 @@ class MainActivity : AppCompatActivity() {
     private val trackCache = mutableMapOf<String, MutableList<TrackPoint>>()
     private var mapEpoch = 0
     private var mapFollow = MapFollow.GROUP
+    private var zoomControlActive = false
     private var trackedUser: String? = null
     private val lastPoints = mutableMapOf<String, GeoPoint>()
     private lateinit var btnZoomIn: TextView
@@ -174,7 +175,12 @@ class MainActivity : AppCompatActivity() {
         btnZoomOut = findViewById(R.id.btnZoomOut)
         zoomSlide = findViewById(R.id.zoomSlide)
         zoomSlide.limits = { 6.0 to map.maxZoomLevel }
-        zoomSlide.onZoom = { level -> map.controller.setZoom(level.coerceAtLeast(6.0)) }
+        zoomSlide.onZoom = { level ->
+            keepFollow {
+                map.controller.setZoom(level.coerceAtLeast(6.0))
+            }
+        }
+        zoomSlide.onGesture = { active -> zoomControlActive = active }
         zoomSlide.setZoom(map.zoomLevelDouble)
         map.addMapListener(object : org.osmdroid.events.MapListener {
             override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean = false
@@ -1138,11 +1144,6 @@ class MainActivity : AppCompatActivity() {
             compareByDescending<JSONObject> { it.optString("token").isNotBlank() && it.optString("token") == displayToken }
                 .thenByDescending { it.optBoolean("enabled", true) }
         )
-        data class FriendLoad(
-            val points: Map<String, GeoPoint>,
-            val seen: Map<String, Long>,
-            val reachable: Boolean
-        )
         val loaded = mutableMapOf<String, FriendLoad>()
         var tracksLabel: TextView? = null
         fun paintUsers(
@@ -1236,7 +1237,7 @@ class MainActivity : AppCompatActivity() {
             titleView.setOnClickListener {
                 if (usersBox.visibility != View.VISIBLE) {
                     usersBox.visibility = View.VISIBLE
-                    val data = loaded[token]
+                    val data = loaded[token] ?: cachedFriends(token)
                     if (data == null) {
                         usersBox.removeAllViews()
                         usersBox.addView(TextView(this).apply {
@@ -1245,6 +1246,7 @@ class MainActivity : AppCompatActivity() {
                             setPadding(indent, 0, 0, pad / 2)
                         })
                     } else {
+                        loaded[token] = data
                         paintUsers(token, session, usersBox, titleView, enabled, data)
                     }
                     return@setOnClickListener
@@ -1259,11 +1261,17 @@ class MainActivity : AppCompatActivity() {
                 refreshMapBanner()
             }
             if (selected) {
-                usersBox.addView(TextView(this).apply {
-                    text = "Loading users…"
-                    setTextColor(Color.parseColor("#757575"))
-                    setPadding(indent, 0, 0, pad / 2)
-                })
+                val cached = cachedFriends(token)
+                if (cached == null) {
+                    usersBox.addView(TextView(this).apply {
+                        text = "Loading users…"
+                        setTextColor(Color.parseColor("#757575"))
+                        setPadding(indent, 0, 0, pad / 2)
+                    })
+                } else {
+                    loaded[token] = cached
+                    paintUsers(token, session, usersBox, titleView, enabled, cached)
+                }
             }
             list.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -1297,6 +1305,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     if (!dialog.isShowing || isFinishing) return@runOnUiThread
                     loaded[token] = data
+                    if (data.reachable) rememberFriends(token, data.points, data.seen)
                     paintUsers(token, session, usersBox, titleView, enabled, data)
                 }
             }.start()
@@ -2605,6 +2614,39 @@ class MainActivity : AppCompatActivity() {
         map.invalidate()
         updateStatusText("${displayedSessionName()}: Map updated: ${positions.size} devices")
         logMapDisplay(positions, ageOut)
+        rememberFriends(token, positions.mapValues { GeoPoint(it.value.lat, it.value.lon) }, positions.mapValues { it.value.timestamp })
+        refreshReticle()
+    }
+
+    private fun rememberFriends(token: String, points: Map<String, GeoPoint>, seen: Map<String, Long>) {
+        if (token.isBlank() || points.isEmpty()) return
+        val users = org.json.JSONArray()
+        points.forEach { (name, point) ->
+            users.put(org.json.JSONObject()
+                .put("name", name)
+                .put("lat", point.latitude)
+                .put("lon", point.longitude)
+                .put("ts", seen[name] ?: 0L))
+        }
+        val root = loadJsonPref("friend_lists")
+        root.put(token, org.json.JSONObject().put("users", users))
+        prefs.edit().putString("friend_lists", root.toString()).apply()
+    }
+
+    private fun cachedFriends(token: String): FriendLoad? {
+        if (token.isBlank()) return null
+        val users = loadJsonPref("friend_lists").optJSONObject(token)?.optJSONArray("users") ?: return null
+        val points = linkedMapOf<String, GeoPoint>()
+        val seen = linkedMapOf<String, Long>()
+        for (i in 0 until users.length()) {
+            val user = users.optJSONObject(i) ?: continue
+            val name = user.optString("name")
+            if (name.isBlank()) continue
+            points[name] = GeoPoint(user.optDouble("lat"), user.optDouble("lon"))
+            seen[name] = user.optLong("ts")
+        }
+        if (points.isEmpty()) return null
+        return FriendLoad(points, seen, true)
     }
 
     private fun logMapDisplay(positions: Map<String, GeoPointData>, ageOut: Int) {
@@ -3170,6 +3212,7 @@ class MainActivity : AppCompatActivity() {
         key.setOnTouchListener { _, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    zoomControlActive = true
                     repeating = true
                     key.isPressed = true
                     stepZoom(delta)
@@ -3177,6 +3220,7 @@ class MainActivity : AppCompatActivity() {
                     true
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    zoomControlActive = false
                     repeating = false
                     key.isPressed = false
                     key.removeCallbacks(repeat)
@@ -3189,7 +3233,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun stepZoom(delta: Double) {
         if (!::map.isInitialized) return
-        map.controller.setZoom(map.zoomLevelDouble + delta)
+        keepFollow {
+            map.controller.setZoom(map.zoomLevelDouble + delta)
+        }
+    }
+
+    private fun keepFollow(changeZoom: () -> Unit) {
+        val follow = mapFollow
+        val tracked = trackedUser
+        val all = allMode
+        zoomControlActive = true
+        changeZoom()
+        mapFollow = follow
+        trackedUser = tracked
+        allMode = all
     }
 
     private fun zoomKey(label: String, onClick: () -> Unit): TextView {
@@ -3780,6 +3837,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun enterManual() {
+        if (zoomControlActive) return
         if (mapFollow == MapFollow.MANUAL && !allMode) return
         allMode = false
         mapFollow = MapFollow.MANUAL
@@ -3831,7 +3889,11 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val token = prefs.getString("token", "") ?: ""
-        val color = personColor(token, name!!, prefs.getString("nc_user", "")?.trim().orEmpty(), emptyList())
+        val own = prefs.getString("device", "")?.trim().orEmpty()
+            .ifBlank { prefs.getString("nc_user", "")?.trim().orEmpty() }
+        val others = lastPoints.keys.filter { it != own }.sorted()
+        val color = personColor(token, name, own, others)
+        btnReticle.clearColorFilter()
         val size = (24 * resources.displayMetrics.density).toInt().coerceAtLeast(24)
         val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
@@ -3913,3 +3975,9 @@ class MainActivity : AppCompatActivity() {
 }
 
 private enum class MapFollow { GROUP, USER, MANUAL }
+
+private data class FriendLoad(
+    val points: Map<String, GeoPoint>,
+    val seen: Map<String, Long>,
+    val reachable: Boolean
+)
