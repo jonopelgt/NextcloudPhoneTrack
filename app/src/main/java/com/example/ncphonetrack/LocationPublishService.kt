@@ -85,6 +85,7 @@ class LocationPublishService : Service() {
             it.optString("name").ifBlank { "Unnamed session" }
         })
         prefs.edit().putString("logging_state", "waiting for GPS").apply()
+        ensureSeeded(this)
         startLocationUpdates()
         if (intent?.action == ACTION_PUBLISH_ONCE) publishOnce()
         watchNetwork()
@@ -353,22 +354,25 @@ class LocationPublishService : Service() {
 
     private fun publishLocation(location: Location) {
         val fix = spoofedLocation() ?: location
+        val snapshot = pointFrom(fix)
         prefs.edit()
-            .putString("own_lat", fix.latitude.toString())
-            .putString("own_lon", fix.longitude.toString())
+            .putString("own_lat", snapshot.optDouble("lat").toString())
+            .putString("own_lon", snapshot.optDouble("lon").toString())
+            .putLong("own_fix_sec", snapshot.optLong("timestamp"))
             .apply()
         val targets = enabledTargets()
         if (targets.isEmpty()) {
             LogManager.add("Fix not sent: no enabled session")
             return
         }
-        LogManager.add("Fix lat=${fix.latitude} lon=${fix.longitude}")
+        LogManager.add("Fix lat=${snapshot.optDouble("lat")} lon=${snapshot.optDouble("lon")}")
         logFixClocks(fix)
         prefs.edit().putString("logging_state", "tracking").apply()
-        submit {
+        targets.forEach { noteAccepted(this, it.optString("token")) }
+        val queued = submit {
             targets.forEach { session ->
                 val name = session.optString("name").ifBlank { "Unnamed session" }
-                val point = pointFrom(fix)
+                val point = JSONObject(snapshot.toString())
                     .put("url", session.optString("url"))
                     .put("token", session.optString("token"))
                     .put("device", session.optString("device").ifBlank { deviceName })
@@ -378,6 +382,7 @@ class LocationPublishService : Service() {
             }
             trySend()
         }
+        if (!queued) targets.forEach { noteSettled(it.optString("token")) }
     }
 
     private fun logFixClocks(location: Location) {
@@ -393,11 +398,13 @@ class LocationPublishService : Service() {
         )
     }
 
-    private fun submit(work: () -> Unit) {
-        if (io.isShutdown) return
-        try {
+    private fun submit(work: () -> Unit): Boolean {
+        if (io.isShutdown) return false
+        return try {
             io.execute(work)
+            true
         } catch (_: RejectedExecutionException) {
+            false
         }
     }
 
@@ -533,7 +540,10 @@ class LocationPublishService : Service() {
             val name = point.optString("name").ifBlank { "Session" }
             val waiting = queue.length()
             if (waiting > 1 || !online()) LogManager.add("$name: buffered point ($waiting waiting)")
-            if (dropped > 0) LogManager.add("$name: buffer full, dropped $dropped oldest")
+            if (dropped > 0) {
+                noteSettled(token, dropped)
+                LogManager.add("$name: buffer full, dropped $dropped oldest")
+            }
         }
     }
 
@@ -563,7 +573,9 @@ class LocationPublishService : Service() {
             val keys = queues.keys().asSequence().toList()
             keys.forEach { token ->
                 if (token in allowed) return@forEach
-                dropped += queues.optJSONArray(token)?.length() ?: 0
+                val n = queues.optJSONArray(token)?.length() ?: 0
+                dropped += n
+                if (n > 0) noteSettled(token, n)
                 queues.remove(token)
             }
             if (dropped > 0) writeQueues(queues)
@@ -614,6 +626,7 @@ class LocationPublishService : Service() {
             when (postSync(client, head)) {
                 "ok" -> {
                     dropHead(head)
+                    noteSettled(token, 1)
                     burstSent += 1
                     recordResult(head, "ok")
                 }
@@ -754,6 +767,63 @@ class LocationPublishService : Service() {
             val user = prefs.getString("nc_user", "")?.trim().orEmpty()
             val model = android.os.Build.MODEL?.trim().orEmpty().ifBlank { "Android" }
             return if (user.isBlank()) model else "$user-$model"
+        }
+
+        private val unsent = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+        private val unsentSeeded = java.util.concurrent.atomic.AtomicBoolean(false)
+
+        fun ensureSeeded(context: Context) {
+            if (unsentSeeded.get()) return
+            synchronized(unsentSeeded) {
+                if (unsentSeeded.get()) return
+                pendingCounts(context).forEach { (token, count) ->
+                    unsent[token] = java.util.concurrent.atomic.AtomicInteger(count)
+                }
+                unsentSeeded.set(true)
+            }
+        }
+
+        fun noteAccepted(context: Context, token: String) {
+            if (token.isBlank()) return
+            ensureSeeded(context)
+            unsent.computeIfAbsent(token) { java.util.concurrent.atomic.AtomicInteger(0) }.incrementAndGet()
+        }
+
+        fun noteSettled(token: String, count: Int) {
+            if (token.isBlank() || count <= 0) return
+            unsent[token]?.updateAndGet { (it - count).coerceAtLeast(0) }
+        }
+
+        fun unsent(context: Context, token: String): Int {
+            if (token.isBlank()) return 0
+            ensureSeeded(context)
+            return unsent[token]?.get() ?: 0
+        }
+
+        private fun pendingCounts(context: Context): Map<String, Int> {
+            val file = File(context.filesDir, "pending_points.json")
+            val text = file.takeIf { it.exists() }?.readText().orEmpty().trim()
+            if (text.isBlank()) return emptyMap()
+            return try {
+                val counts = mutableMapOf<String, Int>()
+                if (text.startsWith("[")) {
+                    val arr = org.json.JSONArray(text)
+                    for (i in 0 until arr.length()) {
+                        val token = arr.getJSONObject(i).optString("token")
+                        if (token.isNotBlank()) counts[token] = (counts[token] ?: 0) + 1
+                    }
+                } else {
+                    val queues = org.json.JSONObject(text)
+                    val keys = queues.keys()
+                    while (keys.hasNext()) {
+                        val token = keys.next()
+                        counts[token] = queues.optJSONArray(token)?.length() ?: 0
+                    }
+                }
+                counts
+            } catch (_: Exception) {
+                emptyMap()
+            }
         }
     }
 }

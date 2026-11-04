@@ -665,20 +665,7 @@ class MainActivity : AppCompatActivity() {
         return if (includeName) named(name, text) else text
     }
 
-    private fun bufferedFor(token: String): Int {
-        if (token.isBlank()) return 0
-        return try {
-            val text = File(filesDir, "pending_points.json").takeIf { it.exists() }?.readText().orEmpty().trim()
-            if (text.isBlank()) return 0
-            if (text.startsWith("[")) {
-                val arr = org.json.JSONArray(text)
-                return (0 until arr.length()).count { arr.getJSONObject(it).optString("token") == token }
-            }
-            return org.json.JSONObject(text).optJSONArray(token)?.length() ?: 0
-        } catch (_: Exception) {
-            0
-        }
-    }
+    private fun bufferedFor(token: String): Int = LocationPublishService.unsent(this, token)
 
     private fun sessionNet(token: String): Pair<String, Long> {
         if (token.isBlank()) return "" to 0L
@@ -2635,29 +2622,52 @@ class MainActivity : AppCompatActivity() {
             marker.title != "Track"
         }
         lastPoints.clear()
-        val others = positions.keys.filter { it != ownDevice }.sorted()
+        val localSec = prefs.getLong("own_fix_sec", 0L)
+        val local = ownLastPoint()
+        val others = positions.keys.filter { it != ownDevice && !isSelf(it) }.sorted()
         positions.forEach { (name, data) ->
             val alpha = ageAlpha(data.timestamp, ageOut)
             if (alpha <= 0.05f) return@forEach
-            val point = GeoPoint(data.lat, data.lon)
-            val mine = name == ownDevice
+            val mine = name == ownDevice || isSelf(name)
+            val useLocal = mine && local != null && localSec >= data.timestamp
+            val point = if (useLocal) local else GeoPoint(data.lat, data.lon)
+            if (mine && !useLocal) rememberOwn(data.lat, data.lon)
             lastPoints[name] = point
-            if (mine) rememberOwn(data.lat, data.lon)
             val color = personColor(token, name, ownDevice, others)
             shownColor[name] = color
             val marker = Marker(map)
             marker.position = point
             marker.title = if (mine) "You · $name" else name
-            marker.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
-            marker.icon = iconFor(color, 28, alpha)
+            marker.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(if (useLocal) localSec else data.timestamp)}"
+            marker.icon = iconFor(color, 28, if (useLocal) ageAlpha(localSec, ageOut).coerceAtLeast(alpha) else alpha)
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             marker.setOnMarkerClickListener { clicked, _ ->
-                clicked.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
+                clicked.snippet = marker.snippet
                 enterUserTrack(name)
                 showStatusBubble(clicked)
                 true
             }
             map.overlays.add(marker)
+        }
+        if (local != null && ownDevice.isNotBlank() && lastPoints.keys.none { it == ownDevice || isSelf(it) }) {
+            val alpha = ageAlpha(localSec, ageOut)
+            if (alpha > 0.05f) {
+                lastPoints[ownDevice] = local
+                val color = personColor(token, ownDevice, ownDevice, others)
+                shownColor[ownDevice] = color
+                val marker = Marker(map)
+                marker.position = local
+                marker.title = "You · $ownDevice"
+                marker.snippet = "Age: ${ageText(localSec)}"
+                marker.icon = iconFor(color, 28, alpha)
+                marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                marker.setOnMarkerClickListener { clicked, _ ->
+                    enterUserTrack(ownDevice)
+                    showStatusBubble(clicked)
+                    true
+                }
+                map.overlays.add(marker)
+            }
         }
         addSpoofMarker()
         if (pickFollowOnNextMap) {
@@ -3118,7 +3128,7 @@ class MainActivity : AppCompatActivity() {
             choices.removeAllViews()
             OfflineMaps.bases.forEach { item ->
                 choices.addView(TextView(this).apply {
-                    text = if (item.id == selected) "●  ${item.label}" else "○  ${item.label}"
+                    text = if (item.id == selected) "●  ${item.label}  z${item.maxZoom}" else "○  ${item.label}  z${item.maxZoom}"
                     textSize = 16f
                     setPadding(0, pad / 3, 0, pad / 3)
                     setOnClickListener {
