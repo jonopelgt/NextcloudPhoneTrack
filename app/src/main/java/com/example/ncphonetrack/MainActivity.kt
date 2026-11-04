@@ -232,7 +232,7 @@ class MainActivity : AppCompatActivity() {
         holdZoom(btnZoomIn, 0.25)
         holdZoom(btnZoomOut, -0.25)
         btnGroupView.setOnClickListener { zoomToAll() }
-        btnReticle.setOnClickListener { centerOnSelf() }
+        btnReticle.setOnClickListener { cycleFollow() }
         mapControls.bringToFront()
         refreshZoomKeys()
         refreshMapBanner()
@@ -3809,19 +3809,38 @@ class MainActivity : AppCompatActivity() {
         return name.equals(user, true) || (device.isNotBlank() && name.equals(device, true))
     }
 
-    private fun centerOnSelf() {
-        val name = prefs.getString("nc_user", "")?.trim().orEmpty()
-        val match = lastPoints.keys.firstOrNull { isSelf(it) }
-        val point = match?.let { lastPoints[it] } ?: ownLastPoint()
+    private fun cycleFollow() {
+        val targets = followTargets()
+        if (targets.isEmpty()) {
+            Toast.makeText(this, "unknown", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val current = if (mapFollow == MapFollow.USER) trackedUser else null
+        val index = targets.indexOfFirst { name ->
+            name.equals(current, true) || (current != null && isSelf(name) && isSelf(current))
+        }
+        val next = if (index < 0) targets.first() else targets[(index + 1) % targets.size]
+        val point = lastPoints[next] ?: if (isSelf(next)) ownLastPoint() else null
         if (point == null) {
             Toast.makeText(this, "unknown", Toast.LENGTH_SHORT).show()
             return
         }
         allMode = false
         mapFollow = MapFollow.USER
-        trackedUser = match ?: name.ifBlank { deviceName() }
+        trackedUser = next
         refreshZoomKeys()
         centerAboveBanner(point)
+    }
+
+    private fun followTargets(): List<String> {
+        val names = lastPoints.keys.toList()
+        val self = names.firstOrNull { isSelf(it) }
+            ?: run {
+                val own = prefs.getString("nc_user", "")?.trim().orEmpty().ifBlank { deviceName() }
+                if (ownLastPoint() != null) own else null
+            }
+        val others = names.filter { self == null || !it.equals(self, true) && !isSelf(it) }.sorted()
+        return listOfNotNull(self) + others
     }
 
     private fun deviceName(): String {
