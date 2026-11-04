@@ -2630,7 +2630,7 @@ class MainActivity : AppCompatActivity() {
             if (alpha <= 0.05f) return@forEach
             val mine = name == ownDevice || isSelf(name)
             val useLocal = mine && local != null && localSec >= data.timestamp
-            val point = if (useLocal) local else GeoPoint(data.lat, data.lon)
+            val point = if (useLocal && local != null) local else GeoPoint(data.lat, data.lon)
             if (mine && !useLocal) rememberOwn(data.lat, data.lon)
             lastPoints[name] = point
             val color = personColor(token, name, ownDevice, others)

@@ -382,7 +382,7 @@ class LocationPublishService : Service() {
             }
             trySend()
         }
-        if (!queued) targets.forEach { noteSettled(it.optString("token")) }
+        if (!queued) targets.forEach { noteSettled(it.optString("token"), 1) }
     }
 
     private fun logFixClocks(location: Location) {
