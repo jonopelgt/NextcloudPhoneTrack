@@ -4055,10 +4055,12 @@ class MainActivity : AppCompatActivity() {
             zoomSlide.setZoom(map.zoomLevelDouble)
         }
         btnGroupView.visibility = if (mapContext) View.VISIBLE else View.GONE
+        btnGroupView.alpha = if (mapFollow == MapFollow.GROUP) 0.35f else 1f
         if (::btnReticle.isInitialized) btnReticle.visibility = if (mapContext) View.VISIBLE else View.GONE
         if (::mapControls.isInitialized && mapContext) mapControls.bringToFront()
         if (::btnPositionMode.isInitialized && mapContext) btnPositionMode.bringToFront()
         if (::btnSharing.isInitialized && mapContext) btnSharing.bringToFront()
+        if (::btnGroupView.isInitialized && mapContext) btnGroupView.bringToFront()
         if (::btnReticle.isInitialized && mapContext) btnReticle.bringToFront()
         refreshReticle()
         if (!mapContext && ::statusPanel.isInitialized && statusPanel.visibility == View.VISIBLE) statusPanel.bringToFront()
