@@ -69,6 +69,8 @@ class MainActivity : AppCompatActivity() {
     private val BACKGROUND_PERMISSION_REQUEST = 1002
     private var logTimer: Timer? = null
     private var fetchTimer: Timer? = null
+    private val mapReadBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val trackReadBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     private var mapEpoch = 0
     private var mapFollow = MapFollow.GROUP
     private var trackedUser: String? = null
@@ -2502,98 +2504,137 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateMapWithPositions(url: String, token: String, ownDevice: String, epoch: Int) {
+        if (!mapReadBusy.compareAndSet(false, true)) return
         Thread {
-            val positions = PhoneTrackApi.getLastPositions(this, url, token)
-            val ageOut = ageOutMinutes(token)
-            val tracked = positions?.keys?.filter { tracksOn(token, it) }.orEmpty()
-            val tracks = if (tracked.isNotEmpty()) PhoneTrackApi.getTrackPoints(this, url, token, ageOut) else emptyMap()
-            runOnUiThread {
-                if (epoch != mapEpoch) return@runOnUiThread
-                if (positions == null) {
-                    prefs.edit().putString("last_read_result", "failed").apply()
-                    updateStatusText("${displayedSessionName()}: Map update failed")
-                    refreshConnectionStatus()
-                    return@runOnUiThread
-                }
-                prefs.edit()
-                    .putString("last_read_result", "ok")
-                    .putLong("last_map_ok", System.currentTimeMillis())
-                    .apply()
-                refreshMapBanner()
-                map.overlays.clear()
-                lastPoints.clear()
-                val others = positions.keys.filter { it != ownDevice }.sorted()
-                tracked.forEach { name ->
-                    val color = personColor(token, name, ownDevice, others)
-                    val history = tracks[name]
-                        ?: tracks.entries.firstOrNull { it.key.equals(name, true) }?.value
-                        ?: emptyList()
-                    val current = positions[name]
-                    history.forEach { point ->
-                        if (current != null && kotlin.math.abs(point.lat - current.lat) < 0.00005 && kotlin.math.abs(point.lon - current.lon) < 0.00005) {
-                            return@forEach
-                        }
-                        val alpha = ageAlpha(point.timestamp, ageOut)
-                        if (alpha <= 0.05f) return@forEach
-                        val dot = Marker(map)
-                        dot.position = GeoPoint(point.lat, point.lon)
-                        dot.title = "Track"
-                        dot.snippet = "Age: ${ageText(point.timestamp)}"
-                        dot.icon = iconFor(color, 16, alpha, outline = false)
-                        dot.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                        val seenAt = point.timestamp
-                        dot.relatedObject = name
-                        dot.setOnMarkerClickListener { clicked, _ ->
-                            clicked.snippet = "Age: ${ageText(seenAt)}"
-                            showStatusBubble(clicked)
-                            true
-                        }
-                        map.overlays.add(dot)
+            try {
+                val positions = PhoneTrackApi.getLastPositions(this, url, token)
+                val ageOut = ageOutMinutes(token)
+                runOnUiThread {
+                    if (epoch != mapEpoch) return@runOnUiThread
+                    if (positions == null) {
+                        prefs.edit().putString("last_read_result", "failed").apply()
+                        updateStatusText("${displayedSessionName()}: Map update failed")
+                        refreshConnectionStatus()
+                        return@runOnUiThread
                     }
+                    paintPositions(token, ownDevice, positions, ageOut)
+                    val tracked = positions.keys.filter { tracksOn(token, it) }
+                    if (tracked.isNotEmpty()) loadTracks(url, token, ownDevice, epoch, tracked, positions, ageOut)
                 }
-                positions.forEach { (name, data) ->
-                    val alpha = ageAlpha(data.timestamp, ageOut)
-                    if (alpha <= 0.05f) return@forEach
-                    val point = GeoPoint(data.lat, data.lon)
-                    val mine = name == ownDevice
-                    lastPoints[name] = point
-                    if (mine) rememberOwn(data.lat, data.lon)
-                    val marker = Marker(map)
-                    marker.position = point
-                    marker.title = if (mine) "You · $name" else name
-                    marker.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
-                    marker.icon = iconFor(personColor(token, name, ownDevice, others), 28, alpha)
-                    marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    marker.setOnMarkerClickListener { clicked, _ ->
-                        clicked.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
-                        enterUserTrack(name)
-                        showStatusBubble(clicked)
-                        true
+            } finally {
+                mapReadBusy.set(false)
+            }
+        }.start()
+    }
+
+    private fun paintPositions(
+        token: String,
+        ownDevice: String,
+        positions: Map<String, GeoPointData>,
+        ageOut: Int
+    ) {
+        prefs.edit()
+            .putString("last_read_result", "ok")
+            .putLong("last_map_ok", System.currentTimeMillis())
+            .apply()
+        refreshMapBanner()
+        map.overlays.clear()
+        lastPoints.clear()
+        val others = positions.keys.filter { it != ownDevice }.sorted()
+        positions.forEach { (name, data) ->
+            val alpha = ageAlpha(data.timestamp, ageOut)
+            if (alpha <= 0.05f) return@forEach
+            val point = GeoPoint(data.lat, data.lon)
+            val mine = name == ownDevice
+            lastPoints[name] = point
+            if (mine) rememberOwn(data.lat, data.lon)
+            val marker = Marker(map)
+            marker.position = point
+            marker.title = if (mine) "You · $name" else name
+            marker.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
+            marker.icon = iconFor(personColor(token, name, ownDevice, others), 28, alpha)
+            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            marker.setOnMarkerClickListener { clicked, _ ->
+                clicked.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
+                enterUserTrack(name)
+                showStatusBubble(clicked)
+                true
+            }
+            map.overlays.add(marker)
+        }
+        addSpoofMarker()
+        if (pickFollowOnNextMap) {
+            pickFollowOnNextMap = false
+            when (lastPoints.size) {
+                0 -> {
+                    mapFollow = MapFollow.GROUP
+                    trackedUser = null
+                }
+                1 -> {
+                    mapFollow = MapFollow.USER
+                    trackedUser = lastPoints.keys.first()
+                }
+                else -> {
+                    mapFollow = MapFollow.GROUP
+                    trackedUser = null
+                }
+            }
+            refreshZoomKeys()
+        }
+        applyMapFollow(lastPoints.values.toList())
+        map.invalidate()
+        updateStatusText("${displayedSessionName()}: Map updated: ${positions.size} devices")
+    }
+
+    private fun loadTracks(
+        url: String,
+        token: String,
+        ownDevice: String,
+        epoch: Int,
+        tracked: List<String>,
+        positions: Map<String, GeoPointData>,
+        ageOut: Int
+    ) {
+        if (!trackReadBusy.compareAndSet(false, true)) return
+        Thread {
+            try {
+                val tracks = PhoneTrackApi.getTrackPoints(this, url, token, ageOut)
+                runOnUiThread {
+                    if (epoch != mapEpoch || !::map.isInitialized) return@runOnUiThread
+                    map.overlays.removeAll { (it as? Marker)?.title == "Track" }
+                    val others = positions.keys.filter { it != ownDevice }.sorted()
+                    tracked.forEach { name ->
+                        val color = personColor(token, name, ownDevice, others)
+                        val history = tracks[name]
+                            ?: tracks.entries.firstOrNull { it.key.equals(name, true) }?.value
+                            ?: emptyList()
+                        val current = positions[name]
+                        history.forEach { point ->
+                            if (current != null && kotlin.math.abs(point.lat - current.lat) < 0.00005 && kotlin.math.abs(point.lon - current.lon) < 0.00005) {
+                                return@forEach
+                            }
+                            val alpha = ageAlpha(point.timestamp, ageOut)
+                            if (alpha <= 0.05f) return@forEach
+                            val dot = Marker(map)
+                            dot.position = GeoPoint(point.lat, point.lon)
+                            dot.title = "Track"
+                            dot.snippet = "Age: ${ageText(point.timestamp)}"
+                            dot.icon = iconFor(color, 16, alpha, outline = false)
+                            dot.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                            val seenAt = point.timestamp
+                            dot.relatedObject = name
+                            dot.setOnMarkerClickListener { clicked, _ ->
+                                clicked.snippet = "Age: ${ageText(seenAt)}"
+                                showStatusBubble(clicked)
+                                true
+                            }
+                            map.overlays.add(0, dot)
+                        }
                     }
-                    map.overlays.add(marker)
+                    map.invalidate()
                 }
-                addSpoofMarker()
-                if (pickFollowOnNextMap) {
-                    pickFollowOnNextMap = false
-                    when (lastPoints.size) {
-                        0 -> {
-                            mapFollow = MapFollow.GROUP
-                            trackedUser = null
-                        }
-                        1 -> {
-                            mapFollow = MapFollow.USER
-                            trackedUser = lastPoints.keys.first()
-                        }
-                        else -> {
-                            mapFollow = MapFollow.GROUP
-                            trackedUser = null
-                        }
-                    }
-                    refreshZoomKeys()
-                }
-                applyMapFollow(lastPoints.values.toList())
-                map.invalidate()
-                updateStatusText("${displayedSessionName()}: Map updated: ${positions.size} devices")
+            } finally {
+                trackReadBusy.set(false)
             }
         }.start()
     }
@@ -3275,6 +3316,10 @@ class MainActivity : AppCompatActivity() {
         "rapid" -> "Rapid"
         "spoof" -> "Spoof"
         "timer" -> "Timer"
+        "t2" -> "2 hours"
+        "t6" -> "6 hours"
+        "t1d" -> "1 day"
+        "t4d" -> "4 days"
         "on" -> "On"
         else -> "Move"
     }
@@ -3285,7 +3330,7 @@ class MainActivity : AppCompatActivity() {
         "significant" -> R.drawable.ic_mode_walk
         "rapid" -> R.drawable.ic_mode_rocket
         "spoof" -> R.drawable.ic_mode_spy
-        "timer" -> R.drawable.ic_mode_timer
+        "timer", "t2", "t6", "t1d", "t4d" -> R.drawable.ic_mode_timer
         "on" -> R.drawable.ic_mode_broadcast
         else -> R.drawable.ic_mode_car
     }
@@ -3365,11 +3410,20 @@ class MainActivity : AppCompatActivity() {
                 SharingControl.set(this, false)
                 refreshModeButton()
             })
-            modePicker.addView(modeChoice("timer", timing) {
-                closeModeMenu()
-                SharingControl.startTimer(this, SharingControl.DEFAULT_MS)
-                refreshModeButton()
-            })
+            val chosen = SharingControl.savedDuration(this)
+            listOf(
+                2L * 60 * 60 * 1000 to "t2",
+                6L * 60 * 60 * 1000 to "t6",
+                24L * 60 * 60 * 1000 to "t1d",
+                4L * 24 * 60 * 60 * 1000 to "t4d"
+            ).forEach { (ms, mode) ->
+                modePicker.addView(modeChoice(mode, timing && chosen == ms) {
+                    closeModeMenu()
+                    SharingControl.startTimer(this, ms)
+                    refreshModeButton()
+                    refreshMapBanner()
+                })
+            }
             modePicker.addView(modeChoice("on", sharingOn && !timing) {
                 closeModeMenu()
                 SharingControl.set(this, true, clearTimer = true)
