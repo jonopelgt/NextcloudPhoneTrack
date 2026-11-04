@@ -52,10 +52,10 @@ class LocationPublishService : Service() {
     private var deviceName: String = ""
     private val bufferLock = Any()
     private val io = Executors.newSingleThreadExecutor()
+    private val sends = Executors.newCachedThreadPool()
+    private val inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val drainScheduled = AtomicBoolean(false)
-    private var burstSent = 0
-    private var burstWindowStart = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -457,8 +457,6 @@ class LocationPublishService : Service() {
         }
     }
 
-    private var bufferCursor = 0
-
     private fun bufferFile(): File = File(filesDir, "pending_points.json")
 
     private fun readQueues(): JSONObject {
@@ -547,25 +545,6 @@ class LocationPublishService : Service() {
         }
     }
 
-    private fun deferHead(point: JSONObject) {
-        val token = point.optString("token")
-        val key = pointKey(point)
-        synchronized(bufferLock) {
-            val queues = readQueues()
-            val queue = queues.optJSONArray(token) ?: return
-            var removed: JSONObject? = null
-            for (i in 0 until queue.length()) {
-                if (pointKey(queue.getJSONObject(i)) == key) {
-                    removed = queue.getJSONObject(i)
-                    queue.remove(i)
-                    break
-                }
-            }
-            if (removed != null) queue.put(removed)
-            writeQueues(queues)
-        }
-    }
-
     private fun dropDisabled(allowed: Set<String>): Int {
         synchronized(bufferLock) {
             val queues = readQueues()
@@ -583,66 +562,60 @@ class LocationPublishService : Service() {
         }
     }
 
-    private fun nextToken(allowed: Set<String>, skipped: Set<String>): String? {
-        val queues = synchronized(bufferLock) { readQueues() }
-        val ready = allowed.filter { token ->
-            token !in skipped && (queues.optJSONArray(token)?.length() ?: 0) > 0
-        }
-        if (ready.isEmpty()) return null
-        bufferCursor = bufferCursor % ready.size
-        val token = ready[bufferCursor]
-        bufferCursor = (bufferCursor + 1) % ready.size
-        return token
-    }
-
     private fun trySend() {
         if (!online()) {
             markBuffered("network")
+            scheduleDrain(1000L)
             return
         }
         if (PhoneTrackApi.rateLimited(this)) {
             markBuffered("buffered")
-            return
-        }
-        val now = System.currentTimeMillis()
-        if (now - burstWindowStart >= 1000L) {
-            burstWindowStart = now
-            burstSent = 0
-        }
-        if (burstSent >= BURST) {
-            scheduleDrain(1000L - (now - burstWindowStart))
+            scheduleDrain(1000L)
             return
         }
         val allowed = enabledTargets().map { it.optString("token") }.filter { it.isNotBlank() }.toSet()
         val dropped = dropDisabled(allowed)
         if (dropped > 0) LogManager.add("Dropped $dropped buffered points for sessions that are off")
-        val failed = mutableSetOf<String>()
-        val client = logClient()
-        var guard = 0
-        while (burstSent < BURST && guard < allowed.size * BURST + 1) {
-            guard++
-            val token = nextToken(allowed, failed) ?: break
-            val head = peekToken(token) ?: continue
-            when (postSync(client, head)) {
-                "ok" -> {
-                    dropHead(head)
-                    noteSettled(token, 1)
-                    burstSent += 1
-                    recordResult(head, "ok")
-                }
-                "network" -> {
-                    recordResult(head, "network")
-                    deferHead(head)
-                    failed.add(token)
-                }
-                else -> {
-                    recordResult(head, "buffered")
-                    deferHead(head)
-                    failed.add(token)
-                }
+        val queued = synchronized(bufferLock) { readQueues() }
+        val keys = queued.keys()
+        while (keys.hasNext()) {
+            val token = keys.next()
+            if (token !in allowed) continue
+            val queue = queued.optJSONArray(token) ?: continue
+            for (i in 0 until queue.length()) {
+                dispatch(JSONObject(queue.getJSONObject(i).toString()))
             }
         }
-        if (bufferCount() > 0 && !PhoneTrackApi.rateLimited(this)) scheduleDrain(1000L)
+    }
+
+    private fun dispatch(point: JSONObject) {
+        val key = pointKey(point)
+        if (!inFlight.add(key)) return
+        try {
+            sends.execute {
+                try {
+                    sendOne(point)
+                } finally {
+                    inFlight.remove(key)
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            inFlight.remove(key)
+        }
+    }
+
+    private fun sendOne(point: JSONObject) {
+        if (!online() || PhoneTrackApi.rateLimited(this)) {
+            scheduleDrain(1000L)
+            return
+        }
+        when (postSync(logClient(), point)) {
+            "ok" -> {
+                dropHead(point)
+                noteSettled(point.optString("token"), 1)
+            }
+            else -> scheduleDrain(1000L)
+        }
     }
 
     private fun markBuffered(result: String) {
@@ -739,6 +712,7 @@ class LocationPublishService : Service() {
     override fun onDestroy() {
         mainHandler.removeCallbacksAndMessages(null)
         io.shutdownNow()
+        sends.shutdownNow()
         locationCallback?.let {
             if (::fusedLocationClient.isInitialized) fusedLocationClient.removeLocationUpdates(it)
         }
@@ -760,7 +734,6 @@ class LocationPublishService : Service() {
     companion object {
         const val ACTION_PUBLISH_ONCE = "com.example.ncphonetrack.PUBLISH_ONCE"
         private const val MAX_BUFFER = 7200
-        private const val BURST = 3
 
         fun defaultPostedName(context: Context): String {
             val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
