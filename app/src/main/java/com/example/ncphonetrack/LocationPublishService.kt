@@ -28,6 +28,7 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.tasks.CancellationTokenSource
 import java.util.concurrent.RejectedExecutionException
+import okhttp3.ConnectionPool
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -38,6 +39,7 @@ import java.net.URLEncoder
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 class LocationPublishService : Service() {
 
@@ -52,7 +54,9 @@ class LocationPublishService : Service() {
     private var deviceName: String = ""
     private val bufferLock = Any()
     private val io = Executors.newSingleThreadExecutor()
-    private val sends = Executors.newCachedThreadPool()
+    private val lanes = Array(10) { Executors.newSingleThreadExecutor() }
+    private val laneClients = arrayOfNulls<OkHttpClient>(10)
+    private val laneCursor = AtomicInteger(0)
     private val inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val drainScheduled = AtomicBoolean(false)
@@ -424,6 +428,20 @@ class LocationPublishService : Service() {
             .build()
     }
 
+    private fun clientFor(index: Int): OkHttpClient {
+        synchronized(laneClients) {
+            val existing = laneClients[index]
+            if (existing != null) return existing
+            val client = logClient().newBuilder()
+                .connectionPool(ConnectionPool(1, 5, TimeUnit.MINUTES))
+                .build()
+            client.dispatcher.maxRequests = 1
+            client.dispatcher.maxRequestsPerHost = 1
+            laneClients[index] = client
+            return client
+        }
+    }
+
     private fun postSync(client: OkHttpClient, point: JSONObject): String {
         val url = logUrl(point)
         val body = FormBody.Builder()
@@ -591,10 +609,11 @@ class LocationPublishService : Service() {
     private fun dispatch(point: JSONObject) {
         val key = pointKey(point)
         if (!inFlight.add(key)) return
+        val index = Math.floorMod(laneCursor.getAndIncrement(), lanes.size)
         try {
-            sends.execute {
+            lanes[index].execute {
                 try {
-                    sendOne(point)
+                    sendOne(point, index)
                 } finally {
                     inFlight.remove(key)
                 }
@@ -604,12 +623,12 @@ class LocationPublishService : Service() {
         }
     }
 
-    private fun sendOne(point: JSONObject) {
+    private fun sendOne(point: JSONObject, lane: Int) {
         if (!online() || PhoneTrackApi.rateLimited(this)) {
             scheduleDrain(1000L)
             return
         }
-        when (postSync(logClient(), point)) {
+        when (postSync(clientFor(lane), point)) {
             "ok" -> {
                 dropHead(point)
                 noteSettled(point.optString("token"), 1)
@@ -712,7 +731,7 @@ class LocationPublishService : Service() {
     override fun onDestroy() {
         mainHandler.removeCallbacksAndMessages(null)
         io.shutdownNow()
-        sends.shutdownNow()
+        lanes.forEach { it.shutdownNow() }
         locationCallback?.let {
             if (::fusedLocationClient.isInitialized) fusedLocationClient.removeLocationUpdates(it)
         }
