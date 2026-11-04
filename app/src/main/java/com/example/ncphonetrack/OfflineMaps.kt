@@ -11,13 +11,17 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import org.osmdroid.tileprovider.MapTileProviderBasic
+import org.osmdroid.tileprovider.modules.IFilesystemCache
 import org.osmdroid.tileprovider.modules.MapTileModuleProviderBase
 import org.osmdroid.tileprovider.tilesource.ITileSource
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
 import java.io.File
+import java.io.InputStream
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.cos
@@ -151,18 +155,135 @@ object OfflineMaps {
     @Volatile
     var tileEpoch: Int = 0
 
+    @Volatile
+    var viewedSize: Long = -1L
+
+    private val mapRef = java.util.concurrent.atomic.AtomicReference<java.lang.ref.WeakReference<MapView>>()
+    private val refreshScheduled = AtomicBoolean(false)
+    private val refreshing = ConcurrentHashMap.newKeySet<String>()
+    private val refresher = Executors.newFixedThreadPool(2)
+
     fun installBase(context: Context, mapView: MapView, base: BaseMap) {
+        mapRef.set(java.lang.ref.WeakReference(mapView))
         mapView.setTileProvider(OfflineTileProvider(context, tileSource(base), base))
         mapView.maxZoomLevel = if (base.maxZoom < 19) 21.0 else 19.0
         mapView.setUseDataConnection(true)
         mapView.invalidate()
     }
 
+    fun viewedRoot(context: Context) = File(context.filesDir, "osmdroid/viewed")
+
+    fun viewedFile(context: Context, base: BaseMap, zoom: Int, x: Int, y: Int) =
+        File(viewedRoot(context), "${base.id}/$zoom/$x/$y${base.ext}")
+
+    fun cachedTile(context: Context, base: BaseMap, zoom: Int, x: Int, y: Int): File? {
+        val state = File(tileCache(context), "${base.id}/$zoom/$x/$y${base.ext}")
+        if (state.isFile && state.length() > 100) return state
+        val viewed = viewedFile(context, base, zoom, x, y)
+        if (viewed.isFile && viewed.length() > 100) return viewed
+        return null
+    }
+
+    fun measureViewed(context: Context): Long {
+        val root = viewedRoot(context)
+        if (!root.isDirectory) {
+            viewedSize = 0L
+            return 0L
+        }
+        var total = 0L
+        root.walkTopDown().forEach { if (it.isFile) total += it.length() }
+        viewedSize = total
+        return total
+    }
+
+    fun clearViewed(context: Context) {
+        viewedRoot(context).deleteRecursively()
+        viewedSize = 0L
+    }
+
+    private fun considerRefresh(file: File, base: BaseMap, zoom: Int, x: Int, y: Int) {
+        if (scaleOnly) return
+        if (System.currentTimeMillis() - file.lastModified() <= FRESH_MS) return
+        if (refreshing.size > 80) return
+        val key = "${base.id}/$zoom/$x/$y"
+        if (!refreshing.add(key)) return
+        refresher.execute {
+            try {
+                val tmp = File(file.parentFile, file.name + ".new")
+                val wrote = saveTile(base.url(zoom, x, y), tmp)
+                if (wrote > 0) {
+                    if (file.exists()) file.delete()
+                    if (tmp.renameTo(file)) pokeMap() else tmp.delete()
+                } else {
+                    tmp.delete()
+                }
+            } finally {
+                refreshing.remove(key)
+            }
+        }
+    }
+
+    private fun pokeMap() {
+        if (!refreshScheduled.compareAndSet(false, true)) return
+        val map = mapRef.get()?.get() ?: run {
+            refreshScheduled.set(false)
+            return
+        }
+        map.postDelayed({
+            refreshScheduled.set(false)
+            if (scaleOnly) return@postDelayed
+            map.tileProvider.clearTileCache()
+            map.invalidate()
+        }, 800)
+    }
+
+    private class ViewedTileWriter(
+        private val context: Context,
+        private val base: BaseMap
+    ) : IFilesystemCache {
+        override fun saveFile(source: ITileSource, index: Long, stream: InputStream, expiration: Long?): Boolean {
+            val dest = viewedFile(context, base, MapTileIndex.getZoom(index), MapTileIndex.getX(index), MapTileIndex.getY(index))
+            return try {
+                dest.parentFile?.mkdirs()
+                val tmp = File(dest.absolutePath + ".part")
+                tmp.outputStream().use { stream.copyTo(it) }
+                if (tmp.length() < 100) {
+                    tmp.delete()
+                    false
+                } else {
+                    if (dest.exists()) dest.delete()
+                    val ok = tmp.renameTo(dest)
+                    if (ok) viewedSize = -1L
+                    ok
+                }
+            } catch (_: Exception) {
+                false
+            }
+        }
+
+        override fun exists(source: ITileSource, index: Long): Boolean {
+            val dest = viewedFile(context, base, MapTileIndex.getZoom(index), MapTileIndex.getX(index), MapTileIndex.getY(index))
+            return dest.isFile && dest.length() > 100
+        }
+
+        override fun getExpirationTimestamp(source: ITileSource, index: Long): Long? {
+            val dest = viewedFile(context, base, MapTileIndex.getZoom(index), MapTileIndex.getX(index), MapTileIndex.getY(index))
+            if (!dest.isFile) return null
+            return dest.lastModified() + FRESH_MS
+        }
+
+        override fun remove(source: ITileSource, index: Long): Boolean {
+            return viewedFile(context, base, MapTileIndex.getZoom(index), MapTileIndex.getX(index), MapTileIndex.getY(index)).delete()
+        }
+
+        override fun onDetach() = Unit
+    }
+
     private class OfflineTileProvider(
         context: Context,
         source: ITileSource,
         base: BaseMap
-    ) : MapTileProviderBasic(context, source) {
+    ) : MapTileProviderBasic(context, source, ViewedTileWriter(context, base)) {
         init {
             mTileProviderList.add(0, LocalTileModule(context, base))
             if (base.maxZoom < 19) {
@@ -197,9 +318,10 @@ object OfflineMaps {
                     return scaledParent(x, y, zoom)?.also { scaled.put(pMapTileIndex, it) }
                         ?.let { BitmapDrawable(context.resources, it) }
                 }
-                val exact = tileFile(zoom, x, y)
-                if (exact.isFile && exact.length() > 100) {
+                val exact = cachedTile(context, base, zoom, x, y)
+                if (exact != null) {
                     if (epoch != tileEpoch) return null
+                    considerRefresh(exact, base, zoom, x, y)
                     val bitmap = BitmapFactory.decodeFile(exact.path) ?: return null
                     return BitmapDrawable(context.resources, bitmap)
                 }
@@ -213,9 +335,6 @@ object OfflineMaps {
                 return null
             }
         }
-
-        private fun tileFile(zoom: Int, x: Int, y: Int) =
-            File(tileCache(context), "${base.id}/$zoom/$x/$y${base.ext}")
 
         private fun scaledParent(x: Int, y: Int, zoom: Int): Bitmap? {
             var diff = 1
@@ -231,8 +350,8 @@ object OfflineMaps {
         }
 
         private fun parentBitmap(x: Int, y: Int, zoom: Int): Bitmap? {
-            val file = tileFile(zoom, x, y)
-            if (!file.isFile || file.length() <= 100) return null
+            val file = cachedTile(context, base, zoom, x, y) ?: return null
+            considerRefresh(file, base, zoom, x, y)
             val key = "${base.id}/$zoom/$x/$y"
             parents.get(key)?.let { return it }
             val bitmap = BitmapFactory.decodeFile(file.path) ?: return null
@@ -269,19 +388,29 @@ object OfflineMaps {
         private fun parentBitmap(x: Int, y: Int): Bitmap? {
             val key = "$x/$y"
             parents.get(key)?.let { return it }
-            val bitmap = fetchBitmap(base.url(base.maxZoom, x, y)) ?: return null
+            val cached = cachedTile(context, base, base.maxZoom, x, y)
+            val bitmap = if (cached != null) {
+                considerRefresh(cached, base, base.maxZoom, x, y)
+                BitmapFactory.decodeFile(cached.path)
+            } else {
+                fetchBitmap(base.url(base.maxZoom, x, y), x, y)
+            } ?: return null
             parents.put(key, bitmap)
             return bitmap
         }
 
         private fun scaleQuadrant(src: Bitmap, x: Int, y: Int, diff: Int): Bitmap = scaleTileQuadrant(src, x, y, diff)
 
-        private fun fetchBitmap(url: String): Bitmap? {
+        private fun fetchBitmap(url: String, x: Int, y: Int): Bitmap? {
             return try {
                 val request = Request.Builder().url(url).header("User-Agent", "NextcloudPhoneTrack").build()
                 client.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) return null
                     val bytes = response.body?.bytes() ?: return null
+                    val dest = viewedFile(context, base, base.maxZoom, x, y)
+                    dest.parentFile?.mkdirs()
+                    dest.writeBytes(bytes)
+                    viewedSize = -1L
                     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 }
             } catch (_: Exception) {

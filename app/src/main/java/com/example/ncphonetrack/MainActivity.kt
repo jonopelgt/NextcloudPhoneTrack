@@ -2930,6 +2930,40 @@ class MainActivity : AppCompatActivity() {
         }
         fun paintSaved() {
             saved.removeAllViews()
+            val known = OfflineMaps.viewedSize
+            val cacheLabel = TextView(this).apply {
+                text = if (known < 0L) "Local cache" else "Local cache (${OfflineMaps.compactSize(known)})"
+                textSize = 16f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            saved.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, pad / 4, 0, pad / 2)
+                addView(cacheLabel)
+                addView(Button(this@MainActivity).apply {
+                    text = "Clear"
+                    textSize = 12f
+                    setOnClickListener {
+                        OfflineMaps.clearViewed(this@MainActivity)
+                        cacheLabel.text = "Local cache (${OfflineMaps.compactSize(0)})"
+                        if (::map.isInitialized) {
+                            map.tileProvider.clearTileCache()
+                            map.invalidate()
+                        }
+                    }
+                })
+            })
+            if (known < 0L) {
+                Thread {
+                    val bytes = OfflineMaps.measureViewed(this)
+                    runOnUiThread {
+                        if (mapsDialog?.isShowing == true) {
+                            cacheLabel.text = "Local cache (${OfflineMaps.compactSize(bytes)})"
+                        }
+                    }
+                }.start()
+            }
             val totalBytes = OfflineMaps.storedTotal(prefs)
             downloadedTitle.text = if (totalBytes > 0L) {
                 "Downloaded (${OfflineMaps.compactSize(totalBytes)})"
