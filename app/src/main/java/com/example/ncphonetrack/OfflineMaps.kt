@@ -189,28 +189,39 @@ object OfflineMaps {
                 val y = MapTileIndex.getY(pMapTileIndex)
                 if (scaleOnly) {
                     scaled.get(pMapTileIndex)?.let { return BitmapDrawable(context.resources, it) }
+                    return scaledParent(x, y, zoom)?.also { scaled.put(pMapTileIndex, it) }
+                        ?.let { BitmapDrawable(context.resources, it) }
                 }
                 val exact = tileFile(zoom, x, y)
-                if (!scaleOnly && exact.isFile && exact.length() > 100) {
+                if (exact.isFile && exact.length() > 100) {
                     val bitmap = BitmapFactory.decodeFile(exact.path) ?: return null
                     return BitmapDrawable(context.resources, bitmap)
                 }
-                var diff = 1
-                var parent: Bitmap? = null
-                while (zoom - diff >= MIN_ZOOM && diff <= 8) {
-                    parent = parentBitmap(x shr diff, y shr diff, zoom - diff)
-                    if (parent != null) break
-                    diff++
+                val (lat, lon) = tileLatLon(zoom, x, y)
+                val ceiling = storedCeiling(context, lat, lon)
+                if (ceiling != null && zoom > ceiling) {
+                    val bitmap = scaledParent(x, y, zoom) ?: return null
+                    return BitmapDrawable(context.resources, bitmap)
                 }
-                if (parent == null) return null
-                val bitmap = scaleTileQuadrant(parent, x, y, diff)
-                if (scaleOnly) scaled.put(pMapTileIndex, bitmap)
-                return BitmapDrawable(context.resources, bitmap)
+                return null
             }
         }
 
         private fun tileFile(zoom: Int, x: Int, y: Int) =
             File(tileCache(context), "${base.id}/$zoom/$x/$y${base.ext}")
+
+        private fun scaledParent(x: Int, y: Int, zoom: Int): Bitmap? {
+            var diff = 1
+            var parent: Bitmap? = null
+            while (zoom - diff >= MIN_ZOOM && diff <= 8) {
+                parent = parentBitmap(x shr diff, y shr diff, zoom - diff)
+                if (parent != null) break
+                diff++
+            }
+            if (parent == null) return null
+            val found = parent
+            return scaleTileQuadrant(found, x, y, diff)
+        }
 
         private fun parentBitmap(x: Int, y: Int, zoom: Int): Bitmap? {
             val file = tileFile(zoom, x, y)
@@ -301,6 +312,21 @@ object OfflineMaps {
     fun storedZoom(prefs: SharedPreferences, abbr: String): Int {
         val zoom = catalog(prefs).optJSONObject(abbr)?.optInt("zoom", MAX_ZOOM) ?: MAX_ZOOM
         return zoom.coerceIn(MIN_ZOOM, 16)
+    }
+
+    private fun storedCeiling(context: Context, lat: Double, lon: Double): Int? {
+        val state = stateAt(lat, lon) ?: return null
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val item = catalog(prefs).optJSONObject(state.abbr) ?: return null
+        if (item.optLong("at", 0L) <= 0L) return null
+        return item.optInt("zoom", MAX_ZOOM).coerceIn(MIN_ZOOM, 16)
+    }
+
+    private fun tileLatLon(zoom: Int, x: Int, y: Int): Pair<Double, Double> {
+        val n = 1 shl zoom.coerceIn(0, 30)
+        val lon = (x + 0.5) / n * 360.0 - 180.0
+        val lat = Math.toDegrees(kotlin.math.atan(kotlin.math.sinh(Math.PI * (1 - 2.0 * (y + 0.5) / n))))
+        return lat to lon
     }
 
     fun estimateBytes(state: UsState, maxZoom: Int): Long {

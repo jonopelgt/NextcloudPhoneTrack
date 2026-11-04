@@ -199,7 +199,8 @@ class MainActivity : AppCompatActivity() {
                 val target = pendingSlideZoom
                 pendingSlideZoom = null
                 if (target != null) keepFollow { map.controller.setZoom(target) }
-                map.invalidate()
+                else recenterFollow()
+                reloadHighestTiles()
             }
         }
         zoomSlide.setZoom(map.zoomLevelDouble)
@@ -3247,6 +3248,7 @@ class MainActivity : AppCompatActivity() {
                     repeating = false
                     key.isPressed = false
                     key.removeCallbacks(repeat)
+                    reloadHighestTiles()
                     true
                 }
                 else -> false
@@ -3272,6 +3274,24 @@ class MainActivity : AppCompatActivity() {
         trackedUser = tracked
         allMode = all
         zoomControlActive = gesture
+        recenterFollow()
+    }
+
+    private fun recenterFollow() {
+        if (!::map.isInitialized || mapFollow != MapFollow.USER) return
+        val name = trackedUser ?: return
+        val point = lastPoints[name] ?: if (isSelf(name)) ownLastPoint() else null
+        if (point == null) return
+        map.controller.stopAnimation(false)
+        map.controller.setCenter(point)
+    }
+
+    private fun reloadHighestTiles() {
+        if (!::map.isInitialized) return
+        OfflineMaps.scaleOnly = false
+        map.setUseDataConnection(true)
+        map.tileProvider.clearTileCache()
+        map.invalidate()
     }
 
     private fun zoomKey(label: String, onClick: () -> Unit): TextView {
