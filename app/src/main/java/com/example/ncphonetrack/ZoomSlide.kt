@@ -21,7 +21,7 @@ class ZoomSlide(context: Context, attrs: AttributeSet?) : View(context, attrs) {
     private var startZoom = 12.0
     private var startY = 0f
     private val travel: Float
-        get() = 160f * resources.displayMetrics.density
+        get() = 320f * resources.displayMetrics.density
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#111111") }
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {

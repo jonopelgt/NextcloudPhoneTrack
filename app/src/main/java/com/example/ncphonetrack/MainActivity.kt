@@ -173,8 +173,8 @@ class MainActivity : AppCompatActivity() {
         btnZoomIn = findViewById(R.id.btnZoomIn)
         btnZoomOut = findViewById(R.id.btnZoomOut)
         zoomSlide = findViewById(R.id.zoomSlide)
-        zoomSlide.limits = { map.minZoomLevel to map.maxZoomLevel }
-        zoomSlide.onZoom = { level -> map.controller.setZoom(level) }
+        zoomSlide.limits = { 6.0 to map.maxZoomLevel }
+        zoomSlide.onZoom = { level -> map.controller.setZoom(level.coerceAtLeast(6.0)) }
         zoomSlide.setZoom(map.zoomLevelDouble)
         map.addMapListener(object : org.osmdroid.events.MapListener {
             override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean = false
@@ -2604,6 +2604,41 @@ class MainActivity : AppCompatActivity() {
         applyMapFollow(lastPoints.values.toList())
         map.invalidate()
         updateStatusText("${displayedSessionName()}: Map updated: ${positions.size} devices")
+        logMapDisplay(positions, ageOut)
+    }
+
+    private fun logMapDisplay(positions: Map<String, GeoPointData>, ageOut: Int) {
+        if (!::map.isInitialized) return
+        val center = map.mapCenter
+        val follow = when (mapFollow) {
+            MapFollow.MANUAL -> "Manual"
+            MapFollow.USER -> trackedUser?.takeIf { it.isNotBlank() } ?: "Manual"
+            MapFollow.GROUP -> "All"
+        }
+        val left = SharingControl.remaining(this)
+        val sharing = when {
+            positionUpdatesOff() -> "Off"
+            left > 0L -> "Timer ${SharingControl.hourMinuteLabel(left)}"
+            else -> "On"
+        }
+        val position = if (prefs.getBoolean("spoof_enabled", false)) "Spoof" else modeLabel(currentPositionMode())
+        LogManager.add(
+            "Map display center ${"%.5f".format(center.latitude)}, ${"%.5f".format(center.longitude)} zoom ${"%.1f".format(map.zoomLevelDouble)} follow $follow sharing $sharing position $position",
+            3
+        )
+        positions.forEach { (name, data) ->
+            val alpha = ageAlpha(data.timestamp, ageOut)
+            val drawn = alpha > 0.05f
+            val why = if (drawn) "yes" else "no, aged out"
+            val point = GeoPoint(data.lat, data.lon)
+            val onScreen = if (!drawn || map.width < 2) "no" else if (dotOnScreen(point)) "yes" else "no"
+            LogManager.add("$name age ${ageText(data.timestamp)} age-out ${ageOut}m drawn $why on screen $onScreen", 3)
+        }
+    }
+
+    private fun dotOnScreen(point: GeoPoint): Boolean {
+        val pixel = map.projection.toPixels(point, null)
+        return pixel.x >= 0 && pixel.y >= 0 && pixel.x <= map.width && pixel.y <= map.height
     }
 
     private fun loadTracks(
@@ -3769,16 +3804,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshZoomKeys() {
-        val tracking = mapFollow == MapFollow.USER
         val mapContext = !::statusPanel.isInitialized || statusPanel.visibility != View.VISIBLE
         mapControls.visibility = if (mapContext) View.VISIBLE else View.GONE
-        btnZoomIn.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
-        btnZoomOut.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
+        btnZoomIn.visibility = if (mapContext) View.VISIBLE else View.GONE
+        btnZoomOut.visibility = if (mapContext) View.VISIBLE else View.GONE
         if (::zoomSlide.isInitialized) {
-            zoomSlide.visibility = if (mapContext && tracking) View.VISIBLE else View.GONE
+            zoomSlide.visibility = if (mapContext) View.VISIBLE else View.GONE
             zoomSlide.setZoom(map.zoomLevelDouble)
         }
-        btnGroupView.visibility = if (mapContext && !allMode) View.VISIBLE else View.GONE
+        btnGroupView.visibility = if (mapContext) View.VISIBLE else View.GONE
         if (::btnReticle.isInitialized) btnReticle.visibility = if (mapContext) View.VISIBLE else View.GONE
         if (::mapControls.isInitialized && mapContext) mapControls.bringToFront()
         if (::btnPositionMode.isInitialized && mapContext) btnPositionMode.bringToFront()
