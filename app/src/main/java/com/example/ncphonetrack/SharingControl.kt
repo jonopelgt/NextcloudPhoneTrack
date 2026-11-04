@@ -213,10 +213,13 @@ object SharingControl {
 
     fun hourMinuteLabel(ms: Long): String {
         val totalMin = (ms / 60000L).coerceAtLeast(0L)
-        return "${totalMin / 60}h ${totalMin % 60}m"
+        val hoursTotal = totalMin / 60
+        if (totalMin > 24 * 60) return "${hoursTotal / 24}d ${hoursTotal % 24}h"
+        return "${hoursTotal}h ${totalMin % 60}m"
     }
 
     fun countdownLabel(ms: Long): String {
+        if (ms > 24L * 60 * 60 * 1000) return hourMinuteLabel(ms)
         val total = (ms / 1000L).coerceAtLeast(0L)
         val days = total / 86_400
         val hours = (total % 86_400) / 3_600

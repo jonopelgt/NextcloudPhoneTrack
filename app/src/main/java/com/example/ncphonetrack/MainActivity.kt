@@ -2895,21 +2895,16 @@ class MainActivity : AppCompatActivity() {
             val active = OfflineMaps.queue()
             val activeAbbr = active.map { it.abbr }.toSet()
             active.forEach { job ->
-                saved.addView(LinearLayout(this).apply {
+                val status = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(0, pad / 4, 0, pad / 4)
-                    addView(TextView(this@MainActivity).apply {
-                        text = job.name
-                        textSize = 16f
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                    })
                     if (job.queued) {
                         addView(TextView(this@MainActivity).apply {
                             text = "queued"
                             textSize = 14f
                             setTextColor(Color.parseColor("#E65100"))
                             setTypeface(typeface, android.graphics.Typeface.BOLD)
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                         })
                     } else {
                         val percent = if (job.total <= 0) 0 else (job.done * 100 / job.total).coerceIn(0, 100)
@@ -2926,13 +2921,22 @@ class MainActivity : AppCompatActivity() {
                         addView(android.widget.ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
                             max = 100
                             progress = percent
-                            layoutParams = LinearLayout.LayoutParams((110 * resources.displayMetrics.density).toInt(), LinearLayout.LayoutParams.WRAP_CONTENT)
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                         })
                     }
                     addView(stateAction("Cancel") {
                         OfflineMaps.cancel(job.abbr)
                         paintSaved()
                     })
+                }
+                saved.addView(LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, pad / 4, 0, pad / 2)
+                    addView(TextView(this@MainActivity).apply {
+                        text = job.name
+                        textSize = 16f
+                    })
+                    addView(status)
                 })
             }
             val rows = OfflineMaps.downloaded(prefs).filter { it.first.abbr !in activeAbbr }
@@ -2950,32 +2954,35 @@ class MainActivity : AppCompatActivity() {
                 val bytes = OfflineMaps.storedBytes(prefs, state.abbr)
                 val sizeText = if (bytes >= 0L) OfflineMaps.compactSize(bytes) else null
                 saved.addView(LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                    setPadding(0, pad / 4, 0, pad / 4)
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(0, pad / 4, 0, pad / 2)
                     addView(TextView(this@MainActivity).apply {
                         text = state.name
                         textSize = 16f
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                     })
-                    addView(TextView(this@MainActivity).apply {
-                        text = when {
-                            fresh && sizeText != null -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)} ($sizeText)  OK"
-                            sizeText != null -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)} ($sizeText)"
-                            fresh -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)}  OK"
-                            else -> whenText
-                        }
-                        textSize = 14f
-                        setTextColor(Color.parseColor(if (fresh) "#1B7F3A" else "#757575"))
-                        setTypeface(typeface, android.graphics.Typeface.BOLD)
-                    })
-                    addView(stateAction(if (fresh) "Delete" else "Update") {
-                        if (fresh) {
-                            OfflineMaps.remove(this@MainActivity, prefs, state)
-                            paintSaved()
-                        } else {
-                            startDownload(listOf(state), true)
-                        }
+                    addView(LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        addView(TextView(this@MainActivity).apply {
+                            text = when {
+                                fresh && sizeText != null -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)} ($sizeText)  OK"
+                                sizeText != null -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)} ($sizeText)"
+                                fresh -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)}  OK"
+                                else -> whenText
+                            }
+                            textSize = 14f
+                            setTextColor(Color.parseColor(if (fresh) "#1B7F3A" else "#757575"))
+                            setTypeface(typeface, android.graphics.Typeface.BOLD)
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        })
+                        addView(stateAction(if (fresh) "Delete" else "Update") {
+                            if (fresh) {
+                                OfflineMaps.remove(this@MainActivity, prefs, state)
+                                paintSaved()
+                            } else {
+                                startDownload(listOf(state), true)
+                            }
+                        })
                     })
                 })
             }

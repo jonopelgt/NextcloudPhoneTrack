@@ -408,7 +408,7 @@ object OfflineMaps {
     @Volatile private var current: MapJob? = null
     private val running = AtomicBoolean(false)
     private var byteCount = 0L
-    private var rateStart = 0L
+    private val rateSamples = ArrayDeque<Triple<Long, Long, Long>>()
     @Volatile private var cancelAbbr: String? = null
 
     fun rateText(bps: Long): String {
@@ -494,7 +494,7 @@ object OfflineMaps {
                     } ?: break
                     val total = tileTotal(job.state, job.zoom)
                     byteCount = 0L
-                    rateStart = System.currentTimeMillis()
+                    rateSamples.clear()
                     synchronized(pending) { current = MapJob(job.state.abbr, job.state.name, false, 0, total, 0L) }
                     onStatus("${job.state.name} started")
                     val error = download(context, job.state, job.force, job.zoom, total, onStatus)
@@ -555,8 +555,14 @@ object OfflineMaps {
                             noteProgress(state, attempted, total)
                             onStatus("${state.name} $attempted/$total")
                         }
+                        val started = System.currentTimeMillis()
                         val wrote = saveTile(map.url(zoom, x, y), dest)
-                        if (wrote < 0) failed++ else byteCount += wrote
+                        if (wrote < 0) failed++ else {
+                            byteCount += wrote
+                            val now = System.currentTimeMillis()
+                            rateSamples.addLast(Triple(now, (now - started).coerceAtLeast(1L), wrote))
+                            while (rateSamples.isNotEmpty() && now - rateSamples.first().first > 5_000L) rateSamples.removeFirst()
+                        }
                     }
                     if (attempted == 1 || attempted % 20 == 0) {
                         noteProgress(state, attempted, total)
@@ -573,8 +579,11 @@ object OfflineMaps {
     }
 
     private fun noteProgress(state: UsState, done: Int, total: Int) {
-        val elapsed = (System.currentTimeMillis() - rateStart).coerceAtLeast(1)
-        val bps = byteCount * 1000L / elapsed
+        val now = System.currentTimeMillis()
+        while (rateSamples.isNotEmpty() && now - rateSamples.first().first > 5_000L) rateSamples.removeFirst()
+        val bytes = rateSamples.sumOf { it.third }
+        val span = rateSamples.sumOf { it.second }.coerceAtLeast(1L)
+        val bps = if (bytes <= 0L) 0L else bytes * 1000L / span
         synchronized(pending) { current = MapJob(state.abbr, state.name, false, done, total, bps) }
     }
 
