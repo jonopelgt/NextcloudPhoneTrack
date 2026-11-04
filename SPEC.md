@@ -260,3 +260,4 @@ Android application that connects to a self-hosted Nextcloud instance running th
 - Rev 155 (2026-11-03): The session banner puts the time left in parentheses. Zoom All does not move the camera when the users are already in view.
 - Rev 156 (2026-11-03): On in the Sharing menu uses the broadcast map pin.
 - Rev 157 (2026-11-03): The Sharing menu offers 2 hours, 6 hours, 1 day, and 4 days. The map draws positions without waiting for the track download, and it does not start another read while one is still running.
+- Rev 158 (2026-11-04): Track dots stay on the map while it refreshes. After the first download, only points newer than the newest stored point are requested.

@@ -71,6 +71,7 @@ class MainActivity : AppCompatActivity() {
     private var fetchTimer: Timer? = null
     private val mapReadBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     private val trackReadBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val trackCache = mutableMapOf<String, MutableList<TrackPoint>>()
     private var mapEpoch = 0
     private var mapFollow = MapFollow.GROUP
     private var trackedUser: String? = null
@@ -2488,10 +2489,14 @@ class MainActivity : AppCompatActivity() {
     private var fetchDevice = ""
 
     private fun startFetchingPositions(url: String, token: String, device: String) {
+        fetchTimer?.cancel()
+        if (fetchToken != token) {
+            trackCache.clear()
+            if (::map.isInitialized) map.overlays.removeAll { (it as? Marker)?.title == "Track" }
+        }
         fetchUrl = url
         fetchToken = token
         fetchDevice = device
-        fetchTimer?.cancel()
         mapEpoch += 1
         val epoch = mapEpoch
         val seconds = fetchIntervalMs()
@@ -2538,7 +2543,10 @@ class MainActivity : AppCompatActivity() {
             .putLong("last_map_ok", System.currentTimeMillis())
             .apply()
         refreshMapBanner()
-        map.overlays.clear()
+        map.overlays.removeAll { overlay ->
+            val marker = overlay as? Marker ?: return@removeAll true
+            marker.title != "Track"
+        }
         lastPoints.clear()
         val others = positions.keys.filter { it != ownDevice }.sorted()
         positions.forEach { (name, data) ->
@@ -2596,18 +2604,44 @@ class MainActivity : AppCompatActivity() {
         ageOut: Int
     ) {
         if (!trackReadBusy.compareAndSet(false, true)) return
-        Thread {
+        Thread load@ {
             try {
-                val tracks = PhoneTrackApi.getTrackPoints(this, url, token, ageOut)
+                val nowSec = System.currentTimeMillis() / 1000
+                val cutoff = nowSec - ageOut.coerceAtLeast(1) * 60
+                var dropped = false
+                tracked.forEach { name ->
+                    val kept = trackCache[trackKey(token, name)]
+                    if (kept != null && kept.removeAll { it.timestamp < cutoff }) dropped = true
+                }
+                val newest = tracked.mapNotNull { name -> trackCache[trackKey(token, name)]?.maxOfOrNull { it.timestamp } }
+                val tsmin = if (newest.size == tracked.size && newest.isNotEmpty()) newest.min() + 1 else cutoff
+                val incoming = PhoneTrackApi.getTrackPoints(this, url, token, ageOut, tsmin)
+                var added = 0
+                incoming.forEach { (name, points) ->
+                    if (tracked.none { it.equals(name, true) }) return@forEach
+                    val key = trackKey(token, tracked.first { it.equals(name, true) })
+                    val list = trackCache.getOrPut(key) { mutableListOf() }
+                    points.forEach { point ->
+                        if (point.timestamp < cutoff) return@forEach
+                        val known = list.any {
+                            it.timestamp == point.timestamp && it.lat == point.lat && it.lon == point.lon
+                        }
+                        if (!known) {
+                            list.add(point)
+                            added += 1
+                        }
+                    }
+                }
+                if (added == 0 && !dropped) return@load
+                val snapshot = tracked.associateWith { name ->
+                    trackCache[trackKey(token, name)].orEmpty().filter { it.timestamp >= cutoff }
+                }
                 runOnUiThread {
                     if (epoch != mapEpoch || !::map.isInitialized) return@runOnUiThread
                     map.overlays.removeAll { (it as? Marker)?.title == "Track" }
                     val others = positions.keys.filter { it != ownDevice }.sorted()
-                    tracked.forEach { name ->
+                    snapshot.forEach { (name, history) ->
                         val color = personColor(token, name, ownDevice, others)
-                        val history = tracks[name]
-                            ?: tracks.entries.firstOrNull { it.key.equals(name, true) }?.value
-                            ?: emptyList()
                         val current = positions[name]
                         history.forEach { point ->
                             if (current != null && kotlin.math.abs(point.lat - current.lat) < 0.00005 && kotlin.math.abs(point.lon - current.lon) < 0.00005) {
@@ -2632,12 +2666,15 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     map.invalidate()
+                    LogManager.add("Tracks showing ${snapshot.values.sumOf { it.size }} points, $added new")
                 }
             } finally {
                 trackReadBusy.set(false)
             }
         }.start()
     }
+
+    private fun trackKey(token: String, name: String) = "$token\n$name"
 
     private fun activeSessionFailed(): Boolean {
         val url = prefs.getString("url", "") ?: ""
