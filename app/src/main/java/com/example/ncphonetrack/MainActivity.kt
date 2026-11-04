@@ -75,6 +75,9 @@ class MainActivity : AppCompatActivity() {
     private var mapEpoch = 0
     private var mapFollow = MapFollow.GROUP
     private var zoomControlActive = false
+    private var pendingSlideZoom: Double? = null
+    private var slideFramePosted = false
+    private val shownColor = mutableMapOf<String, Int>()
     private var trackedUser: String? = null
     private val lastPoints = mutableMapOf<String, GeoPoint>()
     private lateinit var btnZoomIn: TextView
@@ -176,11 +179,29 @@ class MainActivity : AppCompatActivity() {
         zoomSlide = findViewById(R.id.zoomSlide)
         zoomSlide.limits = { 6.0 to map.maxZoomLevel }
         zoomSlide.onZoom = { level ->
-            keepFollow {
-                map.controller.setZoom(level.coerceAtLeast(6.0))
+            pendingSlideZoom = level.coerceAtLeast(6.0).coerceAtMost(map.maxZoomLevel)
+            OfflineMaps.scaleOnly = true
+            if (!slideFramePosted) {
+                slideFramePosted = true
+                map.postOnAnimation {
+                    slideFramePosted = false
+                    val target = pendingSlideZoom ?: return@postOnAnimation
+                    keepFollow { map.controller.setZoom(target) }
+                }
             }
         }
-        zoomSlide.onGesture = { active -> zoomControlActive = active }
+        zoomSlide.onGesture = { active ->
+            zoomControlActive = active
+            OfflineMaps.scaleOnly = active
+            map.setUseDataConnection(!active)
+            if (!active) {
+                slideFramePosted = false
+                val target = pendingSlideZoom
+                pendingSlideZoom = null
+                if (target != null) keepFollow { map.controller.setZoom(target) }
+                map.invalidate()
+            }
+        }
         zoomSlide.setZoom(map.zoomLevelDouble)
         map.addMapListener(object : org.osmdroid.events.MapListener {
             override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean = false
@@ -2577,11 +2598,13 @@ class MainActivity : AppCompatActivity() {
             val mine = name == ownDevice
             lastPoints[name] = point
             if (mine) rememberOwn(data.lat, data.lon)
+            val color = personColor(token, name, ownDevice, others)
+            shownColor[name] = color
             val marker = Marker(map)
             marker.position = point
             marker.title = if (mine) "You · $name" else name
             marker.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
-            marker.icon = iconFor(personColor(token, name, ownDevice, others), 28, alpha)
+            marker.icon = iconFor(color, 28, alpha)
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
             marker.setOnMarkerClickListener { clicked, _ ->
                 clicked.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(data.timestamp)}"
@@ -3242,11 +3265,13 @@ class MainActivity : AppCompatActivity() {
         val follow = mapFollow
         val tracked = trackedUser
         val all = allMode
+        val gesture = zoomControlActive
         zoomControlActive = true
         changeZoom()
         mapFollow = follow
         trackedUser = tracked
         allMode = all
+        zoomControlActive = gesture
     }
 
     private fun zoomKey(label: String, onClick: () -> Unit): TextView {
@@ -3889,11 +3914,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val followed = name ?: return
-        val token = prefs.getString("token", "") ?: ""
-        val own = prefs.getString("device", "")?.trim().orEmpty()
-            .ifBlank { prefs.getString("nc_user", "")?.trim().orEmpty() }
-        val others = lastPoints.keys.filter { it != own }.sorted()
-        val color = personColor(token, followed, own, others)
+        val color = shownColor[followed] ?: run {
+            val token = prefs.getString("token", "") ?: ""
+            val own = prefs.getString("device", "")?.trim().orEmpty()
+                .ifBlank { prefs.getString("nc_user", "")?.trim().orEmpty() }
+            val others = lastPoints.keys.filter { it != own }.sorted()
+            personColor(token, followed, own, others)
+        }
+        btnReticle.imageTintList = null
         btnReticle.clearColorFilter()
         val size = (24 * resources.displayMetrics.density).toInt().coerceAtLeast(24)
         val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
@@ -3902,7 +3930,7 @@ class MainActivity : AppCompatActivity() {
         base?.setBounds(0, 0, size, size)
         base?.draw(canvas)
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
-        canvas.drawCircle(size / 2f, size / 2f, size * 0.12f, paint)
+        canvas.drawCircle(size / 2f, size / 2f, size * 0.18f, paint)
         btnReticle.setImageDrawable(android.graphics.drawable.BitmapDrawable(resources, bitmap))
     }
 

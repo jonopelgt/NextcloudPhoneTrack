@@ -145,6 +145,9 @@ object OfflineMaps {
         }
     }
 
+    @Volatile
+    var scaleOnly: Boolean = false
+
     fun installBase(context: Context, mapView: MapView, base: BaseMap) {
         mapView.setTileProvider(OfflineTileProvider(context, tileSource(base), base))
         mapView.maxZoomLevel = if (base.maxZoom < 19) 21.0 else 19.0
@@ -171,6 +174,7 @@ object OfflineMaps {
         private val base: BaseMap
     ) : MapTileModuleProviderBase(2, 80) {
         private val parents = LruCache<String, Bitmap>(48)
+        private val scaled = LruCache<Long, Bitmap>(80)
 
         override fun getUsesDataConnection(): Boolean = false
         override fun getMinimumZoomLevel(): Int = 0
@@ -183,8 +187,11 @@ object OfflineMaps {
                 val zoom = MapTileIndex.getZoom(pMapTileIndex)
                 val x = MapTileIndex.getX(pMapTileIndex)
                 val y = MapTileIndex.getY(pMapTileIndex)
+                if (scaleOnly) {
+                    scaled.get(pMapTileIndex)?.let { return BitmapDrawable(context.resources, it) }
+                }
                 val exact = tileFile(zoom, x, y)
-                if (exact.isFile && exact.length() > 100) {
+                if (!scaleOnly && exact.isFile && exact.length() > 100) {
                     val bitmap = BitmapFactory.decodeFile(exact.path) ?: return null
                     return BitmapDrawable(context.resources, bitmap)
                 }
@@ -196,7 +203,9 @@ object OfflineMaps {
                     diff++
                 }
                 if (parent == null) return null
-                return BitmapDrawable(context.resources, scaleTileQuadrant(parent, x, y, diff))
+                val bitmap = scaleTileQuadrant(parent, x, y, diff)
+                if (scaleOnly) scaled.put(pMapTileIndex, bitmap)
+                return BitmapDrawable(context.resources, bitmap)
             }
         }
 
