@@ -839,15 +839,17 @@ class LocationPublishService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.deleteNotificationChannel("location_broadcast_bar")
             val channel = NotificationChannel(
-                "location_broadcast_bar",
+                "location_broadcast_silent",
                 "Position broadcast",
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_LOW
             )
             channel.setSound(null, null)
             channel.enableVibration(false)
             channel.setShowBadge(false)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            manager.createNotificationChannel(channel)
         }
     }
 
@@ -860,7 +862,7 @@ class LocationPublishService : Service() {
         )
         val left = SharingControl.remaining(this)
         val text = if (left > 0L) "Sharing for ${SharingControl.remainingLabel(left)}" else "Location sharing is active"
-        val built = NotificationCompat.Builder(this, "location_broadcast_bar")
+        val built = NotificationCompat.Builder(this, "location_broadcast_silent")
             .setContentTitle("Position broadcast")
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_stat_broadcast)
