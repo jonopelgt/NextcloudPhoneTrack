@@ -43,6 +43,20 @@
             android:scaleType="fitCenter"
             android:src="@drawable/ic_mode_broadcast" />
 
+        <TextView
+            android:id="@+id/tvShareMode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="62dp"
+            android:layout_marginEnd="60dp"
+            android:background="#EEFFFFFF"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:textColor="#111111"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
         <ImageButton
             android:id="@+id/btnPositionMode"
             android:layout_width="56dp"

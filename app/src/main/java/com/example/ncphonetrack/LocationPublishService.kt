@@ -88,6 +88,7 @@ class LocationPublishService : Service() {
             val received = intent ?: return
             if (!ActivityRecognitionResult.hasResult(received)) return
             val activity = ActivityRecognitionResult.extractResult(received)?.mostProbableActivity ?: return
+            DiagLog.noteActivity(this@LocationPublishService, DiagLog.activityName(activity.type))
             val candidate = when (activity.type) {
                 DetectedActivity.STILL -> "significant"
                 DetectedActivity.ON_FOOT, DetectedActivity.WALKING, DetectedActivity.RUNNING -> "walk"
@@ -111,6 +112,7 @@ class LocationPublishService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        SharingControl.ensureFirstShare(this)
         nextcloudUrl = intent?.getStringExtra("url")?.takeIf { it.isNotBlank() }
             ?: prefs.getString("url", "") ?: ""
         token = intent?.getStringExtra("token")?.takeIf { it.isNotBlank() }
@@ -188,6 +190,7 @@ class LocationPublishService : Service() {
             stopAutoWatch()
         }
         val mode = activeMode()
+        DiagLog.noteMode(this)
         val spoofing = prefs.getBoolean("spoof_enabled", false)
         if (!spoofing && (mode == "quiet" || mode == "manual")) {
             prefs.edit().putString("logging_state", if (mode == "quiet") "off" else "manual").apply()
@@ -951,6 +954,7 @@ class LocationPublishService : Service() {
         val to = if (because.isBlank()) autoModeName(next) else "${autoModeName(next)}, $because"
         LogManager.modeChange("Auto", from, to)
         notifyAutoSwitch(next)
+        DiagLog.noteMode(this)
         return true
     }
 

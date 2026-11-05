@@ -136,6 +136,7 @@ class MainActivity : AppCompatActivity() {
             }
             edit.apply()
         }
+        SharingControl.ensureFirstShare(this)
         backfillPostedNames()
         val sharingFilter = android.content.IntentFilter(SharingControl.ACTION_SHARING_CHANGED)
         sharingFilter.addAction(SharingControl.ACTION_TIMER_TICK)
@@ -161,6 +162,7 @@ class MainActivity : AppCompatActivity() {
                 superuserTaps++
                 if (superuserTaps >= 15) {
                     superuser = true
+                    refreshShareModeLabel()
                     AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
                         .setMessage("Superuser mode is active.")
                         .setPositiveButton("OK", null)
@@ -336,6 +338,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 R.id.nav_settings -> {
                     showSettings()
+                    drawerLayout.closeDrawers()
+                }
+                R.id.nav_diagnostics -> {
+                    showDiagnostics()
                     drawerLayout.closeDrawers()
                 }
                 R.id.nav_about -> {
@@ -4141,6 +4147,56 @@ class MainActivity : AppCompatActivity() {
             btnSharing.invalidate()
         }
         btnPositionMode.invalidate()
+        refreshShareModeLabel()
+    }
+
+    private fun refreshShareModeLabel() {
+        val label = findViewById<TextView>(R.id.tvShareMode)
+        label.visibility = if (superuser) View.VISIBLE else View.GONE
+        if (!superuser) return
+        val text = when {
+            !SharingControl.isOn(this) -> "Off"
+            SharingControl.remaining(this) > 0L -> SharingControl.durationLabel(
+                prefs.getLong("share_timer_ms", SharingControl.DEFAULT_MS)
+            )
+            else -> "On"
+        }
+        label.text = text
+        label.bringToFront()
+    }
+
+    private fun showDiagnostics() {
+        DiagLog.noteMode(this)
+        val chart = DiagChart(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (280 * resources.displayMetrics.density).toInt())
+            samples = DiagLog.samples(this@MainActivity)
+        }
+        val legend = TextView(this).apply {
+            text = "Blue is Android activity. Orange is the location mode in use."
+            setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 0)
+            addView(chart)
+            addView(legend)
+        }
+        val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
+            .setTitle("Diagnostics")
+            .setView(box)
+            .setPositiveButton("Close", null)
+            .create()
+        val refresh = object : Runnable {
+            override fun run() {
+                if (!dialog.isShowing) return
+                chart.samples = DiagLog.samples(this@MainActivity)
+                chart.postDelayed(this, 5000L)
+            }
+        }
+        dialog.setOnShowListener { chart.post(refresh) }
+        dialog.setOnDismissListener { chart.removeCallbacks(refresh) }
+        dialog.show()
+        pinZoomControls(dialog)
     }
 
     private fun closeModeMenu() {

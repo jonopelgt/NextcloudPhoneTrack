@@ -46,12 +46,14 @@ object SharingControl {
             val resume = prefs.getString("share_mode", "auto")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "auto"
             edit.putString("position_mode", resume)
         }
+        edit.putBoolean("share_choice_set", true)
         edit.apply()
         LogManager.modeChange("Position", beforePosition, positionName(prefs.getString("position_mode", "auto") ?: "auto"))
         LogManager.modeChange("Sharing", beforeShare, "Timer ${durationLabel(duration)}")
         scheduleAlarm(context)
         applyService(context)
         refreshSurfaces(context)
+        DiagLog.noteMode(context)
         context.sendBroadcast(Intent(ACTION_SHARING_CHANGED).setPackage(context.packageName))
     }
 
@@ -85,6 +87,7 @@ object SharingControl {
         } else {
             edit.putString("logging_state", "off")
         }
+        edit.putBoolean("share_choice_set", true)
         edit.apply()
         LogManager.modeChange("Position", beforePosition, positionName(prefs.getString("position_mode", "auto") ?: "auto"))
         LogManager.modeChange("Sharing", beforeShare, sharingName(prefs))
@@ -92,6 +95,7 @@ object SharingControl {
         if (kept > now) scheduleAlarm(context) else cancelAlarm(context)
         applyService(context)
         refreshSurfaces(context)
+        DiagLog.noteMode(context)
         context.sendBroadcast(Intent(ACTION_SHARING_CHANGED).setPackage(context.packageName))
     }
 
@@ -166,6 +170,12 @@ object SharingControl {
         }
         TileService.requestListeningState(context, ComponentName(context, SharingTile::class.java))
         LauncherIcon.apply(context)
+    }
+
+    fun ensureFirstShare(context: Context) {
+        val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("share_choice_set", false)) return
+        startTimer(context, 6L * 60 * 60 * 1000)
     }
 
     const val ACTION_SHARING_CHANGED = "com.example.ncphonetrack.SHARING_CHANGED"
