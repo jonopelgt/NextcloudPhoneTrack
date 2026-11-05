@@ -105,6 +105,7 @@ class MainActivity : AppCompatActivity() {
     private var lastSeenBubbleUntil = 0L
     private var lastSeenAlpha = 1f
     private var lastSeenGen = 0
+    private var deviceBubbleWindow: org.osmdroid.views.overlay.infowindow.InfoWindow? = null
     private val zoomOverlays = mutableListOf<LinearLayout>()
     private val iconCache = mutableMapOf<String, BitmapDrawable>()
     private val colorChoices = listOf(
@@ -1259,6 +1260,19 @@ class MainActivity : AppCompatActivity() {
                         refreshMapBanner()
                     }
                 }
+                val share = ImageButton(this).apply {
+                    val point = data.points[user]
+                    val d = (36 * resources.displayMetrics.density).toInt()
+                    layoutParams = LinearLayout.LayoutParams(d, d)
+                    setImageResource(R.drawable.ic_share_pin)
+                    background = null
+                    contentDescription = "Share location"
+                    visibility = if (point == null) View.GONE else View.VISIBLE
+                    setOnClickListener {
+                        val here = data.points[user] ?: return@setOnClickListener
+                        sharePosition(user, here.latitude, here.longitude)
+                    }
+                }
                 val track = android.widget.Switch(this).apply {
                     contentDescription = "Tracks"
                     isChecked = tracksOn(token, user)
@@ -1270,6 +1284,7 @@ class MainActivity : AppCompatActivity() {
                     setPadding(indent, pad / 4, 0, pad / 4)
                     addView(chip)
                     addView(nameView)
+                    addView(share)
                     addView(track)
                 })
             }
@@ -2687,6 +2702,7 @@ class MainActivity : AppCompatActivity() {
             marker.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(if (useLocal) localSec else data.timestamp)}"
             marker.icon = iconFor(color, 28, if (useLocal) ageAlpha(localSec, ageOut).coerceAtLeast(alpha) else alpha)
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            marker.infoWindow = deviceBubble()
             marker.setOnMarkerClickListener { clicked, _ ->
                 clicked.snippet = marker.snippet
                 enterUserTrack(name)
@@ -2707,6 +2723,7 @@ class MainActivity : AppCompatActivity() {
                 marker.snippet = "Age: ${ageText(localSec)}"
                 marker.icon = iconFor(color, 28, alpha)
                 marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                marker.infoWindow = deviceBubble()
                 marker.setOnMarkerClickListener { clicked, _ ->
                     enterUserTrack(ownDevice)
                     showStatusBubble(clicked)
@@ -2915,6 +2932,36 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun sharePosition(name: String, lat: Double, lon: Double) {
+        val who = name.removePrefix("You · ").trim().ifBlank { "Location" }
+        val text = "$who: ${"%.5f".format(lat)}, ${"%.5f".format(lon)}"
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, who)
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        startActivity(Intent.createChooser(send, "Share location"))
+    }
+
+    private fun deviceBubble(): org.osmdroid.views.overlay.infowindow.InfoWindow {
+        deviceBubbleWindow?.let { return it }
+        val window = object : org.osmdroid.views.overlay.infowindow.InfoWindow(R.layout.device_bubble, map) {
+            override fun onOpen(item: Any?) {
+                val marker = item as? Marker ?: return
+                mView.findViewById<TextView>(R.id.bubbleTitle).text = marker.title ?: ""
+                mView.findViewById<TextView>(R.id.bubbleSnippet).text = marker.snippet ?: ""
+                mView.findViewById<View>(R.id.bubbleShare).setOnClickListener {
+                    val title = marker.title ?: "Location"
+                    sharePosition(title, marker.position.latitude, marker.position.longitude)
+                }
+            }
+
+            override fun onClose() {}
+        }
+        deviceBubbleWindow = window
+        return window
+    }
+
     private fun deviceOnMap(name: String): Boolean {
         if (!::map.isInitialized) return false
         return map.overlays.any { overlay ->
@@ -2982,6 +3029,7 @@ class MainActivity : AppCompatActivity() {
         marker.relatedObject = "last-seen"
         marker.icon = iconFor(Color.parseColor("#9E9E9E"), 28, lastSeenAlpha, outline = false)
         marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+        marker.infoWindow = deviceBubble()
         marker.setOnMarkerClickListener { clicked, _ ->
             showStatusBubble(clicked)
             true
