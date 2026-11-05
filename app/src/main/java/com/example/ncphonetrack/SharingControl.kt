@@ -35,7 +35,9 @@ object SharingControl {
     fun startTimer(context: Context, durationMs: Long) {
         val duration = DURATIONS.minByOrNull { kotlin.math.abs(it - durationMs) } ?: DEFAULT_MS
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val beforeShare = sharingName(prefs)
         val mode = prefs.getString("position_mode", "auto") ?: "auto"
+        val beforePosition = positionName(mode)
         val edit = prefs.edit()
             .putBoolean("location_sharing", true)
             .putLong("share_timer_ms", duration)
@@ -45,6 +47,8 @@ object SharingControl {
             edit.putString("position_mode", resume)
         }
         edit.apply()
+        LogManager.modeChange("Position", beforePosition, positionName(prefs.getString("position_mode", "auto") ?: "auto"))
+        LogManager.modeChange("Sharing", beforeShare, "Timer ${durationLabel(duration)}")
         scheduleAlarm(context)
         applyService(context)
         refreshSurfaces(context)
@@ -66,6 +70,8 @@ object SharingControl {
 
     fun set(context: Context, on: Boolean, clearTimer: Boolean = false) {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val beforeShare = sharingName(prefs)
+        val beforePosition = positionName(prefs.getString("position_mode", "auto") ?: "auto")
         val now = System.currentTimeMillis()
         val end = prefs.getLong("share_timer_end", 0L)
         val edit = prefs.edit().putBoolean("location_sharing", on)
@@ -80,6 +86,8 @@ object SharingControl {
             edit.putString("logging_state", "off")
         }
         edit.apply()
+        LogManager.modeChange("Position", beforePosition, positionName(prefs.getString("position_mode", "auto") ?: "auto"))
+        LogManager.modeChange("Sharing", beforeShare, sharingName(prefs))
         val kept = prefs.getLong("share_timer_end", 0L)
         if (kept > now) scheduleAlarm(context) else cancelAlarm(context)
         applyService(context)
@@ -112,6 +120,23 @@ object SharingControl {
         } catch (e: Exception) {
             LogManager.add("Could not change location sharing: ${e.message}")
         }
+    }
+
+    private fun positionName(mode: String): String = when (mode) {
+        "quiet" -> "Off"
+        "auto" -> "Auto"
+        "manual" -> "Manual"
+        "significant" -> "Low power"
+        "walk" -> "Walk"
+        "rapid" -> "Rapid"
+        else -> "Move"
+    }
+
+    private fun sharingName(prefs: android.content.SharedPreferences): String {
+        if (!prefs.getBoolean("location_sharing", true)) return "Off"
+        val end = prefs.getLong("share_timer_end", 0L)
+        if (end > 0L) return "Timer ${durationLabel(prefs.getLong("share_timer_ms", DEFAULT_MS))}"
+        return "On"
     }
 
     private fun hasEnabledSession(raw: String): Boolean {
@@ -242,11 +267,13 @@ object SharingControl {
 
     private fun expire(context: Context) {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        val beforeShare = sharingName(prefs)
         prefs.edit()
             .putBoolean("location_sharing", false)
             .putLong("share_timer_end", 0L)
             .putString("logging_state", "off")
             .apply()
+        LogManager.modeChange("Sharing", beforeShare, "Off")
         cancelAlarm(context)
         applyService(context)
         refreshSurfaces(context)

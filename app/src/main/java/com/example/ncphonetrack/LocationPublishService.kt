@@ -81,7 +81,7 @@ class LocationPublishService : Service() {
         val next = pendingAuto ?: return@Runnable
         pendingAuto = null
         if (storedMode() != "auto" || batteryForcesLowPower()) return@Runnable
-        if (commitAutoMode(next, "Auto: ${autoLabel(next)}")) startLocationUpdates()
+        if (commitAutoMode(next)) startLocationUpdates()
     }
     private val activityReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -103,7 +103,7 @@ class LocationPublishService : Service() {
             if (!batteryForcesLowPower()) return
             pendingAuto = null
             mainHandler.removeCallbacks(applyAuto)
-            if (commitAutoMode("significant", "Auto: low power, battery")) startLocationUpdates()
+            if (commitAutoMode("significant", "battery")) startLocationUpdates()
         }
     }
 
@@ -183,7 +183,7 @@ class LocationPublishService : Service() {
         stopLowPower()
         if (storedMode() == "auto") {
             ensureAutoWatch()
-            if (batteryForcesLowPower()) commitAutoMode("significant", "Auto: low power, battery")
+            if (batteryForcesLowPower()) commitAutoMode("significant", "battery")
         } else {
             stopAutoWatch()
         }
@@ -944,12 +944,20 @@ class LocationPublishService : Service() {
         else -> "move"
     }
 
-    private fun commitAutoMode(next: String, log: String): Boolean {
+    private fun commitAutoMode(next: String, because: String = ""): Boolean {
         if (storedMode() != "auto" || activeMode() == next) return false
+        val from = autoModeName(activeMode())
         prefs.edit().putString("auto_effective", next).apply()
-        LogManager.add(log)
+        val to = if (because.isBlank()) autoModeName(next) else "${autoModeName(next)}, $because"
+        LogManager.modeChange("Auto", from, to)
         notifyAutoSwitch(next)
         return true
+    }
+
+    private fun autoModeName(mode: String): String = when (mode) {
+        "significant" -> "Low power"
+        "walk" -> "Walk"
+        else -> "Move"
     }
 
     private fun notifyAutoSwitch(mode: String) {
@@ -990,7 +998,7 @@ class LocationPublishService : Service() {
         if (batteryForcesLowPower()) {
             pendingAuto = null
             mainHandler.removeCallbacks(applyAuto)
-            if (commitAutoMode("significant", "Auto: low power, battery")) startLocationUpdates()
+            if (commitAutoMode("significant", "battery")) startLocationUpdates()
             return
         }
         if (candidate == activeMode()) {
@@ -1047,7 +1055,7 @@ class LocationPublishService : Service() {
             if (batteryForcesLowPower()) {
                 pendingAuto = null
                 mainHandler.removeCallbacks(applyAuto)
-                if (commitAutoMode("significant", "Auto: low power, battery")) startLocationUpdates()
+                if (commitAutoMode("significant", "battery")) startLocationUpdates()
             }
             mainHandler.postDelayed(this, 60_000L)
         }

@@ -130,7 +130,10 @@ class MainActivity : AppCompatActivity() {
         if (!prefs.getBoolean("auto_default_set", false)) {
             val savedMode = prefs.getString("position_mode", null)
             val edit = prefs.edit().putBoolean("auto_default_set", true)
-            if (savedMode.isNullOrBlank() || savedMode == "move") edit.putString("position_mode", "auto")
+            if (savedMode.isNullOrBlank() || savedMode == "move") {
+                edit.putString("position_mode", "auto")
+                LogManager.modeChange("Position", if (savedMode.isNullOrBlank()) "unset" else modeLabel(savedMode), "Auto")
+            }
             edit.apply()
         }
         backfillPostedNames()
@@ -3882,7 +3885,7 @@ class MainActivity : AppCompatActivity() {
                     spoofAdjusting = true
                     isChecked = checked
                     spoofAdjusting = false
-                    prefs.edit().putBoolean("spoof_enabled", checked).apply()
+                    logSpoof(checked)
                     if (checked) addSpoofMarker() else removeSpoofMarker()
                     refreshModeButton()
                     if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
@@ -4032,6 +4035,8 @@ class MainActivity : AppCompatActivity() {
             shareClock.removeCallbacks(tickShareClock)
             shareClock.post(tickShareClock)
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val previousMode = currentPositionMode()
+                val previousSpoof = prefs.getBoolean("spoof_enabled", false)
                 val edit = prefs.edit()
                     .putString("position_mode", selectedMode)
                     .putBoolean("spoof_enabled", spoof.isChecked)
@@ -4039,6 +4044,8 @@ class MainActivity : AppCompatActivity() {
                     .putString("spoof_lon", lon.text.toString().trim())
                     .putString("share_mode", selectedMode)
                 edit.apply()
+                LogManager.modeChange("Position", modeLabel(previousMode), modeLabel(selectedMode))
+                LogManager.modeChange("Spoof", if (previousSpoof) "On" else "Off", if (spoof.isChecked) "On" else "Off")
                 dialog.dismiss()
                 refreshModeButton()
                 if (!spoof.isChecked) removeSpoofMarker() else addSpoofMarker()
@@ -4046,11 +4053,13 @@ class MainActivity : AppCompatActivity() {
                 if (spoof.isChecked) sendSpoofNow()
             }
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val previousSpoof = prefs.getBoolean("spoof_enabled", false)
                 prefs.edit()
                     .putBoolean("spoof_enabled", spoof.isChecked)
                     .putString("spoof_lat", lat.text.toString().trim())
                     .putString("spoof_lon", lon.text.toString().trim())
                     .apply()
+                LogManager.modeChange("Spoof", if (previousSpoof) "On" else "Off", if (spoof.isChecked) "On" else "Off")
                 val url = prefs.getString("url", "") ?: ""
                 val token = prefs.getString("token", "") ?: ""
                 if (!isValidBaseUrl(url) || token.isBlank()) {
@@ -4153,7 +4162,7 @@ class MainActivity : AppCompatActivity() {
                     closeModeMenu()
                     if (spoofing) {
                         confirmChoice("Turn off location spoof?") {
-                            prefs.edit().putBoolean("spoof_enabled", false).apply()
+                            logSpoof(false)
                             removeSpoofMarker()
                             setPositionMode(mode)
                         }
@@ -4167,7 +4176,7 @@ class MainActivity : AppCompatActivity() {
                     closeModeMenu()
                     if (spoofing) return@modeChoice
                     confirmChoice("Turn on location spoof?") {
-                        prefs.edit().putBoolean("spoof_enabled", true).apply()
+                        logSpoof(true)
                         refreshModeButton()
                         addSpoofMarker()
                         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
@@ -4272,9 +4281,18 @@ class MainActivity : AppCompatActivity() {
         confirmChoice(message) { activateSpoof(lat, lon) }
     }
 
+    private fun logSpoof(on: Boolean) {
+        val was = prefs.getBoolean("spoof_enabled", false)
+        if (was == on) return
+        prefs.edit().putBoolean("spoof_enabled", on).apply()
+        LogManager.modeChange("Spoof", if (was) "On" else "Off", if (on) "On" else "Off")
+    }
+
     private fun setPositionMode(mode: String) {
         if (mode == "quiet") return
+        val previous = currentPositionMode()
         prefs.edit().putString("position_mode", mode).putString("share_mode", mode).apply()
+        LogManager.modeChange("Position", modeLabel(previous), modeLabel(mode))
         refreshModeButton()
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
     }
@@ -4427,8 +4445,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun activateSpoof(lat: Double, lon: Double) {
+        logSpoof(true)
         prefs.edit()
-            .putBoolean("spoof_enabled", true)
             .putString("spoof_lat", lat.toString())
             .putString("spoof_lon", lon.toString())
             .apply()

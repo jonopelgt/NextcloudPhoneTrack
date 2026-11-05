@@ -10,6 +10,11 @@ object LogManager {
         }
     }
 
+    fun modeChange(kind: String, from: String, to: String) {
+        if (from == to) return
+        add("$kind $from -> $to", 3)
+    }
+
     fun lines(): List<String> = synchronized(logs) { logs.map { it.text } }
 
     fun entries(): List<Pair<String, Int>> = synchronized(logs) { logs.map { it.text to it.detail } }
