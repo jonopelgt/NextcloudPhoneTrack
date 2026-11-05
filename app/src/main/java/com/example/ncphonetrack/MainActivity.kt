@@ -1,9 +1,11 @@
 package com.example.ncphonetrack
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.LabeledIntent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -2940,7 +2942,23 @@ class MainActivity : AppCompatActivity() {
             putExtra(Intent.EXTRA_SUBJECT, who)
             putExtra(Intent.EXTRA_TEXT, text)
         }
-        startActivity(Intent.createChooser(send, "Share location"))
+        val geo = Uri.parse("geo:$lat,$lon?q=$lat,$lon(${Uri.encode(who)})")
+        val view = Intent(Intent.ACTION_VIEW, geo)
+        val resolved = if (Build.VERSION.SDK_INT >= 33) {
+            packageManager.queryIntentActivities(view, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong()))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.queryIntentActivities(view, PackageManager.MATCH_DEFAULT_ONLY)
+        }
+        val maps = resolved.map { info ->
+            val explicit = Intent(view).apply {
+                component = ComponentName(info.activityInfo.packageName, info.activityInfo.name)
+            }
+            LabeledIntent(explicit, info.activityInfo.packageName, info.loadLabel(packageManager), info.icon)
+        }.toTypedArray()
+        val chooser = Intent.createChooser(send, "Share location")
+        if (maps.isNotEmpty()) chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, maps)
+        startActivity(chooser)
     }
 
     private fun deviceBubble(): org.osmdroid.views.overlay.infowindow.InfoWindow {
