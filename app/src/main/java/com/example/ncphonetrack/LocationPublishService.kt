@@ -81,10 +81,7 @@ class LocationPublishService : Service() {
         val next = pendingAuto ?: return@Runnable
         pendingAuto = null
         if (storedMode() != "auto" || batteryForcesLowPower()) return@Runnable
-        if (next == activeMode()) return@Runnable
-        prefs.edit().putString("auto_effective", next).apply()
-        LogManager.add("Auto: ${autoLabel(next)}")
-        startLocationUpdates()
+        if (commitAutoMode(next, "Auto: ${autoLabel(next)}")) startLocationUpdates()
     }
     private val activityReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -104,12 +101,9 @@ class LocationPublishService : Service() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (storedMode() != "auto") return
             if (!batteryForcesLowPower()) return
-            if (activeMode() == "significant") return
             pendingAuto = null
             mainHandler.removeCallbacks(applyAuto)
-            prefs.edit().putString("auto_effective", "significant").apply()
-            LogManager.add("Auto: low power, battery")
-            startLocationUpdates()
+            if (commitAutoMode("significant", "Auto: low power, battery")) startLocationUpdates()
         }
     }
 
@@ -189,10 +183,7 @@ class LocationPublishService : Service() {
         stopLowPower()
         if (storedMode() == "auto") {
             ensureAutoWatch()
-            if (batteryForcesLowPower() && activeMode() != "significant") {
-                prefs.edit().putString("auto_effective", "significant").apply()
-                LogManager.add("Auto: low power, battery")
-            }
+            if (batteryForcesLowPower()) commitAutoMode("significant", "Auto: low power, battery")
         } else {
             stopAutoWatch()
         }
@@ -903,6 +894,15 @@ class LocationPublishService : Service() {
             channel.enableVibration(false)
             channel.setShowBadge(false)
             manager.createNotificationChannel(channel)
+            val auto = NotificationChannel(
+                "auto_mode_silent",
+                "Auto mode",
+                NotificationManager.IMPORTANCE_LOW
+            )
+            auto.setSound(null, null)
+            auto.enableVibration(false)
+            auto.setShowBadge(false)
+            manager.createNotificationChannel(auto)
         }
     }
 
@@ -944,6 +944,39 @@ class LocationPublishService : Service() {
         else -> "move"
     }
 
+    private fun commitAutoMode(next: String, log: String): Boolean {
+        if (storedMode() != "auto" || activeMode() == next) return false
+        prefs.edit().putString("auto_effective", next).apply()
+        LogManager.add(log)
+        notifyAutoSwitch(next)
+        return true
+    }
+
+    private fun notifyAutoSwitch(mode: String) {
+        val text = when (mode) {
+            "significant" -> "Switched to Low power"
+            "walk" -> "Switched to Walk"
+            else -> "Switched to Move"
+        }
+        val open = PendingIntent.getActivity(
+            this,
+            8,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notice = NotificationCompat.Builder(this, "auto_mode_silent")
+            .setContentTitle("Auto")
+            .setContentText(text)
+            .setSmallIcon(R.drawable.ic_stat_broadcast)
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(8, notice)
+    }
+
     private fun batteryForcesLowPower(): Boolean {
         val saver = getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
         if (saver) return true
@@ -955,13 +988,9 @@ class LocationPublishService : Service() {
     private fun noteAutoCandidate(candidate: String) {
         if (storedMode() != "auto") return
         if (batteryForcesLowPower()) {
-            if (activeMode() != "significant") {
-                pendingAuto = null
-                mainHandler.removeCallbacks(applyAuto)
-                prefs.edit().putString("auto_effective", "significant").apply()
-                LogManager.add("Auto: low power, battery")
-                startLocationUpdates()
-            }
+            pendingAuto = null
+            mainHandler.removeCallbacks(applyAuto)
+            if (commitAutoMode("significant", "Auto: low power, battery")) startLocationUpdates()
             return
         }
         if (candidate == activeMode()) {
@@ -1015,10 +1044,10 @@ class LocationPublishService : Service() {
     private val batteryPoll: Runnable = object : Runnable {
         override fun run() {
             if (!autoWatching || storedMode() != "auto") return
-            if (batteryForcesLowPower() && activeMode() != "significant") {
-                prefs.edit().putString("auto_effective", "significant").apply()
-                LogManager.add("Auto: low power, battery")
-                startLocationUpdates()
+            if (batteryForcesLowPower()) {
+                pendingAuto = null
+                mainHandler.removeCallbacks(applyAuto)
+                if (commitAutoMode("significant", "Auto: low power, battery")) startLocationUpdates()
             }
             mainHandler.postDelayed(this, 60_000L)
         }
