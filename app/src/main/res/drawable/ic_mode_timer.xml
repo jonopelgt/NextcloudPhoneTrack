@@ -13,5 +13,14 @@
     <path
         android:fillColor="#111111"
         android:fillType="evenOdd"
-        android:pathData="M8.2,1.2 C4.6,1.2 1.6,4.2 1.6,7.8 C1.6,13.2 8.2,22.8 8.2,22.8 C8.2,22.8 14.8,13.2 14.8,7.8 C14.8,4.2 11.8,1.2 8.2,1.2 Z M3.55,3.6 H12.85 V4.45 L8.9,7.8 L12.85,11.15 V12.0 H3.55 V11.15 L7.5,7.8 L3.55,4.45 Z" />
+        android:pathData="M8.2,1.2 C4.6,1.2 1.6,4.2 1.6,7.8 C1.6,13.2 8.2,22.8 8.2,22.8 C8.2,22.8 14.8,13.2 14.8,7.8 C14.8,4.2 11.8,1.2 8.2,1.2 Z M4.2,2.85 H12.2 V3.4 L8.62,7.85 L12.2,12.3 V12.85 H4.2 V12.3 L7.78,7.85 L4.2,3.4 Z" />
+    <path
+        android:fillColor="#E8B339"
+        android:pathData="M4.2,3.4 L12.2,3.4 L10.85,4.65 L8.2,5.75 L5.55,4.65 Z" />
+    <path
+        android:fillColor="#E8B339"
+        android:pathData="M7.99,5.75 L8.41,5.75 L8.41,9.5 L7.99,9.5 Z" />
+    <path
+        android:fillColor="#E8B339"
+        android:pathData="M8.2,9.5 L12.2,12.3 L4.2,12.3 Z" />
 </vector>

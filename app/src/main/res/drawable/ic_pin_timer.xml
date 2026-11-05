@@ -25,5 +25,14 @@
     <path
         android:fillColor="#FFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M40,32 C32.3,32 26,38.3 26,46 C26,56.5 40,76 40,76 C40,76 54,56.5 54,46 C54,38.3 47.7,32 40,32 Z M30.1,37.1 H49.9 V38.9 L41.5,46 L49.9,53.1 V54.9 H30.1 V53.1 L38.5,46 L30.1,38.9 Z" />
+        android:pathData="M40,32 C32.3,32 26,38.3 26,46 C26,56.5 40,76 40,76 C40,76 54,56.5 54,46 C54,38.3 47.7,32 40,32 Z M31.5,35.5 H48.5 V36.7 L40.9,46.1 L48.5,55.5 V56.7 H31.5 V55.5 L39.1,46.1 L31.5,36.7 Z" />
+    <path
+        android:fillColor="#E8B339"
+        android:pathData="M31.5,36.7 L48.5,36.7 L45.6,39.3 L40,41.7 L34.4,39.3 Z" />
+    <path
+        android:fillColor="#E8B339"
+        android:pathData="M39.6,41.7 L40.5,41.7 L40.5,49.6 L39.6,49.6 Z" />
+    <path
+        android:fillColor="#E8B339"
+        android:pathData="M40,49.6 L48.5,55.5 L31.5,55.5 Z" />
 </vector>
