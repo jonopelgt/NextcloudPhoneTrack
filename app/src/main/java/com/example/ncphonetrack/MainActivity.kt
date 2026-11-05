@@ -1,11 +1,9 @@
 package com.example.ncphonetrack
 
 import android.Manifest
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.content.pm.LabeledIntent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -1264,10 +1262,12 @@ class MainActivity : AppCompatActivity() {
                 }
                 val share = ImageButton(this).apply {
                     val point = data.points[user]
-                    val d = (36 * resources.displayMetrics.density).toInt()
-                    layoutParams = LinearLayout.LayoutParams(d, d)
+                    val d = (40 * resources.displayMetrics.density).toInt()
+                    val gap = (8 * resources.displayMetrics.density).toInt()
+                    layoutParams = LinearLayout.LayoutParams(d, d).apply { marginEnd = gap }
                     setImageResource(R.drawable.ic_share_pin)
-                    background = null
+                    setBackgroundResource(R.drawable.share_button_bg)
+                    setPadding(gap / 2, gap / 2, gap / 2, gap / 2)
                     contentDescription = "Share location"
                     visibility = if (point == null) View.GONE else View.VISIBLE
                     setOnClickListener {
@@ -2936,29 +2936,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun sharePosition(name: String, lat: Double, lon: Double) {
         val who = name.removePrefix("You · ").trim().ifBlank { "Location" }
-        val text = "$who: ${"%.5f".format(lat)}, ${"%.5f".format(lon)}"
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, who)
-            putExtra(Intent.EXTRA_TEXT, text)
-        }
         val geo = Uri.parse("geo:$lat,$lon?q=$lat,$lon(${Uri.encode(who)})")
         val view = Intent(Intent.ACTION_VIEW, geo)
-        val resolved = if (Build.VERSION.SDK_INT >= 33) {
-            packageManager.queryIntentActivities(view, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong()))
-        } else {
-            @Suppress("DEPRECATION")
-            packageManager.queryIntentActivities(view, PackageManager.MATCH_DEFAULT_ONLY)
-        }
-        val maps = resolved.map { info ->
-            val explicit = Intent(view).apply {
-                component = ComponentName(info.activityInfo.packageName, info.activityInfo.name)
-            }
-            LabeledIntent(explicit, info.activityInfo.packageName, info.loadLabel(packageManager), info.icon)
-        }.toTypedArray()
-        val chooser = Intent.createChooser(send, "Share location")
-        if (maps.isNotEmpty()) chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, maps)
-        startActivity(chooser)
+        startActivity(Intent.createChooser(view, "Share location"))
     }
 
     private fun deviceBubble(): org.osmdroid.views.overlay.infowindow.InfoWindow {
