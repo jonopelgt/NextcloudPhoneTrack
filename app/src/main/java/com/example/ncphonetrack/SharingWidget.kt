@@ -29,6 +29,7 @@ class SharingWidget : AppWidgetProvider() {
         val label = SharingControl.statusLabel(context)
         return RemoteViews(context.packageName, R.layout.widget_sharing).apply {
             setTextViewText(R.id.widgetState, label)
+            setImageViewResource(R.id.widgetIcon, SharingControl.iconRes(context))
             setInt(R.id.widgetRoot, "setBackgroundColor", if (on || label != "Off") 0xFF0082C9.toInt() else 0xFF5F6368.toInt())
             setOnClickPendingIntent(R.id.widgetRoot, toggleIntent(context))
         }

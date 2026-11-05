@@ -1295,6 +1295,12 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
             setPadding(0, pad, 0, pad / 2)
+            val shareIcon = android.widget.ImageView(this@MainActivity).apply {
+                setImageResource(SharingControl.iconRes(this@MainActivity))
+                val size = (28 * resources.displayMetrics.density).toInt()
+                layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = pad / 2 }
+            }
+            addView(shareIcon)
             addView(TextView(this@MainActivity).apply {
                 text = "Location sharing"
                 textSize = 16f
@@ -1307,7 +1313,10 @@ class MainActivity : AppCompatActivity() {
                     if (checked == !positionUpdatesOff()) return@setOnCheckedChangeListener
                     setLocationSharing(checked)
                 }
-                refreshSettingsSharing = { isChecked = !positionUpdatesOff() }
+                refreshSettingsSharing = {
+                    isChecked = !positionUpdatesOff()
+                    shareIcon.setImageResource(SharingControl.iconRes(this@MainActivity))
+                }
             })
         })
         val urlField = EditText(this).apply {
@@ -3035,6 +3044,21 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(pad, pad, pad, 0)
         }
+        val shareStateIcon = android.widget.ImageView(this).apply {
+            val size = (28 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = pad / 2 }
+        }
+        val shareStateText = TextView(this).apply {
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, pad / 2)
+            addView(shareStateIcon)
+            addView(shareStateText)
+        })
         var selectedMode = currentPositionMode()
         val modeList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun renderModes() {
@@ -3115,6 +3139,12 @@ class MainActivity : AppCompatActivity() {
         val showRemaining = {
             val left = SharingControl.remaining(this)
             remainingView.text = if (left > 0L) "Time left ${SharingControl.countdownLabel(left)}" else "Timer off"
+            shareStateIcon.setImageResource(SharingControl.iconRes(this))
+            shareStateText.text = when {
+                left > 0L -> "Sharing ${SharingControl.countdownLabel(left)}"
+                SharingControl.isOn(this) -> "Sharing on"
+                else -> "Sharing off"
+            }
         }
         val durationSpinner = android.widget.Spinner(this).apply {
             adapter = android.widget.ArrayAdapter(
@@ -3126,10 +3156,19 @@ class MainActivity : AppCompatActivity() {
             layoutParams = width
         }
         showRemaining()
-        box.addView(TextView(this).apply {
-            text = "Timer"
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
             setPadding(0, pad, 0, pad / 4)
+            addView(android.widget.ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_mode_timer)
+                val size = (28 * resources.displayMetrics.density).toInt()
+                layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = pad / 2 }
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Timer"
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+            })
         })
         box.addView(TextView(this).apply {
             text = "Opening this page does not change the time left. Reset starts the selected duration from now. Turning sharing on or off does not change it."
@@ -3259,13 +3298,7 @@ class MainActivity : AppCompatActivity() {
         btnPositionMode.setImageResource(if (spoofing) R.drawable.ic_mode_spy else modeIcon(currentPositionMode()))
         btnPositionMode.contentDescription = if (spoofing) "Location spoof" else modeLabel(currentPositionMode())
         if (::btnSharing.isInitialized) {
-            btnSharing.setImageResource(
-                when {
-                    !sharingOn -> R.drawable.ic_mode_off
-                    timing -> R.drawable.ic_mode_timer
-                    else -> R.drawable.ic_mode_on
-                }
-            )
+            btnSharing.setImageResource(SharingControl.iconRes(this))
             btnSharing.contentDescription = when {
                 !sharingOn -> "Sharing off"
                 timing -> "Timer ${SharingControl.remainingLabel(SharingControl.remaining(this))}"

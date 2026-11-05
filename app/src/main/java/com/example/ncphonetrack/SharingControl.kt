@@ -11,6 +11,12 @@ import androidx.core.content.ContextCompat
 import org.json.JSONArray
 
 object SharingControl {
+    fun iconRes(context: Context): Int {
+        if (!isOn(context)) return R.drawable.ic_mode_off
+        if (remaining(context) > 0L) return R.drawable.ic_mode_timer
+        return R.drawable.ic_mode_on
+    }
+
     fun isOn(context: Context): Boolean {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         val end = prefs.getLong("share_timer_end", 0L)

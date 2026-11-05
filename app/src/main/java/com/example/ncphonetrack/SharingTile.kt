@@ -3,6 +3,7 @@ package com.example.ncphonetrack
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
@@ -22,6 +23,7 @@ class SharingTile : TileService() {
         val on = SharingControl.isOn(this)
         tile.state = if (on) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = "Location sharing"
+        tile.icon = Icon.createWithResource(this, SharingControl.iconRes(this))
         if (Build.VERSION.SDK_INT >= 29) tile.subtitle = SharingControl.statusLabel(this)
         tile.updateTile()
     }
