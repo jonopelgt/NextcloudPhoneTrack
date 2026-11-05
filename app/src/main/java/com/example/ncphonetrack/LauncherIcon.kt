@@ -18,25 +18,15 @@ object LauncherIcon {
     }
 
     fun apply(context: Context) {
-        enable(context, target(context))
     }
 
     fun onActivityLaunch(context: Context) {
-        val keep = target(context)
-        enable(context, keep)
+        enable(context, ON)
         if (cleaned) return
         cleaned = true
         val started = launchedAs
-        all.forEach { name ->
-            if (name != keep && name != started) disable(context, name)
-        }
-    }
-
-    private fun target(context: Context): String {
-        return when {
-            !SharingControl.isOn(context) -> OFF
-            SharingControl.remaining(context) > 0L -> TIMER
-            else -> ON
+        listOf(TIMER, OFF).forEach { name ->
+            if (name != started) disable(context, name)
         }
     }
 
