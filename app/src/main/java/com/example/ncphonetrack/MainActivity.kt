@@ -146,9 +146,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
         sessionBanner.setOnClickListener { countSuperuser() }
-        tvMapBanner.setOnClickListener { countSuperuser() }
-        noSessionBanner.setOnClickListener { countSuperuser() }
-        loginBanner.setOnClickListener { countSuperuser() }
         findViewById<Button>(R.id.btnLoginSettings).setOnClickListener { showSettings() }
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
         tvBuffer = findViewById(R.id.tvBuffer)
@@ -258,7 +255,7 @@ class MainActivity : AppCompatActivity() {
         var downY = 0f
         var dragged = false
         val longPress = Runnable {
-            if (dragged || statusPanel.visibility == View.VISIBLE) return@Runnable
+            if (!superuser || dragged || statusPanel.visibility == View.VISIBLE) return@Runnable
             val geo = map.projection.fromPixels(downX.toInt(), downY.toInt())
             activateSpoofAt(geo.latitude, geo.longitude)
         }
@@ -4337,6 +4334,7 @@ class MainActivity : AppCompatActivity() {
         btnGroupView.alpha = if (mapFollow == MapFollow.GROUP) 0.35f else 1f
         if (::btnReticle.isInitialized) btnReticle.visibility = if (mapContext) View.VISIBLE else View.GONE
         if (::mapControls.isInitialized && mapContext) mapControls.bringToFront()
+        findViewById<android.view.View>(R.id.mapBanners).bringToFront()
         if (::btnPositionMode.isInitialized && mapContext) btnPositionMode.bringToFront()
         if (::btnSharing.isInitialized && mapContext) btnSharing.bringToFront()
         if (::btnGroupView.isInitialized && mapContext) btnGroupView.bringToFront()
