@@ -1037,8 +1037,10 @@ class LocationPublishService : Service() {
             checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
         ) {
             LogManager.add("Auto: activity permission not granted, staying on ${autoLabel(activeMode())}")
+            syncAutoPermissionNotice(this)
             return
         }
+        syncAutoPermissionNotice(this)
         val pending = PendingIntent.getBroadcast(
             this,
             7,
@@ -1080,6 +1082,7 @@ class LocationPublishService : Service() {
             pending.cancel()
         }
         activityIntent = null
+        syncAutoPermissionNotice(this)
     }
 
     override fun onDestroy() {
@@ -1108,7 +1111,53 @@ class LocationPublishService : Service() {
 
     companion object {
         const val ACTION_PUBLISH_ONCE = "com.example.ncphonetrack.PUBLISH_ONCE"
+        const val ACTION_ACTIVITY_PERMISSION = "com.example.ncphonetrack.ACTIVITY_PERMISSION"
         private const val ACTION_ACTIVITY = "com.example.ncphonetrack.ACTIVITY"
+        private const val AUTO_PERMISSION_NOTICE = 9
+
+        fun syncAutoPermissionNotice(context: Context) {
+            val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+            val auto = (prefs.getString("position_mode", "auto") ?: "auto") == "auto"
+            val missing = Build.VERSION.SDK_INT >= 29 &&
+                context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
+            val manager = context.getSystemService(NotificationManager::class.java)
+            if (!auto || !missing) {
+                manager.cancel(AUTO_PERMISSION_NOTICE)
+                return
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    "auto_permission",
+                    "Auto permission",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                )
+                channel.setShowBadge(false)
+                manager.createNotificationChannel(channel)
+            }
+            val open = PendingIntent.getActivity(
+                context,
+                9,
+                Intent(context, MainActivity::class.java).apply {
+                    action = ACTION_ACTIVITY_PERMISSION
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notice = NotificationCompat.Builder(context, "auto_permission")
+                .setSmallIcon(R.drawable.ic_stat_broadcast)
+                .setContentTitle("Auto will not work")
+                .setContentText("Physical activity permission is not available")
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(
+                        "Physical activity permission is not available. Auto will not work until it is granted in Settings."
+                    )
+                )
+                .setContentIntent(open)
+                .setAutoCancel(false)
+                .setOnlyAlertOnce(true)
+                .build()
+            manager.notify(AUTO_PERMISSION_NOTICE, notice)
+        }
         private const val MAX_BUFFER = 7200
 
         fun defaultPostedName(context: Context): String {

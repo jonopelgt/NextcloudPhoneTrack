@@ -1628,6 +1628,10 @@ class MainActivity : AppCompatActivity() {
                 putExtra("app_uid", applicationInfo.uid)
             })
         }
+        val group = when (item.permission) {
+            Manifest.permission.ACTIVITY_RECOGNITION -> "android.permission-group.ACTIVITY_RECOGNITION"
+            else -> "android.permission-group.LOCATION"
+        }
         val controllers = listOf(
             "com.google.android.permissioncontroller",
             "com.android.permissioncontroller",
@@ -1637,7 +1641,7 @@ class MainActivity : AppCompatActivity() {
         fun locationPage(pkg: String?) = Intent("android.intent.action.MANAGE_APP_PERMISSION").apply {
             putExtra(Intent.EXTRA_PACKAGE_NAME, packageName)
             putExtra("android.intent.extra.PERMISSION_NAME", item.permission)
-            putExtra("android.intent.extra.PERMISSION_GROUP_NAME", "android.permission-group.LOCATION")
+            putExtra("android.intent.extra.PERMISSION_GROUP_NAME", group)
             addCategory(Intent.CATEGORY_DEFAULT)
             if (pkg != null) setPackage(pkg)
         }
@@ -4293,6 +4297,7 @@ class MainActivity : AppCompatActivity() {
         val previous = currentPositionMode()
         prefs.edit().putString("position_mode", mode).putString("share_mode", mode).apply()
         LogManager.modeChange("Position", modeLabel(previous), modeLabel(mode))
+        LocationPublishService.syncAutoPermissionNotice(this)
         refreshModeButton()
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
     }
@@ -4570,9 +4575,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onResume() {
         super.onResume()
         map.onResume()
+        if (intent?.action == LocationPublishService.ACTION_ACTIVITY_PERMISSION) {
+            intent.action = null
+            openPermissionPage(RequiredPermission("Physical activity", Manifest.permission.ACTIVITY_RECOGNITION, "app"))
+        }
+        LocationPublishService.syncAutoPermissionNotice(this)
         refreshModeButton()
         refreshMapBanner()
         if (logTimer == null) startLogTimer()
