@@ -67,6 +67,11 @@ class MainActivity : AppCompatActivity() {
     private var followLogBottom = true
     private val LOCATION_PERMISSION_REQUEST = 1001
     private val BACKGROUND_PERMISSION_REQUEST = 1002
+
+    companion object {
+        var superuser = false
+        private var superuserTaps = 0
+    }
     private var logTimer: Timer? = null
     private var fetchTimer: Timer? = null
     private val mapReadBusy = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -134,6 +139,16 @@ class MainActivity : AppCompatActivity() {
         sessionBanner = findViewById(R.id.tvSessionBanner)
         noSessionBanner = findViewById(R.id.tvNoSessionBanner)
         loginBanner = findViewById(R.id.loginBanner)
+        val countSuperuser = {
+            if (!superuser) {
+                superuserTaps++
+                if (superuserTaps >= 15) superuser = true
+            }
+        }
+        sessionBanner.setOnClickListener { countSuperuser() }
+        tvMapBanner.setOnClickListener { countSuperuser() }
+        noSessionBanner.setOnClickListener { countSuperuser() }
+        loginBanner.setOnClickListener { countSuperuser() }
         findViewById<Button>(R.id.btnLoginSettings).setOnClickListener { showSettings() }
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
         tvBuffer = findViewById(R.id.tvBuffer)
@@ -3311,6 +3326,7 @@ class MainActivity : AppCompatActivity() {
     private var hereStateBusy = false
 
     private fun offerHereState() {
+        if (prefs.getBoolean("asked_here_state", false)) return
         if (OfflineMaps.downloaded(prefs).isNotEmpty()) return
         if (hereStateBusy || hereStateDialog?.isShowing == true) return
         if (!checkPermissions()) return
@@ -3356,6 +3372,7 @@ class MainActivity : AppCompatActivity() {
                 hereStateBusy = false
             }
             .create()
+        prefs.edit().putBoolean("asked_here_state", true).apply()
         hereStateDialog?.show()
     }
 
@@ -3744,15 +3761,17 @@ class MainActivity : AppCompatActivity() {
             })
         }
         box.addView(modeList)
-        box.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding(0, pad, 0, 0)
-            addView(spoofIcon)
-            addView(spoof)
-        })
-        box.addView(lat)
-        box.addView(lon)
+        if (superuser) {
+            box.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, pad, 0, 0)
+                addView(spoofIcon)
+                addView(spoof)
+            })
+            box.addView(lat)
+            box.addView(lon)
+        }
         val durations = SharingControl.DURATIONS
         val durationLabels = durations.map { SharingControl.durationLabel(it) }
         var durationAdjusting = false
@@ -3977,17 +3996,19 @@ class MainActivity : AppCompatActivity() {
                     }
                 })
             }
-            modePicker.addView(modeChoice("spoof", spoofing) {
-                closeModeMenu()
-                if (spoofing) return@modeChoice
-                confirmChoice("Turn on location spoof?") {
-                    prefs.edit().putBoolean("spoof_enabled", true).apply()
-                    refreshModeButton()
-                    addSpoofMarker()
-                    if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
-                    sendSpoofNow()
-                }
-            })
+            if (superuser) {
+                modePicker.addView(modeChoice("spoof", spoofing) {
+                    closeModeMenu()
+                    if (spoofing) return@modeChoice
+                    confirmChoice("Turn on location spoof?") {
+                        prefs.edit().putBoolean("spoof_enabled", true).apply()
+                        refreshModeButton()
+                        addSpoofMarker()
+                        if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+                        sendSpoofNow()
+                    }
+                })
+            }
         } else {
             modePicker.addView(groupLabel("Sharing"))
             modePicker.addView(modeChoice("quiet", !sharingOn) {

@@ -34,9 +34,17 @@
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
         <activity
+            android:name=".LauncherActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <activity
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density"
             android:exported="true"
+            android:launchMode="singleTask"
             android:resizeableActivity="true" />
 
         <activity-alias
@@ -46,7 +54,7 @@
             android:icon="@mipmap/ic_launcher"
             android:label="@string/app_name"
             android:roundIcon="@mipmap/ic_launcher_round"
-            android:targetActivity=".MainActivity">
+            android:targetActivity=".LauncherActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -60,7 +68,7 @@
             android:icon="@mipmap/ic_launcher_timer"
             android:label="@string/app_name"
             android:roundIcon="@mipmap/ic_launcher_timer_round"
-            android:targetActivity=".MainActivity">
+            android:targetActivity=".LauncherActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -74,7 +82,7 @@
             android:icon="@mipmap/ic_launcher_off"
             android:label="@string/app_name"
             android:roundIcon="@mipmap/ic_launcher_off_round"
-            android:targetActivity=".MainActivity">
+            android:targetActivity=".LauncherActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
