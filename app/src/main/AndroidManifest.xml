@@ -37,12 +37,49 @@
             android:name=".MainActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|uiMode|density"
             android:exported="true"
-            android:resizeableActivity="true">
+            android:resizeableActivity="true" />
+
+        <activity-alias
+            android:name=".LauncherOn"
+            android:enabled="true"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:targetActivity=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherTimer"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_timer"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_timer_round"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity-alias
+            android:name=".LauncherOff"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_off"
+            android:label="@string/app_name"
+            android:roundIcon="@mipmap/ic_launcher_off_round"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <receiver
             android:name=".SharingWidget"

@@ -219,6 +219,7 @@ class MainActivity : AppCompatActivity() {
         btnSharing = findViewById(R.id.btnSharing)
         modePicker = findViewById(R.id.modePicker)
         refreshModeButton()
+        LauncherIcon.apply(this)
         btnPositionMode.setOnClickListener {
             if (modePicker.visibility == View.VISIBLE) closeModeMenu() else sendCurrentPosition()
         }

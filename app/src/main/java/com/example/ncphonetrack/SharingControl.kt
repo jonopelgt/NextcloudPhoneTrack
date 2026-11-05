@@ -140,6 +140,7 @@ object SharingControl {
             })
         }
         TileService.requestListeningState(context, ComponentName(context, SharingTile::class.java))
+        LauncherIcon.apply(context)
     }
 
     const val ACTION_SHARING_CHANGED = "com.example.ncphonetrack.SHARING_CHANGED"
