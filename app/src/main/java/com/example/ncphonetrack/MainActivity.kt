@@ -2931,6 +2931,11 @@ class MainActivity : AppCompatActivity() {
                     val bytes = OfflineMaps.measureState(this, state, OfflineMaps.storedZoom(prefs, state.abbr))
                     OfflineMaps.saveBytes(prefs, state, bytes)
                 }
+                OfflineMaps.storedMaps(prefs).filter { it.mapId.isNotBlank() && it.bytes <= 0L }.forEach { piece ->
+                    if (OfflineMaps.queue().any { it.key == "${piece.state.abbr}|${piece.mapId}|${piece.zoom}" }) return@forEach
+                    val bytes = OfflineMaps.measurePiece(this, piece.state, piece.mapId, piece.zoom)
+                    if (bytes > 0L) OfflineMaps.savePieceBytes(prefs, piece.state, piece.mapId, piece.zoom, bytes)
+                }
                 runOnUiThread {
                     measuringSizes = false
                     if (mapsDialog?.isShowing == true) showSaved()

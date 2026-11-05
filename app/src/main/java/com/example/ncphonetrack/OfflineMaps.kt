@@ -558,6 +558,26 @@ object OfflineMaps {
         prefs.edit().putString("offline_maps", root.toString()).apply()
     }
 
+    fun measurePiece(context: Context, state: UsState, mapId: String, zoom: Int): Long {
+        val map = bases.firstOrNull { it.id == mapId } ?: return 0L
+        var total = 0L
+        tilesAt(state, zoom).forEach { (x, y) ->
+            val file = File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}")
+            if (file.isFile) total += file.length()
+        }
+        return total
+    }
+
+    fun savePieceBytes(prefs: SharedPreferences, state: UsState, mapId: String, zoom: Int, bytes: Long) {
+        val root = catalog(prefs)
+        val item = root.optJSONObject(state.abbr) ?: return
+        val zooms = item.optJSONObject("maps")?.optJSONObject(mapId) ?: return
+        val piece = zooms.optJSONObject(zoom.toString()) ?: return
+        piece.put("bytes", bytes)
+        zooms.put(zoom.toString(), piece)
+        prefs.edit().putString("offline_maps", root.toString()).apply()
+    }
+
     fun measureState(context: Context, state: UsState, maxZoom: Int = MAX_ZOOM): Long {
         var total = 0L
         for (map in bases) {
@@ -708,7 +728,8 @@ object OfflineMaps {
                     val error = download(context, job, map, total, onStatus)
                     synchronized(pending) { current = null }
                     if (error == null) {
-                        markPiece(prefs, job.state, job.mapId, job.zoom, byteCount)
+                        val bytes = measurePiece(context, job.state, job.mapId, job.zoom)
+                        markPiece(prefs, job.state, job.mapId, job.zoom, bytes)
                         onStatus("${job.label()} downloaded")
                         LogManager.add("${job.label()}: offline map downloaded")
                     } else if (error == "cancelled") {
