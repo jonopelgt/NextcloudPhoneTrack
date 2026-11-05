@@ -479,7 +479,7 @@ object OfflineMaps {
     }
 
     fun estimateMapZoom(state: UsState, zoom: Int): Long {
-        return tileCount(state, zoom.coerceIn(12, 16)).toLong() * 20_000L
+        return tileCount(state, zoom.coerceIn(6, 19)).toLong() * 20_000L
     }
 
     data class StoredMap(
@@ -667,7 +667,9 @@ object OfflineMaps {
         if (picks.isEmpty()) return
         val start = synchronized(pending) {
             picks.forEach { pick ->
-                val zoom = pick.zoom.coerceIn(12, 16)
+                val map = bases.firstOrNull { it.id == pick.mapId } ?: return@forEach
+                val zoom = pick.zoom.coerceIn(6, 19)
+                if (zoom > map.maxZoom) return@forEach
                 val key = "${pick.state.abbr}|${pick.mapId}|$zoom"
                 if (current?.key == key) return@forEach
                 if (pending.any { it.key == key }) return@forEach

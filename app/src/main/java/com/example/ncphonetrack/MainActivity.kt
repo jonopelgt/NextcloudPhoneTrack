@@ -3344,6 +3344,34 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val picks = linkedSetOf<Pair<String, Int>>()
+        val zooms = (6..19).toList()
+        val sizes = HashMap<Pair<String, Int>, Long>()
+        val rowTotals = HashMap<String, TextView>()
+        val colTotals = HashMap<Int, TextView>()
+        val grand = TextView(this).apply {
+            text = "Selected 0"
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 0, 12)
+        }
+        var cornerLabel: TextView? = null
+        fun cellTotal(bytes: Long): String = if (bytes <= 0L) "0" else OfflineMaps.compactSize(bytes)
+        fun refreshTotals() {
+            val byRow = HashMap<String, Long>()
+            val byCol = HashMap<Int, Long>()
+            var all = 0L
+            picks.forEach { key ->
+                val bytes = sizes[key] ?: 0L
+                byRow[key.first] = (byRow[key.first] ?: 0L) + bytes
+                byCol[key.second] = (byCol[key.second] ?: 0L) + bytes
+                all += bytes
+            }
+            rowTotals.forEach { (id, view) -> view.text = cellTotal(byRow[id] ?: 0L) }
+            colTotals.forEach { (zoom, view) -> view.text = cellTotal(byCol[zoom] ?: 0L) }
+            val label = cellTotal(all)
+            grand.text = "Selected $label"
+            cornerLabel?.text = label
+        }
         val table = android.widget.TableLayout(this)
         val header = android.widget.TableRow(this)
         header.addView(TextView(this).apply {
@@ -3352,7 +3380,7 @@ class MainActivity : AppCompatActivity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, 0, 12, 0)
         })
-        (12..16).forEach { zoom ->
+        zooms.forEach { zoom ->
             header.addView(TextView(this).apply {
                 text = "z$zoom"
                 textSize = 12f
@@ -3360,6 +3388,12 @@ class MainActivity : AppCompatActivity() {
                 gravity = android.view.Gravity.CENTER
             })
         }
+        header.addView(TextView(this).apply {
+            text = "Total"
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(12, 0, 0, 0)
+        })
         table.addView(header)
         OfflineMaps.bases.forEach { map ->
             val row = android.widget.TableRow(this)
@@ -3368,11 +3402,13 @@ class MainActivity : AppCompatActivity() {
                 textSize = 12f
                 setPadding(0, 8, 12, 8)
             })
-            (12..16).forEach { zoom ->
+            zooms.forEach { zoom ->
                 if (zoom > map.maxZoom) {
                     row.addView(TextView(this).apply {
-                        text = "—"
+                        text = "N/A"
+                        textSize = 11f
                         gravity = android.view.Gravity.CENTER
+                        setTextColor(Color.parseColor("#757575"))
                     })
                 } else if (OfflineMaps.hasPiece(prefs, state.abbr, map.id, zoom)) {
                     row.addView(TextView(this).apply {
@@ -3382,22 +3418,64 @@ class MainActivity : AppCompatActivity() {
                         setTextColor(Color.parseColor("#1B7F3A"))
                     })
                 } else {
+                    val bytes = OfflineMaps.estimateMapZoom(state, zoom)
+                    sizes[map.id to zoom] = bytes
                     row.addView(android.widget.CheckBox(this).apply {
-                        text = OfflineMaps.compactSize(OfflineMaps.estimateMapZoom(state, zoom))
+                        text = OfflineMaps.compactSize(bytes)
                         textSize = 11f
                         setOnCheckedChangeListener { _, checked ->
                             if (checked) picks.add(map.id to zoom) else picks.remove(map.id to zoom)
+                            refreshTotals()
                         }
                     })
                 }
             }
+            val rowTotal = TextView(this).apply {
+                text = "0"
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(12, 0, 0, 0)
+            }
+            rowTotals[map.id] = rowTotal
+            row.addView(rowTotal)
             table.addView(row)
         }
+        val footer = android.widget.TableRow(this)
+        footer.addView(TextView(this).apply {
+            text = "Total"
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 8, 12, 0)
+        })
+        zooms.forEach { zoom ->
+            val colTotal = TextView(this).apply {
+                text = "0"
+                textSize = 11f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                gravity = android.view.Gravity.CENTER
+            }
+            colTotals[zoom] = colTotal
+            footer.addView(colTotal)
+        }
+        val corner = TextView(this).apply {
+            text = "0"
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(12, 8, 0, 0)
+        }
+        cornerLabel = corner
+        footer.addView(corner)
+        table.addView(footer)
         val scroller = android.widget.HorizontalScrollView(this).apply { addView(table) }
+        val body = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(grand)
+            addView(scroller)
+        }
         AlertDialog.Builder(this)
             .setTitle(state.name)
-            .setMessage("Select each map and zoom. Each selected map is queued on its own.")
-            .setView(scroller)
+            .setMessage("Select each map and zoom. N/A means that map does not supply that zoom.")
+            .setView(body)
             .setPositiveButton("Download") { _, _ ->
                 val chosen = picks.map { OfflineMaps.MapPick(state, it.first, it.second) }
                 confirmMeteredDownload(chosen, force, onLine)
