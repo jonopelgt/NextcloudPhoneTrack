@@ -2918,16 +2918,20 @@ class MainActivity : AppCompatActivity() {
         }
         var mapsDialog: AlertDialog? = null
         var showSaved: () -> Unit = {}
+        var measuringSizes = false
         fun refreshSizes() {
+            if (measuringSizes) return
+            measuringSizes = true
             Thread {
                 val missing = OfflineMaps.statesMissingSize(prefs)
                 missing.forEach { state ->
                     if (OfflineMaps.queue().any { it.abbr == state.abbr }) return@forEach
                     val bytes = OfflineMaps.measureState(this, state, OfflineMaps.storedZoom(prefs, state.abbr))
                     OfflineMaps.saveBytes(prefs, state, bytes)
-                    runOnUiThread {
-                        if (mapsDialog?.isShowing == true) showSaved()
-                    }
+                }
+                runOnUiThread {
+                    measuringSizes = false
+                    if (mapsDialog?.isShowing == true) showSaved()
                 }
             }.start()
         }
@@ -2938,14 +2942,35 @@ class MainActivity : AppCompatActivity() {
                 setOnClickListener { onClick() }
             }
         }
+        var measuringCache = false
+        var cacheLabelView: TextView? = null
+        val progressRows = HashMap<String, Triple<TextView, TextView, android.widget.ProgressBar>>()
+        fun paintProgress() {
+            val active = OfflineMaps.queue()
+            val live = active.filter { !it.queued }.map { it.abbr }.toSet()
+            if (live != progressRows.keys) {
+                showSaved()
+                return
+            }
+            active.forEach { job ->
+                val row = progressRows[job.abbr] ?: return@forEach
+                if (job.queued) return@forEach
+                val percent = if (job.total <= 0) 0 else (job.done * 100 / job.total).coerceIn(0, 100)
+                row.first.text = OfflineMaps.rateText(job.rateBps)
+                row.second.text = "$percent%"
+                row.third.progress = percent
+            }
+        }
         fun paintSaved() {
             saved.removeAllViews()
+            progressRows.clear()
             val known = OfflineMaps.viewedSize
             val cacheLabel = TextView(this).apply {
                 text = if (known < 0L) "Local cache" else "Local cache (${OfflineMaps.compactSize(known)})"
                 textSize = 16f
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
             }
+            cacheLabelView = cacheLabel
             saved.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
@@ -2964,12 +2989,14 @@ class MainActivity : AppCompatActivity() {
                     }
                 })
             })
-            if (known < 0L) {
+            if (known < 0L && !measuringCache) {
+                measuringCache = true
                 Thread {
                     val bytes = OfflineMaps.measureViewed(this)
                     runOnUiThread {
+                        measuringCache = false
                         if (mapsDialog?.isShowing == true) {
-                            cacheLabel.text = "Local cache (${OfflineMaps.compactSize(bytes)})"
+                            cacheLabelView?.text = "Local cache (${OfflineMaps.compactSize(bytes)})"
                         }
                     }
                 }.start()
@@ -2996,21 +3023,25 @@ class MainActivity : AppCompatActivity() {
                         })
                     } else {
                         val percent = if (job.total <= 0) 0 else (job.done * 100 / job.total).coerceIn(0, 100)
-                        addView(TextView(this@MainActivity).apply {
+                        val rateView = TextView(this@MainActivity).apply {
                             text = OfflineMaps.rateText(job.rateBps)
                             textSize = 13f
                             setPadding(0, 0, pad / 3, 0)
-                        })
-                        addView(TextView(this@MainActivity).apply {
+                        }
+                        val percentView = TextView(this@MainActivity).apply {
                             text = "$percent%"
                             textSize = 13f
                             setPadding(0, 0, pad / 2, 0)
-                        })
-                        addView(android.widget.ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
+                        }
+                        val bar = android.widget.ProgressBar(this@MainActivity, null, android.R.attr.progressBarStyleHorizontal).apply {
                             max = 100
                             progress = percent
                             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                        })
+                        }
+                        addView(rateView)
+                        addView(percentView)
+                        addView(bar)
+                        progressRows[job.abbr] = Triple(rateView, percentView, bar)
                     }
                     addView(stateAction("Cancel") {
                         OfflineMaps.cancel(job.abbr)
@@ -3077,8 +3108,11 @@ class MainActivity : AppCompatActivity() {
         }
         showSaved = { paintSaved() }
         startDownload = { states, force ->
-            chooseMapZoom(states, force) { _ ->
-                paintSaved()
+            chooseMapZoom(states, force) { line ->
+                val structural = line == "queued" || line.startsWith("Starting") ||
+                    line.endsWith("started") || line.endsWith("downloaded") ||
+                    line.endsWith("cancelled") || line.contains("failed")
+                if (structural) paintSaved() else paintProgress()
             }
         }
         box.addView(TextView(this).apply {
@@ -3286,10 +3320,22 @@ class MainActivity : AppCompatActivity() {
         }
         val go = {
             onLine("Starting download…")
+            val progressQueued = java.util.concurrent.atomic.AtomicBoolean(false)
             OfflineMaps.enqueue(this, prefs, states, force, zoom) { line ->
-                runOnUiThread {
-                    if (isDestroyed) return@runOnUiThread
-                    onLine(line)
+                val structural = line == "queued" || line.endsWith("started") ||
+                    line.endsWith("downloaded") || line.endsWith("cancelled") || line.contains("failed")
+                if (!structural) {
+                    if (!progressQueued.compareAndSet(false, true)) return@enqueue
+                    runOnUiThread {
+                        progressQueued.set(false)
+                        if (isDestroyed) return@runOnUiThread
+                        onLine(line)
+                    }
+                } else {
+                    runOnUiThread {
+                        if (isDestroyed) return@runOnUiThread
+                        onLine(line)
+                    }
                 }
             }
         }
