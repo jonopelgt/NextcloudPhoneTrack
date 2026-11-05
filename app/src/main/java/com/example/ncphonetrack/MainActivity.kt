@@ -3731,10 +3731,18 @@ class MainActivity : AppCompatActivity() {
             text = "Position update mode"
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         })
-        box.addView(TextView(this).apply {
-            text = "Off sends nothing. Manual sends when you tap Send now. Significant sends after a real move. Move sends on the normal interval. Rapid sends every second."
-            setPadding(0, pad / 4, 0, pad / 2)
-        })
+        listOf(
+            "Manual sends only when you tap Send now.",
+            "Low power sends when a short GPS check shows about 300 meters of movement.",
+            "Walk sends after about 30 meters.",
+            "Move sends the current position every 5 seconds.",
+            "Rapid sends every second."
+        ).forEach { line ->
+            box.addView(TextView(this).apply {
+                text = "\u2022 $line"
+                setPadding(0, pad / 8, 0, pad / 8)
+            })
+        }
         box.addView(modeList)
         box.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -3880,14 +3888,15 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private val positionModes = listOf("manual", "significant", "move", "rapid")
+    private val positionModes = listOf("manual", "significant", "walk", "move", "rapid")
 
     private fun currentPositionMode(): String = prefs.getString("position_mode", "move") ?: "move"
 
     private fun modeLabel(mode: String): String = when (mode) {
         "quiet" -> "Off"
         "manual" -> "Manual"
-        "significant" -> "Significant"
+        "significant" -> "Low power"
+        "walk" -> "Walk"
         "rapid" -> "Rapid"
         "spoof" -> "Spoof"
         "timer" -> "Timer"
@@ -3902,7 +3911,8 @@ class MainActivity : AppCompatActivity() {
     private fun modeIcon(mode: String): Int = when (mode) {
         "quiet" -> R.drawable.ic_mode_off
         "manual" -> R.drawable.ic_mode_manual
-        "significant" -> R.drawable.ic_mode_walk
+        "significant" -> R.drawable.ic_mode_battery
+        "walk" -> R.drawable.ic_mode_stick
         "rapid" -> R.drawable.ic_mode_rocket
         "spoof" -> R.drawable.ic_mode_spy
         "timer", "t2", "t6", "t1d", "t4d" -> R.drawable.ic_mode_timer
@@ -3953,7 +3963,7 @@ class MainActivity : AppCompatActivity() {
         modePicker.removeAllViews()
         if (kind == "position") {
             modePicker.addView(groupLabel("Position"))
-            listOf("manual", "significant", "move", "rapid").forEach { mode ->
+            listOf("manual", "significant", "walk", "move", "rapid").forEach { mode ->
                 modePicker.addView(modeChoice(mode, !spoofing && mode == current) {
                     closeModeMenu()
                     if (spoofing) {

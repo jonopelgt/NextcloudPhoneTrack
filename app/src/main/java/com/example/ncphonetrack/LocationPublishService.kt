@@ -15,6 +15,10 @@ import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.hardware.Sensor
+import android.hardware.SensorManager
+import android.hardware.TriggerEvent
+import android.hardware.TriggerEventListener
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Handler
@@ -60,6 +64,10 @@ class LocationPublishService : Service() {
     private val inFlight = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val mainHandler = Handler(Looper.getMainLooper())
     private val drainScheduled = AtomicBoolean(false)
+    private val sentKeys = LinkedHashSet<String>()
+    private var motionListener: TriggerEventListener? = null
+    private var lowPowerGeneration = 0
+    private var forceNext = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -134,11 +142,33 @@ class LocationPublishService : Service() {
         }
         legacyListener = null
         legacyStarted.set(false)
+        stopLowPower()
         val mode = prefs.getString("position_mode", "move") ?: "move"
         val spoofing = prefs.getBoolean("spoof_enabled", false)
         if (!spoofing && (mode == "quiet" || mode == "manual")) {
             prefs.edit().putString("logging_state", if (mode == "quiet") "off" else "manual").apply()
             LogManager.add(if (mode == "quiet") "Position updates are off" else "Position updates are manual")
+            return
+        }
+        if (!spoofing && mode == "significant") {
+            forceNext = true
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    if (location != null) publishLocation(location)
+                }
+                fusedLocationClient.getCurrentLocation(
+                    LocationRequest.PRIORITY_HIGH_ACCURACY,
+                    CancellationTokenSource().token
+                ).addOnSuccessListener { location ->
+                    if (location != null) publishLocation(location)
+                }
+            } catch (e: SecurityException) {
+                LogManager.add("Location permission missing")
+                prefs.edit().putString("logging_state", "permission denied").apply()
+                return
+            }
+            armLowPower()
+            LogManager.add("Low power: send once, then after about 300 meters")
             return
         }
 
@@ -150,11 +180,11 @@ class LocationPublishService : Service() {
                 priority = LocationRequest.PRIORITY_HIGH_ACCURACY
             }
         } else when (mode) {
-            "significant" -> LocationRequest.create().apply {
-                interval = 5 * 60 * 1000L
-                fastestInterval = 60 * 1000L
-                smallestDisplacement = 100f
-                priority = LocationRequest.PRIORITY_BALANCED_POWER_ACCURACY
+            "walk" -> LocationRequest.create().apply {
+                interval = 10_000L
+                fastestInterval = 5_000L
+                smallestDisplacement = 30f
+                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
             }
             "rapid" -> LocationRequest.create().apply {
                 interval = 1000L
@@ -162,13 +192,11 @@ class LocationPublishService : Service() {
                 smallestDisplacement = 0f
                 priority = LocationRequest.PRIORITY_HIGH_ACCURACY
             }
-            else -> {
-                val interval = publishIntervalMs()
-                LocationRequest.create().apply {
-                    this.interval = interval
-                    fastestInterval = interval
-                    priority = LocationRequest.PRIORITY_HIGH_ACCURACY
-                }
+            else -> LocationRequest.create().apply {
+                interval = 5_000L
+                fastestInterval = 5_000L
+                smallestDisplacement = 0f
+                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
             }
         }
 
@@ -204,14 +232,107 @@ class LocationPublishService : Service() {
             }
             LogManager.add(when {
                 spoofing -> "Spoofed location every ${publishIntervalMs() / 1000}s"
-                mode == "significant" -> "Significant location updates"
+                mode == "walk" -> "Walk: send after about 30 meters"
                 mode == "rapid" -> "Location updates every 1s"
-                else -> "Location updates every ${publishIntervalMs() / 1000}s"
+                else -> "Move: send every 5s"
             })
         } catch (e: SecurityException) {
             LogManager.add("Location permission missing")
             prefs.edit().putString("logging_state", "permission denied").apply()
         }
+    }
+
+    private fun disarmMotion() {
+        motionListener?.let { listener ->
+            val sensors = getSystemService(SensorManager::class.java)
+            val sensor = sensors?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
+            if (sensor != null) sensors.cancelTriggerSensor(listener, sensor)
+        }
+        motionListener = null
+    }
+
+    private fun stopLowPower() {
+        lowPowerGeneration++
+        disarmMotion()
+    }
+
+    private fun armLowPower() {
+        val generation = lowPowerGeneration
+        disarmMotion()
+        val sensors = getSystemService(SensorManager::class.java)
+        val sensor = sensors?.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)
+        if (sensors == null || sensor == null) {
+            mainHandler.postDelayed({
+                if (generation == lowPowerGeneration) checkLowPower(generation, 1, rearm = true)
+            }, 120_000L)
+            return
+        }
+        val listener = object : TriggerEventListener() {
+            override fun onTrigger(event: TriggerEvent?) {
+                if (generation != lowPowerGeneration) return
+                motionListener = null
+                checkLowPower(generation, 12, rearm = true)
+            }
+        }
+        motionListener = listener
+        if (!sensors.requestTriggerSensor(listener, sensor)) {
+            motionListener = null
+            mainHandler.postDelayed({
+                if (generation == lowPowerGeneration) checkLowPower(generation, 1, rearm = true)
+            }, 120_000L)
+            return
+        }
+        mainHandler.postDelayed({
+            if (generation == lowPowerGeneration) checkLowPower(generation, 1, rearm = false)
+        }, 180_000L)
+    }
+
+    private fun checkLowPower(generation: Int, attemptsLeft: Int, rearm: Boolean) {
+        if (generation != lowPowerGeneration) return
+        if ((prefs.getString("position_mode", "") ?: "") != "significant") return
+        if (!::fusedLocationClient.isInitialized) return
+        try {
+            fusedLocationClient.getCurrentLocation(
+                LocationRequest.PRIORITY_HIGH_ACCURACY,
+                CancellationTokenSource().token
+            ).addOnSuccessListener { location ->
+                if (generation != lowPowerGeneration) return@addOnSuccessListener
+                if (location == null) {
+                    if (rearm) armLowPower()
+                    return@addOnSuccessListener
+                }
+                if (movedFar(location, 300f)) {
+                    publishLocation(location)
+                    if (rearm) armLowPower()
+                    return@addOnSuccessListener
+                }
+                val moving = location.hasSpeed() && location.speed >= 0.5f
+                if (!moving || attemptsLeft <= 1) {
+                    if (rearm) armLowPower()
+                    return@addOnSuccessListener
+                }
+                mainHandler.postDelayed({ checkLowPower(generation, attemptsLeft - 1, rearm) }, 60_000L)
+            }.addOnFailureListener {
+                if (generation == lowPowerGeneration && rearm) armLowPower()
+            }
+        } catch (_: SecurityException) {
+            LogManager.add("Location permission missing")
+        }
+    }
+
+    private fun movedFar(location: Location, meters: Float): Boolean {
+        val lat = prefs.getString("sent_lat", null)?.toDoubleOrNull() ?: return true
+        val lon = prefs.getString("sent_lon", null)?.toDoubleOrNull() ?: return true
+        val out = FloatArray(1)
+        Location.distanceBetween(lat, lon, location.latitude, location.longitude, out)
+        return out[0] >= meters
+    }
+
+    private fun markSent(location: Location) {
+        prefs.edit()
+            .putString("sent_lat", location.latitude.toString())
+            .putString("sent_lon", location.longitude.toString())
+            .apply()
     }
 
     private fun startLegacyUpdates() {
@@ -228,8 +349,15 @@ class LocationPublishService : Service() {
         }
         val listener = LocationListener { publishLocation(it) }
         legacyListener = listener
+        val mode = prefs.getString("position_mode", "move") ?: "move"
+        val period = when (mode) {
+            "walk" -> 10_000L
+            "rapid" -> 1_000L
+            else -> 5_000L
+        }
+        val distance = if (mode == "walk") 30f else 0f
         try {
-            manager.requestLocationUpdates(provider, publishIntervalMs(), 0f, listener, Looper.getMainLooper())
+            manager.requestLocationUpdates(provider, period, distance, listener, Looper.getMainLooper())
             LogManager.add("Location updates from $provider")
             manager.getLastKnownLocation(provider)?.let { publishLocation(it) }
         } catch (e: SecurityException) {
@@ -358,6 +486,14 @@ class LocationPublishService : Service() {
 
     private fun publishLocation(location: Location) {
         val fix = spoofedLocation() ?: location
+        val mode = prefs.getString("position_mode", "move") ?: "move"
+        val spoofing = prefs.getBoolean("spoof_enabled", false)
+        val forced = forceNext
+        forceNext = false
+        if (!spoofing && !forced) {
+            if (mode == "significant" && !movedFar(fix, 300f)) return
+            if (mode == "walk" && !movedFar(fix, 30f)) return
+        }
         val snapshot = pointFrom(fix)
         prefs.edit()
             .putString("own_lat", snapshot.optDouble("lat").toString())
@@ -384,6 +520,7 @@ class LocationPublishService : Service() {
                 appendBuffer(point)
                 LogManager.add("$name: queued position")
             }
+            markSent(fix)
             trySend()
         }
         if (!queued) targets.forEach { noteSettled(it.optString("token"), 1) }
@@ -526,14 +663,19 @@ class LocationPublishService : Service() {
     private fun dropHead(point: JSONObject) {
         val token = point.optString("token")
         val key = pointKey(point)
+        synchronized(sentKeys) {
+            sentKeys.add(key)
+            while (sentKeys.size > 300) {
+                val first = sentKeys.iterator().next()
+                sentKeys.remove(first)
+            }
+        }
         synchronized(bufferLock) {
             val queues = readQueues()
             val queue = queues.optJSONArray(token) ?: return
-            for (i in 0 until queue.length()) {
-                if (pointKey(queue.getJSONObject(i)) == key) {
-                    queue.remove(i)
-                    break
-                }
+            var index = 0
+            while (index < queue.length()) {
+                if (pointKey(queue.getJSONObject(index)) == key) queue.remove(index) else index++
             }
             if (queue.length() == 0) queues.remove(token)
             writeQueues(queues)
@@ -543,9 +685,14 @@ class LocationPublishService : Service() {
     private fun appendBuffer(point: JSONObject) {
         val token = point.optString("token")
         if (token.isBlank()) return
+        val key = pointKey(point)
+        synchronized(sentKeys) { if (key in sentKeys) return }
         synchronized(bufferLock) {
             val queues = readQueues()
             val queue = queues.optJSONArray(token) ?: JSONArray().also { queues.put(token, it) }
+            for (i in 0 until queue.length()) {
+                if (pointKey(queue.getJSONObject(i)) == key) return
+            }
             queue.put(point)
             var dropped = 0
             while (queue.length() > MAX_BUFFER) {
@@ -729,6 +876,7 @@ class LocationPublishService : Service() {
     }
 
     override fun onDestroy() {
+        stopLowPower()
         mainHandler.removeCallbacksAndMessages(null)
         io.shutdownNow()
         lanes.forEach { it.shutdownNow() }
