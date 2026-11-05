@@ -776,21 +776,34 @@ class MainActivity : AppCompatActivity() {
         }
         val shown = displayedToken()
         val quiet = (prefs.getString("logging_state", "") ?: "") == "off"
+        val nameWeight = 1.4f
+        val creatorWeight = 1f
+        val statusWeight = 1f
+        fun weighted(weight: Float) = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
         sessionStatusList.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            val gap = (48 * resources.displayMetrics.density).toInt()
-            setPadding(gap, 0, 0, 4)
+            val radioSpace = (48 * resources.displayMetrics.density).toInt()
+            addView(android.view.View(this@MainActivity).apply {
+                layoutParams = LinearLayout.LayoutParams(radioSpace, 1)
+            })
             addView(TextView(this@MainActivity).apply {
-                text = "Session"
+                text = "Session name"
                 textSize = 12f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = weighted(nameWeight)
             })
             addView(TextView(this@MainActivity).apply {
                 text = "Creator"
                 textSize = 12f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
+                layoutParams = weighted(creatorWeight)
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "Status"
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                layoutParams = weighted(statusWeight)
             })
         })
         sessions.forEach { session ->
@@ -838,19 +851,20 @@ class MainActivity : AppCompatActivity() {
             val name = TextView(this).apply {
                 text = label
                 textSize = 16f
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = weighted(nameWeight)
             }
             val creator = TextView(this).apply {
                 text = session.optString("owner").ifBlank { "—" }
                 textSize = 14f
                 setTextColor(Color.parseColor("#616161"))
-                setPadding((8 * resources.displayMetrics.density).toInt(), 0, 8, 0)
+                layoutParams = weighted(creatorWeight)
             }
             val state = TextView(this).apply {
                 text = status
                 textSize = 16f
                 setTextColor(Color.parseColor(color))
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
+                layoutParams = weighted(statusWeight)
             }
             val radio = android.widget.RadioButton(this).apply {
                 isChecked = selected
@@ -2806,9 +2820,10 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     if (epoch != mapEpoch || !::map.isInitialized) return@runOnUiThread
                     map.overlays.removeAll { (it as? Marker)?.title == "Track" }
-                    val others = positions.keys.filter { it != ownDevice }.sorted()
+                    val others = positions.keys.filter { it != ownDevice && !isSelf(it) }.sorted()
                     snapshot.forEach { (name, history) ->
-                        val color = personColor(token, name, ownDevice, others)
+                        val color = shownColor.entries.firstOrNull { it.key.equals(name, true) }?.value
+                            ?: personColor(token, name, ownDevice, others)
                         val current = positions[name]
                         history.forEach { point ->
                             if (current != null && kotlin.math.abs(point.lat - current.lat) < 0.00005 && kotlin.math.abs(point.lon - current.lon) < 0.00005) {
