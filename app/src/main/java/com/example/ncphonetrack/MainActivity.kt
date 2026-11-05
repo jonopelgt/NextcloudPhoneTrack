@@ -4163,6 +4163,11 @@ class MainActivity : AppCompatActivity() {
         }
         label.text = text
         label.bringToFront()
+        val position = findViewById<TextView>(R.id.tvPositionMode)
+        position.visibility = if (superuser) View.VISIBLE else View.GONE
+        if (!superuser) return
+        position.text = if (prefs.getBoolean("spoof_enabled", false)) "Spoof" else modeLabel(currentPositionMode())
+        position.bringToFront()
     }
 
     private fun showDiagnostics() {

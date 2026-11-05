@@ -1010,10 +1010,22 @@ class LocationPublishService : Service() {
             mainHandler.removeCallbacks(applyAuto)
             return
         }
+        if (autoWaitMs(activeMode(), candidate) == 0L) {
+            pendingAuto = null
+            mainHandler.removeCallbacks(applyAuto)
+            if (commitAutoMode(candidate)) startLocationUpdates()
+            return
+        }
         if (pendingAuto == candidate) return
         pendingAuto = candidate
         mainHandler.removeCallbacks(applyAuto)
         mainHandler.postDelayed(applyAuto, 60_000L)
+    }
+
+    private fun autoWaitMs(from: String, to: String): Long {
+        if (from == "significant" && to == "walk") return 0L
+        if (from == "walk" && to == "move") return 0L
+        return 60_000L
     }
 
     private fun ensureAutoWatch() {

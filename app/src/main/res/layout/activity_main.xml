@@ -57,16 +57,30 @@
             android:textSize="11sp"
             android:visibility="gone" />
 
+        <TextView
+            android:id="@+id/tvPositionMode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="62dp"
+            android:layout_marginEnd="4dp"
+            android:background="#EEFFFFFF"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:textColor="#111111"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
         <ImageButton
             android:id="@+id/btnPositionMode"
-            android:layout_width="56dp"
-            android:layout_height="64dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:layout_gravity="top|end"
             android:layout_margin="12dp"
             android:background="@drawable/zoom_key_bg"
             android:contentDescription="Position update mode"
             android:elevation="8dp"
-            android:padding="4dp"
+            android:padding="10dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_mode_car" />
 
