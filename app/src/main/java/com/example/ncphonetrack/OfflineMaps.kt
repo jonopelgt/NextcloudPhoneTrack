@@ -478,6 +478,57 @@ object OfflineMaps {
         return tiles.toLong() * bases.size * 20_000L
     }
 
+    fun estimateMapZoom(state: UsState, zoom: Int): Long {
+        return tileCount(state, zoom.coerceIn(12, 16)).toLong() * 20_000L
+    }
+
+    data class StoredMap(
+        val state: UsState,
+        val mapId: String,
+        val zoom: Int,
+        val at: Long,
+        val bytes: Long
+    )
+
+    fun hasPiece(prefs: SharedPreferences, abbr: String, mapId: String, zoom: Int): Boolean {
+        val item = catalog(prefs).optJSONObject(abbr) ?: return false
+        val piece = item.optJSONObject("maps")?.optJSONObject(mapId)?.optJSONObject(zoom.toString())
+        if (piece != null && piece.optLong("at", 0L) > 0L) return true
+        val legacyAt = item.optLong("at", 0L)
+        val legacyZoom = item.optInt("zoom", 0)
+        return legacyAt > 0L && mapId.isNotBlank() && zoom <= legacyZoom
+    }
+
+    fun storedMaps(prefs: SharedPreferences): List<StoredMap> {
+        val root = catalog(prefs)
+        val out = mutableListOf<StoredMap>()
+        states.forEach { state ->
+            val item = root.optJSONObject(state.abbr) ?: return@forEach
+            val maps = item.optJSONObject("maps")
+            if (maps != null) {
+                val ids = maps.keys()
+                while (ids.hasNext()) {
+                    val mapId = ids.next()
+                    val zooms = maps.optJSONObject(mapId) ?: continue
+                    val keys = zooms.keys()
+                    while (keys.hasNext()) {
+                        val zoomKey = keys.next()
+                        val zoom = zoomKey.toIntOrNull() ?: continue
+                        val piece = zooms.optJSONObject(zoomKey) ?: continue
+                        val at = piece.optLong("at", 0L)
+                        if (at <= 0L) continue
+                        out.add(StoredMap(state, mapId, zoom, at, piece.optLong("bytes", -1L)))
+                    }
+                }
+            }
+            val at = item.optLong("at", 0L)
+            if (at > 0L) {
+                out.add(StoredMap(state, "", item.optInt("zoom", MAX_ZOOM), at, item.optLong("bytes", -1L)))
+            }
+        }
+        return out
+    }
+
     fun downloaded(prefs: SharedPreferences): List<Pair<UsState, Long>> {
         val root = catalog(prefs)
         return states.mapNotNull { state ->
@@ -492,10 +543,7 @@ object OfflineMaps {
     }
 
     fun storedTotal(prefs: SharedPreferences): Long {
-        return downloaded(prefs).sumOf { (state, _) ->
-            val bytes = storedBytes(prefs, state.abbr)
-            if (bytes > 0L) bytes else 0L
-        }
+        return storedMaps(prefs).sumOf { if (it.bytes > 0L) it.bytes else 0L }
     }
 
     fun statesMissingSize(prefs: SharedPreferences): List<UsState> {
@@ -530,7 +578,10 @@ object OfflineMaps {
 
     fun isFresh(at: Long): Boolean = System.currentTimeMillis() - at <= FRESH_MS
 
+    data class MapPick(val state: UsState, val mapId: String, val zoom: Int)
+
     data class MapJob(
+        val key: String,
         val abbr: String,
         val name: String,
         val queued: Boolean,
@@ -539,13 +590,24 @@ object OfflineMaps {
         val rateBps: Long
     )
 
-    private data class PendingMap(val state: UsState, val force: Boolean, val zoom: Int)
+    private data class PendingMap(
+        val state: UsState,
+        val mapId: String,
+        val force: Boolean,
+        val zoom: Int
+    ) {
+        val key: String get() = "${state.abbr}|$mapId|$zoom"
+        fun label(): String {
+            val map = bases.firstOrNull { it.id == mapId }?.label ?: "Maps"
+            return "${state.name} · $map z$zoom"
+        }
+    }
     private val pending = mutableListOf<PendingMap>()
     @Volatile private var current: MapJob? = null
     private val running = AtomicBoolean(false)
     private var byteCount = 0L
     private val rateSamples = ArrayDeque<Triple<Long, Long, Long>>()
-    @Volatile private var cancelAbbr: String? = null
+    @Volatile private var cancelKey: String? = null
 
     fun rateText(bps: Long): String {
         val kb = bps / 1000.0
@@ -557,15 +619,22 @@ object OfflineMaps {
         current?.abbr == abbr || pending.any { it.state.abbr == abbr }
     }
 
-    fun cancel(abbr: String) {
+    fun cancel(key: String) {
+        synchronized(pending) {
+            pending.removeAll { it.key == key }
+            if (current?.key == key) cancelKey = key
+        }
+    }
+
+    private fun cancelState(abbr: String) {
         synchronized(pending) {
             pending.removeAll { it.state.abbr == abbr }
-            if (current?.abbr == abbr) cancelAbbr = abbr
+            if (current?.abbr == abbr) cancelKey = current?.key
         }
     }
 
     fun remove(context: Context, prefs: SharedPreferences, state: UsState) {
-        cancel(state.abbr)
+        cancelState(state.abbr)
         invalidateDiskUse()
         val root = catalog(prefs)
         root.remove(state.abbr)
@@ -584,25 +653,25 @@ object OfflineMaps {
     fun queue(): List<MapJob> = synchronized(pending) {
         val list = mutableListOf<MapJob>()
         current?.let { list.add(it) }
-        pending.forEach { list.add(MapJob(it.state.abbr, it.state.name, true, 0, 0, 0L)) }
+        pending.forEach { list.add(MapJob(it.key, it.state.abbr, it.label(), true, 0, 0, 0L)) }
         list
     }
 
     fun enqueue(
         context: Context,
         prefs: SharedPreferences,
-        states: List<UsState>,
+        picks: List<MapPick>,
         force: Boolean,
-        zoom: Int,
         onStatus: (String) -> Unit
     ) {
-        if (states.isEmpty()) return
-        val chosen = zoom.coerceIn(12, 16)
+        if (picks.isEmpty()) return
         val start = synchronized(pending) {
-            states.forEach { state ->
-                if (current?.abbr == state.abbr) return@forEach
-                if (pending.any { it.state.abbr == state.abbr }) return@forEach
-                pending.add(PendingMap(state, force, chosen))
+            picks.forEach { pick ->
+                val zoom = pick.zoom.coerceIn(12, 16)
+                val key = "${pick.state.abbr}|${pick.mapId}|$zoom"
+                if (current?.key == key) return@forEach
+                if (pending.any { it.key == key }) return@forEach
+                pending.add(PendingMap(pick.state, pick.mapId, force, zoom))
             }
             if (running.get()) false else {
                 running.set(true)
@@ -628,22 +697,23 @@ object OfflineMaps {
                             pending.removeAt(0)
                         }
                     } ?: break
-                    val total = tileTotal(job.state, job.zoom)
+                    val map = bases.firstOrNull { it.id == job.mapId } ?: bases.first()
+                    val total = tileCount(job.state, job.zoom).coerceAtLeast(1)
                     byteCount = 0L
                     rateSamples.clear()
-                    synchronized(pending) { current = MapJob(job.state.abbr, job.state.name, false, 0, total, 0L) }
-                    onStatus("${job.state.name} started")
-                    val error = download(context, job.state, job.force, job.zoom, total, onStatus)
+                    synchronized(pending) { current = MapJob(job.key, job.state.abbr, job.label(), false, 0, total, 0L) }
+                    onStatus("${job.label()} started")
+                    val error = download(context, job, map, total, onStatus)
                     synchronized(pending) { current = null }
                     if (error == null) {
-                        mark(prefs, job.state, measureState(context, job.state, job.zoom), job.zoom)
-                        onStatus("${job.state.name} downloaded")
-                        LogManager.add("${job.state.name}: offline maps downloaded")
+                        markPiece(prefs, job.state, job.mapId, job.zoom, byteCount)
+                        onStatus("${job.label()} downloaded")
+                        LogManager.add("${job.label()}: offline map downloaded")
                     } else if (error == "cancelled") {
-                        onStatus("${job.state.name} cancelled")
+                        onStatus("${job.label()} cancelled")
                     } else {
                         onStatus(error)
-                        LogManager.add("${job.state.name}: $error")
+                        LogManager.add("${job.label()}: $error")
                     }
                 }
             } finally {
@@ -666,61 +736,56 @@ object OfflineMaps {
 
     private fun download(
         context: Context,
-        state: UsState,
-        force: Boolean,
-        maxZoom: Int,
+        job: PendingMap,
+        map: BaseMap,
         total: Int,
         onStatus: (String) -> Unit
     ): String? {
         var attempted = 0
         var failed = 0
-        for (map in bases) {
-            for (zoom in zoomsThrough(maxZoom)) {
-                val tiles = tilesAt(state, zoom)
-                for ((x, y) in tiles) {
-                    if (cancelAbbr == state.abbr) {
-                        cancelAbbr = null
-                        return "cancelled"
-                    }
-                    attempted++
-                    val dest = File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}")
-                    if (!force && dest.isFile && dest.length() > 100) {
-                        // already saved
-                    } else {
-                        if (attempted == 1 || attempted % 5 == 0) {
-                            noteProgress(state, attempted, total)
-                            onStatus("${state.name} $attempted/$total")
-                        }
-                        val started = System.currentTimeMillis()
-                        val wrote = saveTile(map.url(zoom, x, y), dest)
-                        if (wrote < 0) failed++ else {
-                            byteCount += wrote
-                            val now = System.currentTimeMillis()
-                            rateSamples.addLast(Triple(now, (now - started).coerceAtLeast(1L), wrote))
-                            while (rateSamples.isNotEmpty() && now - rateSamples.first().first > 5_000L) rateSamples.removeFirst()
-                        }
-                    }
-                    if (attempted == 1 || attempted % 20 == 0) {
-                        noteProgress(state, attempted, total)
-                        onStatus("${state.name} $attempted/$total")
-                    }
+        val tiles = tilesAt(job.state, job.zoom)
+        for ((x, y) in tiles) {
+            if (cancelKey == job.key) {
+                cancelKey = null
+                return "cancelled"
+            }
+            attempted++
+            val dest = File(tileCache(context), "${map.id}/${job.zoom}/$x/$y${map.ext}")
+            if (!job.force && dest.isFile && dest.length() > 100) {
+                // already saved
+            } else {
+                if (attempted == 1 || attempted % 5 == 0) {
+                    noteProgress(job, attempted, total)
+                    onStatus("${job.label()} $attempted/$total")
+                }
+                val started = System.currentTimeMillis()
+                val wrote = saveTile(map.url(job.zoom, x, y), dest)
+                if (wrote < 0) failed++ else {
+                    byteCount += wrote
+                    val now = System.currentTimeMillis()
+                    rateSamples.addLast(Triple(now, (now - started).coerceAtLeast(1L), wrote))
+                    while (rateSamples.isNotEmpty() && now - rateSamples.first().first > 5_000L) rateSamples.removeFirst()
                 }
             }
+            if (attempted == 1 || attempted % 20 == 0) {
+                noteProgress(job, attempted, total)
+                onStatus("${job.label()} $attempted/$total")
+            }
         }
-        noteProgress(state, total, total)
+        noteProgress(job, total, total)
         if (attempted > 20 && failed * 5 > attempted) {
-            return "${state.name} download failed ($failed tiles)"
+            return "${job.label()} download failed ($failed tiles)"
         }
         return null
     }
 
-    private fun noteProgress(state: UsState, done: Int, total: Int) {
+    private fun noteProgress(job: PendingMap, done: Int, total: Int) {
         val now = System.currentTimeMillis()
         while (rateSamples.isNotEmpty() && now - rateSamples.first().first > 5_000L) rateSamples.removeFirst()
         val bytes = rateSamples.sumOf { it.third }
         val span = rateSamples.sumOf { it.second }.coerceAtLeast(1L)
         val bps = if (bytes <= 0L) 0L else bytes * 1000L / span
-        synchronized(pending) { current = MapJob(state.abbr, state.name, false, done, total, bps) }
+        synchronized(pending) { current = MapJob(job.key, job.state.abbr, job.label(), false, done, total, bps) }
     }
 
     private fun saveTile(url: String, dest: File): Long {
@@ -860,5 +925,37 @@ object OfflineMaps {
             .put("bytes", bytes)
             .put("zoom", zoom))
         prefs.edit().putString("offline_maps", root.toString()).apply()
+    }
+
+    private fun markPiece(prefs: SharedPreferences, state: UsState, mapId: String, zoom: Int, bytes: Long) {
+        val root = catalog(prefs)
+        val item = root.optJSONObject(state.abbr) ?: JSONObject().put("name", state.name)
+        val maps = item.optJSONObject("maps") ?: JSONObject()
+        val zooms = maps.optJSONObject(mapId) ?: JSONObject()
+        zooms.put(zoom.toString(), JSONObject().put("at", System.currentTimeMillis()).put("bytes", bytes))
+        maps.put(mapId, zooms)
+        item.put("maps", maps)
+        item.put("name", state.name)
+        root.put(state.abbr, item)
+        prefs.edit().putString("offline_maps", root.toString()).apply()
+    }
+
+    fun removePiece(context: Context, prefs: SharedPreferences, state: UsState, mapId: String, zoom: Int) {
+        cancel("${state.abbr}|$mapId|$zoom")
+        val root = catalog(prefs)
+        val item = root.optJSONObject(state.abbr) ?: return
+        val maps = item.optJSONObject("maps") ?: return
+        val zooms = maps.optJSONObject(mapId) ?: return
+        zooms.remove(zoom.toString())
+        if (zooms.length() == 0) maps.remove(mapId)
+        item.put("maps", maps)
+        root.put(state.abbr, item)
+        prefs.edit().putString("offline_maps", root.toString()).apply()
+        val map = bases.firstOrNull { it.id == mapId } ?: return
+        Thread {
+            tilesAt(state, zoom).forEach { (x, y) ->
+                File(tileCache(context), "${map.id}/$zoom/$x/$y${map.ext}").delete()
+            }
+        }.start()
     }
 }

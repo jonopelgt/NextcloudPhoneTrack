@@ -2918,6 +2918,8 @@ class MainActivity : AppCompatActivity() {
         }
         var mapsDialog: AlertDialog? = null
         var showSaved: () -> Unit = {}
+        var sortByMap = false
+        fun mapLabel(id: String): String = OfflineMaps.bases.firstOrNull { it.id == id }?.label ?: "Maps"
         var measuringSizes = false
         fun refreshSizes() {
             if (measuringSizes) return
@@ -2947,7 +2949,7 @@ class MainActivity : AppCompatActivity() {
         val progressRows = HashMap<String, Triple<TextView, TextView, android.widget.ProgressBar>>()
         fun paintProgress() {
             val active = OfflineMaps.queue()
-            val live = active.filter { !it.queued }.map { it.abbr }.toSet()
+            val live = active.filter { !it.queued }.map { it.key }.toSet()
             if (live != progressRows.keys) {
                 showSaved()
                 return
@@ -3008,7 +3010,7 @@ class MainActivity : AppCompatActivity() {
                 "Downloaded"
             }
             val active = OfflineMaps.queue()
-            val activeAbbr = active.map { it.abbr }.toSet()
+            val activeKeys = active.map { it.key }.toSet()
             active.forEach { job ->
                 val status = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
@@ -3041,10 +3043,10 @@ class MainActivity : AppCompatActivity() {
                         addView(rateView)
                         addView(percentView)
                         addView(bar)
-                        progressRows[job.abbr] = Triple(rateView, percentView, bar)
+                        progressRows[job.key] = Triple(rateView, percentView, bar)
                     }
                     addView(stateAction("Cancel") {
-                        OfflineMaps.cancel(job.abbr)
+                        OfflineMaps.cancel(job.key)
                         paintSaved()
                     })
                 }
@@ -3058,7 +3060,12 @@ class MainActivity : AppCompatActivity() {
                     addView(status)
                 })
             }
-            val rows = OfflineMaps.downloaded(prefs).filter { it.first.abbr !in activeAbbr }
+            val rows = OfflineMaps.storedMaps(prefs).filter {
+                "${it.state.abbr}|${it.mapId}|${it.zoom}" !in activeKeys
+            }.sortedWith(
+                if (sortByMap) compareBy({ mapLabel(it.mapId) }, { it.state.name }, { it.zoom })
+                else compareBy({ it.state.name }, { mapLabel(it.mapId) }, { it.zoom })
+            )
             if (rows.isEmpty() && active.isEmpty()) {
                 saved.addView(TextView(this).apply {
                     text = "No states downloaded."
@@ -3067,39 +3074,55 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             val format = java.text.SimpleDateFormat("M/d/yy", java.util.Locale.US)
-            rows.forEach { (state, at) ->
-                val fresh = OfflineMaps.isFresh(at)
-                val whenText = format.format(java.util.Date(at))
-                val bytes = OfflineMaps.storedBytes(prefs, state.abbr)
-                val sizeText = if (bytes >= 0L) OfflineMaps.compactSize(bytes) else null
+            rows.forEach { item ->
+                val fresh = OfflineMaps.isFresh(item.at)
+                val whenText = format.format(java.util.Date(item.at))
+                val sizeText = if (item.bytes >= 0L) OfflineMaps.compactSize(item.bytes) else null
+                val title = when {
+                    item.mapId.isBlank() -> item.state.name
+                    sortByMap -> "${mapLabel(item.mapId)} · ${item.state.name} z${item.zoom}"
+                    else -> "${item.state.name} · ${mapLabel(item.mapId)} z${item.zoom}"
+                }
+                val statusText = when {
+                    fresh && sizeText != null -> "$whenText ($sizeText)  OK"
+                    sizeText != null -> "$whenText ($sizeText)"
+                    fresh -> "$whenText  OK"
+                    else -> whenText
+                }
                 saved.addView(LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
                     setPadding(0, pad / 4, 0, pad / 2)
                     addView(TextView(this@MainActivity).apply {
-                        text = state.name
+                        text = title
                         textSize = 16f
                     })
                     addView(LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = android.view.Gravity.CENTER_VERTICAL
                         addView(TextView(this@MainActivity).apply {
-                            text = when {
-                                fresh && sizeText != null -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)} ($sizeText)  OK"
-                                sizeText != null -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)} ($sizeText)"
-                                fresh -> "$whenText z${OfflineMaps.storedZoom(prefs, state.abbr)}  OK"
-                                else -> whenText
-                            }
+                            text = statusText
                             textSize = 14f
                             setTextColor(Color.parseColor(if (fresh) "#1B7F3A" else "#757575"))
                             setTypeface(typeface, android.graphics.Typeface.BOLD)
                             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                         })
-                        addView(stateAction(if (fresh) "Delete" else "Update") {
+                        addView(stateAction(if (fresh) "Delete" else "Download") {
                             if (fresh) {
-                                OfflineMaps.remove(this@MainActivity, prefs, state)
+                                if (item.mapId.isBlank()) OfflineMaps.remove(this@MainActivity, prefs, item.state)
+                                else OfflineMaps.removePiece(this@MainActivity, prefs, item.state, item.mapId, item.zoom)
                                 paintSaved()
+                            } else if (item.mapId.isBlank()) {
+                                startDownload(listOf(item.state), true)
                             } else {
-                                startDownload(listOf(state), true)
+                                confirmMeteredDownload(
+                                    listOf(OfflineMaps.MapPick(item.state, item.mapId, item.zoom)),
+                                    true
+                                ) { line ->
+                                    val structural = line == "queued" || line.startsWith("Starting") ||
+                                        line.endsWith("started") || line.endsWith("downloaded") ||
+                                        line.endsWith("cancelled") || line.contains("failed")
+                                    if (structural) paintSaved() else paintProgress()
+                                }
                             }
                         })
                     })
@@ -3182,7 +3205,21 @@ class MainActivity : AppCompatActivity() {
         }
         val update = Button(this).apply {
             text = "Update"
-            setOnClickListener { startDownload(OfflineMaps.stale(prefs), true) }
+            setOnClickListener {
+                val picks = OfflineMaps.storedMaps(prefs)
+                    .filter { !OfflineMaps.isFresh(it.at) && it.mapId.isNotBlank() }
+                    .map { OfflineMaps.MapPick(it.state, it.mapId, it.zoom) }
+                if (picks.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "All downloaded maps are up to date", Toast.LENGTH_SHORT).show()
+                } else {
+                    confirmMeteredDownload(picks, true) { line ->
+                        val structural = line == "queued" || line.startsWith("Starting") ||
+                            line.endsWith("started") || line.endsWith("downloaded") ||
+                            line.endsWith("cancelled") || line.contains("failed")
+                        if (structural) showSaved() else paintProgress()
+                    }
+                }
+            }
         }
         box.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -3192,12 +3229,27 @@ class MainActivity : AppCompatActivity() {
             addView(update)
         })
         box.addView(TextView(this).apply {
-            text = "Choosing a state downloads all five maps for offline use."
+            text = "Choose a state, then select each map and zoom."
             textSize = 13f
             setPadding(0, pad / 4, 0, 0)
         })
         box.addView(results)
-        box.addView(downloadedTitle)
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            addView(downloadedTitle.apply {
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            })
+            addView(Button(this@MainActivity).apply {
+                text = "Sort: State"
+                textSize = 12f
+                setOnClickListener {
+                    sortByMap = !sortByMap
+                    text = if (sortByMap) "Sort: Map" else "Sort: State"
+                    showSaved()
+                }
+            })
+        })
         box.addView(saved)
         paintSaved()
         search.addTextChangedListener(object : android.text.TextWatcher {
@@ -3287,41 +3339,82 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun chooseMapZoom(states: List<UsState>, force: Boolean, onLine: (String) -> Unit) {
-        if (states.isEmpty()) {
-            Toast.makeText(this, "All downloaded states are up to date", Toast.LENGTH_SHORT).show()
+        val state = states.firstOrNull() ?: run {
+            Toast.makeText(this, "All downloaded maps are up to date", Toast.LENGTH_SHORT).show()
             return
         }
-        val group = android.widget.RadioGroup(this).apply { orientation = android.widget.RadioGroup.VERTICAL }
+        val picks = linkedSetOf<Pair<String, Int>>()
+        val table = android.widget.TableLayout(this)
+        val header = android.widget.TableRow(this)
+        header.addView(TextView(this).apply {
+            text = "Map"
+            textSize = 12f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(0, 0, 12, 0)
+        })
         (12..16).forEach { zoom ->
-            val bytes = states.sumOf { OfflineMaps.estimateBytes(it, zoom) }
-            group.addView(android.widget.RadioButton(this).apply {
-                id = zoom
-                text = "Zoom $zoom    ${OfflineMaps.compactSize(bytes)}"
-                textSize = 16f
+            header.addView(TextView(this).apply {
+                text = "z$zoom"
+                textSize = 12f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                gravity = android.view.Gravity.CENTER
             })
         }
-        group.check(12)
-        val title = if (states.size == 1) states.first().name else "Offline maps"
+        table.addView(header)
+        OfflineMaps.bases.forEach { map ->
+            val row = android.widget.TableRow(this)
+            row.addView(TextView(this).apply {
+                text = map.label
+                textSize = 12f
+                setPadding(0, 8, 12, 8)
+            })
+            (12..16).forEach { zoom ->
+                if (zoom > map.maxZoom) {
+                    row.addView(TextView(this).apply {
+                        text = "—"
+                        gravity = android.view.Gravity.CENTER
+                    })
+                } else if (OfflineMaps.hasPiece(prefs, state.abbr, map.id, zoom)) {
+                    row.addView(TextView(this).apply {
+                        text = "OK"
+                        textSize = 12f
+                        gravity = android.view.Gravity.CENTER
+                        setTextColor(Color.parseColor("#1B7F3A"))
+                    })
+                } else {
+                    row.addView(android.widget.CheckBox(this).apply {
+                        text = OfflineMaps.compactSize(OfflineMaps.estimateMapZoom(state, zoom))
+                        textSize = 11f
+                        setOnCheckedChangeListener { _, checked ->
+                            if (checked) picks.add(map.id to zoom) else picks.remove(map.id to zoom)
+                        }
+                    })
+                }
+            }
+            table.addView(row)
+        }
+        val scroller = android.widget.HorizontalScrollView(this).apply { addView(table) }
         AlertDialog.Builder(this)
-            .setTitle(title)
-            .setMessage("Choose the closest zoom to store. The size is an estimate for all five maps.")
-            .setView(group)
+            .setTitle(state.name)
+            .setMessage("Select each map and zoom. Each selected map is queued on its own.")
+            .setView(scroller)
             .setPositiveButton("Download") { _, _ ->
-                confirmMeteredDownload(states, force, group.checkedRadioButtonId, onLine)
+                val chosen = picks.map { OfflineMaps.MapPick(state, it.first, it.second) }
+                confirmMeteredDownload(chosen, force, onLine)
             }
             .setNegativeButton("Cancel", null)
             .show()
     }
 
-    private fun confirmMeteredDownload(states: List<UsState>, force: Boolean, zoom: Int, onLine: (String) -> Unit) {
-        if (states.isEmpty()) {
-            Toast.makeText(this, "All downloaded states are up to date", Toast.LENGTH_SHORT).show()
+    private fun confirmMeteredDownload(picks: List<OfflineMaps.MapPick>, force: Boolean, onLine: (String) -> Unit) {
+        if (picks.isEmpty()) {
+            Toast.makeText(this, "Select a map", Toast.LENGTH_SHORT).show()
             return
         }
         val go = {
             onLine("Starting download…")
             val progressQueued = java.util.concurrent.atomic.AtomicBoolean(false)
-            OfflineMaps.enqueue(this, prefs, states, force, zoom) { line ->
+            OfflineMaps.enqueue(this, prefs, picks, force) { line ->
                 val structural = line == "queued" || line.endsWith("started") ||
                     line.endsWith("downloaded") || line.endsWith("cancelled") || line.contains("failed")
                 if (!structural) {
