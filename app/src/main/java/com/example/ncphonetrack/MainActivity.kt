@@ -98,6 +98,13 @@ class MainActivity : AppCompatActivity() {
     private var openModeMenu: String? = null
     private var pickFollowOnNextMap = false
     private var bubbleToken = 0
+    private var lastSeenName: String? = null
+    private var lastSeenPoint: GeoPoint? = null
+    private var lastSeenText: String = ""
+    private var lastSeenUntil = 0L
+    private var lastSeenBubbleUntil = 0L
+    private var lastSeenAlpha = 1f
+    private var lastSeenGen = 0
     private val zoomOverlays = mutableListOf<LinearLayout>()
     private val iconCache = mutableMapOf<String, BitmapDrawable>()
     private val colorChoices = listOf(
@@ -1237,12 +1244,18 @@ class MainActivity : AppCompatActivity() {
                     setOnClickListener {
                         dialog.dismiss()
                         statusPanel.visibility = View.GONE
+                        val point = data.points[user]
+                        val displayed = deviceOnMap(user)
                         loadSessions().find { it.optString("token") == token }?.let {
                             showSessionOnMap(it, keepView = true)
                         }
-                        lastPoints.clear()
-                        lastPoints.putAll(data.points)
-                        enterUserTrack(user)
+                        if (!displayed && point != null) {
+                            showLastSeen(user, point, data.seen[user] ?: 0L)
+                        } else {
+                            lastPoints.clear()
+                            lastPoints.putAll(data.points)
+                            enterUserTrack(user)
+                        }
                         refreshMapBanner()
                     }
                 }
@@ -2722,6 +2735,7 @@ class MainActivity : AppCompatActivity() {
             refreshZoomKeys()
         }
         applyMapFollow(lastPoints.values.toList())
+        restoreLastSeen()
         map.invalidate()
         updateStatusText("${displayedSessionName()}: Map updated: ${positions.size} devices")
         logMapDisplay(positions, ageOut)
@@ -2898,6 +2912,93 @@ class MainActivity : AppCompatActivity() {
             0 -> enterGroupView()
             1 -> enterUserTrack(lastPoints.keys.first())
             else -> enterGroupView()
+        }
+    }
+
+    private fun deviceOnMap(name: String): Boolean {
+        if (!::map.isInitialized) return false
+        return map.overlays.any { overlay ->
+            val marker = overlay as? Marker ?: return@any false
+            if (marker.relatedObject == "last-seen" || marker.title == "Track" || marker.title == "Spoof") return@any false
+            val title = marker.title ?: return@any false
+            title.equals(name, true) || title.equals("You · $name", true)
+        }
+    }
+
+    private fun showLastSeen(name: String, point: GeoPoint, seenSec: Long) {
+        lastSeenGen++
+        val generation = lastSeenGen
+        lastSeenName = name
+        lastSeenPoint = point
+        lastSeenText = lastSeenLabel(seenSec).ifBlank { "unknown" }
+        lastSeenAlpha = 1f
+        val now = System.currentTimeMillis()
+        lastSeenUntil = now + 30_000
+        lastSeenBubbleUntil = now + 20_000
+        allMode = false
+        mapFollow = MapFollow.MANUAL
+        trackedUser = null
+        refreshZoomKeys()
+        map.controller.setZoom(map.maxZoomLevel)
+        centerAboveBanner(point)
+        restoreLastSeen()
+        map.invalidate()
+        map.postDelayed({
+            if (generation != lastSeenGen) return@postDelayed
+            lastSeenBubbleUntil = 0L
+            (map.overlays.firstOrNull { (it as? Marker)?.relatedObject == "last-seen" } as? Marker)?.closeInfoWindow()
+        }, 20_000)
+        map.postDelayed({
+            if (generation != lastSeenGen) return@postDelayed
+            fadeLastSeen(generation)
+        }, 30_000)
+    }
+
+    private fun fadeLastSeen(generation: Int) {
+        if (generation != lastSeenGen || lastSeenPoint == null) return
+        lastSeenAlpha -= 0.2f
+        if (lastSeenAlpha <= 0.05f) {
+            clearLastSeen()
+            return
+        }
+        restoreLastSeen()
+        map.invalidate()
+        map.postDelayed({ fadeLastSeen(generation) }, 160)
+    }
+
+    private fun restoreLastSeen() {
+        if (!::map.isInitialized) return
+        val point = lastSeenPoint ?: return
+        val name = lastSeenName ?: return
+        if (System.currentTimeMillis() >= lastSeenUntil && lastSeenAlpha >= 1f) {
+            clearLastSeen()
+            return
+        }
+        map.overlays.removeAll { (it as? Marker)?.relatedObject == "last-seen" }
+        val marker = Marker(map)
+        marker.position = point
+        marker.title = name
+        marker.snippet = "Last seen $lastSeenText"
+        marker.relatedObject = "last-seen"
+        marker.icon = iconFor(Color.parseColor("#9E9E9E"), 28, lastSeenAlpha, outline = false)
+        marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+        marker.setOnMarkerClickListener { clicked, _ ->
+            showStatusBubble(clicked)
+            true
+        }
+        map.overlays.add(marker)
+        if (System.currentTimeMillis() < lastSeenBubbleUntil) marker.showInfoWindow()
+    }
+
+    private fun clearLastSeen() {
+        lastSeenName = null
+        lastSeenPoint = null
+        lastSeenUntil = 0L
+        lastSeenBubbleUntil = 0L
+        lastSeenAlpha = 1f
+        if (::map.isInitialized) {
+            map.overlays.removeAll { (it as? Marker)?.relatedObject == "last-seen" }
+            map.invalidate()
         }
     }
 
