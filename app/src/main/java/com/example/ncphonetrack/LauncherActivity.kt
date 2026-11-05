@@ -7,6 +7,7 @@ import android.os.Bundle
 class LauncherActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        LauncherIcon.noteLaunch(intent?.component)
         startActivity(Intent(this, MainActivity::class.java))
         finish()
     }

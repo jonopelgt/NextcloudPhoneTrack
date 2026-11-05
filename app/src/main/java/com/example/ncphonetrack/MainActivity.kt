@@ -142,7 +142,13 @@ class MainActivity : AppCompatActivity() {
         val countSuperuser = {
             if (!superuser) {
                 superuserTaps++
-                if (superuserTaps >= 15) superuser = true
+                if (superuserTaps >= 15) {
+                    superuser = true
+                    AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
+                        .setMessage("Superuser mode is active.")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
             }
         }
         sessionBanner.setOnClickListener { countSuperuser() }
@@ -231,7 +237,7 @@ class MainActivity : AppCompatActivity() {
         btnSharing = findViewById(R.id.btnSharing)
         modePicker = findViewById(R.id.modePicker)
         refreshModeButton()
-        LauncherIcon.apply(this)
+        LauncherIcon.onActivityLaunch(this)
         btnPositionMode.setOnClickListener {
             if (modePicker.visibility == View.VISIBLE) closeModeMenu() else sendCurrentPosition()
         }
