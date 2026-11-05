@@ -88,8 +88,9 @@ class LocationPublishService : Service() {
     }
     private val activityReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (!ActivityRecognitionResult.hasResult(intent)) return
-            val activity = ActivityRecognitionResult.extractResult(intent)?.mostProbableActivity ?: return
+            val received = intent ?: return
+            if (!ActivityRecognitionResult.hasResult(received)) return
+            val activity = ActivityRecognitionResult.extractResult(received)?.mostProbableActivity ?: return
             val candidate = when (activity.type) {
                 DetectedActivity.STILL -> "significant"
                 DetectedActivity.ON_FOOT, DetectedActivity.WALKING, DetectedActivity.RUNNING -> "walk"
@@ -1011,14 +1012,16 @@ class LocationPublishService : Service() {
         ActivityRecognition.getClient(this).requestActivityUpdates(30_000L, pending)
     }
 
-    private val batteryPoll = Runnable {
-        if (!autoWatching || storedMode() != "auto") return@Runnable
-        if (batteryForcesLowPower() && activeMode() != "significant") {
-            prefs.edit().putString("auto_effective", "significant").apply()
-            LogManager.add("Auto: low power, battery")
-            startLocationUpdates()
+    private val batteryPoll: Runnable = object : Runnable {
+        override fun run() {
+            if (!autoWatching || storedMode() != "auto") return
+            if (batteryForcesLowPower() && activeMode() != "significant") {
+                prefs.edit().putString("auto_effective", "significant").apply()
+                LogManager.add("Auto: low power, battery")
+                startLocationUpdates()
+            }
+            mainHandler.postDelayed(this, 60_000L)
         }
-        mainHandler.postDelayed(batteryPoll, 60_000L)
     }
 
     private fun stopAutoWatch() {
