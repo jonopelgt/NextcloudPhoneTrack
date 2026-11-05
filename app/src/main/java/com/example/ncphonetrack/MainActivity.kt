@@ -127,6 +127,12 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("auto_default_set", false)) {
+            val savedMode = prefs.getString("position_mode", null)
+            val edit = prefs.edit().putBoolean("auto_default_set", true)
+            if (savedMode.isNullOrBlank() || savedMode == "move") edit.putString("position_mode", "auto")
+            edit.apply()
+        }
         backfillPostedNames()
         val sharingFilter = android.content.IntentFilter(SharingControl.ACTION_SHARING_CHANGED)
         sharingFilter.addAction(SharingControl.ACTION_TIMER_TICK)
@@ -1582,6 +1588,7 @@ class MainActivity : AppCompatActivity() {
         )
         if (Build.VERSION.SDK_INT >= 29) {
             items.add(RequiredPermission("Background location", Manifest.permission.ACCESS_BACKGROUND_LOCATION, "app"))
+            items.add(RequiredPermission("Physical activity", Manifest.permission.ACTIVITY_RECOGNITION, "app"))
         }
         if (Build.VERSION.SDK_INT >= 33) {
             items.add(RequiredPermission("Notifications", Manifest.permission.POST_NOTIFICATIONS, "notifications"))
@@ -2502,6 +2509,12 @@ class MainActivity : AppCompatActivity() {
         if (!checkPermissions()) needed.add(Manifest.permission.ACCESS_FINE_LOCATION)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        if (Build.VERSION.SDK_INT >= 29 &&
+            (prefs.getString("position_mode", "auto") ?: "auto") == "auto" &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.ACTIVITY_RECOGNITION)
         }
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -3840,7 +3853,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(pad, pad, pad, 0)
         }
         var selectedMode = currentPositionMode().let { mode ->
-            if (mode == "quiet") prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move" else mode
+            if (mode == "quiet") prefs.getString("share_mode", "auto")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "auto" else mode
         }
         val modeList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun renderModes() {
@@ -3899,6 +3912,7 @@ class MainActivity : AppCompatActivity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         })
         listOf(
+            "Auto follows still, walking, or driving, and uses low power on battery saver or under 5 percent.",
             "Manual sends only when you tap Send now.",
             "Low power sends when a short GPS check shows about 300 meters of movement.",
             "Walk sends after about 30 meters.",
@@ -4057,12 +4071,13 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private val positionModes = listOf("manual", "significant", "walk", "move", "rapid")
+    private val positionModes = listOf("auto", "manual", "significant", "walk", "move", "rapid")
 
-    private fun currentPositionMode(): String = prefs.getString("position_mode", "move") ?: "move"
+    private fun currentPositionMode(): String = prefs.getString("position_mode", "auto") ?: "auto"
 
     private fun modeLabel(mode: String): String = when (mode) {
         "quiet" -> "Off"
+        "auto" -> "Auto"
         "manual" -> "Manual"
         "significant" -> "Low power"
         "walk" -> "Walk"
@@ -4079,6 +4094,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun modeIcon(mode: String): Int = when (mode) {
         "quiet" -> R.drawable.ic_mode_off
+        "auto" -> R.drawable.ic_mode_auto
         "manual" -> R.drawable.ic_mode_manual
         "significant" -> R.drawable.ic_mode_battery
         "walk" -> R.drawable.ic_mode_stick
@@ -4132,7 +4148,7 @@ class MainActivity : AppCompatActivity() {
         modePicker.removeAllViews()
         if (kind == "position") {
             modePicker.addView(groupLabel("Position"))
-            listOf("manual", "significant", "walk", "move", "rapid").forEach { mode ->
+            listOf("auto", "manual", "significant", "walk", "move", "rapid").forEach { mode ->
                 modePicker.addView(modeChoice(mode, !spoofing && mode == current) {
                     closeModeMenu()
                     if (spoofing) {

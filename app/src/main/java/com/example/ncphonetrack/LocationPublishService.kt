@@ -5,10 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
@@ -24,7 +26,11 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import com.google.android.gms.location.ActivityRecognition
+import com.google.android.gms.location.ActivityRecognitionResult
+import com.google.android.gms.location.DetectedActivity
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -68,6 +74,43 @@ class LocationPublishService : Service() {
     private var motionListener: TriggerEventListener? = null
     private var lowPowerGeneration = 0
     private var forceNext = false
+    private var autoWatching = false
+    private var pendingAuto: String? = null
+    private var activityIntent: PendingIntent? = null
+    private val applyAuto = Runnable {
+        val next = pendingAuto ?: return@Runnable
+        pendingAuto = null
+        if (storedMode() != "auto" || batteryForcesLowPower()) return@Runnable
+        if (next == activeMode()) return@Runnable
+        prefs.edit().putString("auto_effective", next).apply()
+        LogManager.add("Auto: ${autoLabel(next)}")
+        startLocationUpdates()
+    }
+    private val activityReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (!ActivityRecognitionResult.hasResult(intent)) return
+            val activity = ActivityRecognitionResult.extractResult(intent)?.mostProbableActivity ?: return
+            val candidate = when (activity.type) {
+                DetectedActivity.STILL -> "significant"
+                DetectedActivity.ON_FOOT, DetectedActivity.WALKING, DetectedActivity.RUNNING -> "walk"
+                DetectedActivity.IN_VEHICLE, DetectedActivity.ON_BICYCLE -> "move"
+                else -> return
+            }
+            noteAutoCandidate(candidate)
+        }
+    }
+    private val batteryReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (storedMode() != "auto") return
+            if (!batteryForcesLowPower()) return
+            if (activeMode() == "significant") return
+            pendingAuto = null
+            mainHandler.removeCallbacks(applyAuto)
+            prefs.edit().putString("auto_effective", "significant").apply()
+            LogManager.add("Auto: low power, battery")
+            startLocationUpdates()
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -143,7 +186,16 @@ class LocationPublishService : Service() {
         legacyListener = null
         legacyStarted.set(false)
         stopLowPower()
-        val mode = prefs.getString("position_mode", "move") ?: "move"
+        if (storedMode() == "auto") {
+            ensureAutoWatch()
+            if (batteryForcesLowPower() && activeMode() != "significant") {
+                prefs.edit().putString("auto_effective", "significant").apply()
+                LogManager.add("Auto: low power, battery")
+            }
+        } else {
+            stopAutoWatch()
+        }
+        val mode = activeMode()
         val spoofing = prefs.getBoolean("spoof_enabled", false)
         if (!spoofing && (mode == "quiet" || mode == "manual")) {
             prefs.edit().putString("logging_state", if (mode == "quiet") "off" else "manual").apply()
@@ -289,7 +341,7 @@ class LocationPublishService : Service() {
 
     private fun checkLowPower(generation: Int, attemptsLeft: Int, rearm: Boolean) {
         if (generation != lowPowerGeneration) return
-        if ((prefs.getString("position_mode", "") ?: "") != "significant") return
+        if ((activeMode()) != "significant") return
         if (!::fusedLocationClient.isInitialized) return
         try {
             fusedLocationClient.getCurrentLocation(
@@ -349,7 +401,7 @@ class LocationPublishService : Service() {
         }
         val listener = LocationListener { publishLocation(it) }
         legacyListener = listener
-        val mode = prefs.getString("position_mode", "move") ?: "move"
+        val mode = activeMode()
         val period = when (mode) {
             "walk" -> 10_000L
             "rapid" -> 1_000L
@@ -486,7 +538,7 @@ class LocationPublishService : Service() {
 
     private fun publishLocation(location: Location) {
         val fix = spoofedLocation() ?: location
-        val mode = prefs.getString("position_mode", "move") ?: "move"
+        val mode = activeMode()
         val spoofing = prefs.getBoolean("spoof_enabled", false)
         val forced = forceNext
         forceNext = false
@@ -877,7 +929,121 @@ class LocationPublishService : Service() {
         return built
     }
 
+    private fun storedMode(): String = prefs.getString("position_mode", "auto") ?: "auto"
+
+    private fun activeMode(): String {
+        val stored = storedMode()
+        if (stored != "auto") return stored
+        return prefs.getString("auto_effective", "significant") ?: "significant"
+    }
+
+    private fun autoLabel(mode: String): String = when (mode) {
+        "significant" -> "low power"
+        "walk" -> "walk"
+        else -> "move"
+    }
+
+    private fun batteryForcesLowPower(): Boolean {
+        val saver = getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
+        if (saver) return true
+        val pct = getSystemService(BatteryManager::class.java)
+            ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: return false
+        return pct in 0..4
+    }
+
+    private fun noteAutoCandidate(candidate: String) {
+        if (storedMode() != "auto") return
+        if (batteryForcesLowPower()) {
+            if (activeMode() != "significant") {
+                pendingAuto = null
+                mainHandler.removeCallbacks(applyAuto)
+                prefs.edit().putString("auto_effective", "significant").apply()
+                LogManager.add("Auto: low power, battery")
+                startLocationUpdates()
+            }
+            return
+        }
+        if (candidate == activeMode()) {
+            pendingAuto = null
+            mainHandler.removeCallbacks(applyAuto)
+            return
+        }
+        if (pendingAuto == candidate) return
+        pendingAuto = candidate
+        mainHandler.removeCallbacks(applyAuto)
+        mainHandler.postDelayed(applyAuto, 60_000L)
+    }
+
+    private fun ensureAutoWatch() {
+        if (autoWatching) return
+        autoWatching = true
+        val filter = IntentFilter(ACTION_ACTIVITY)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(activityReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(activityReceiver, filter)
+        }
+        val battery = IntentFilter().apply {
+            addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+            addAction(Intent.ACTION_BATTERY_LOW)
+        }
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(batteryReceiver, battery, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(batteryReceiver, battery)
+        }
+        mainHandler.postDelayed(batteryPoll, 60_000L)
+        if (Build.VERSION.SDK_INT >= 29 &&
+            checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
+        ) {
+            LogManager.add("Auto: activity permission not granted, staying on ${autoLabel(activeMode())}")
+            return
+        }
+        val pending = PendingIntent.getBroadcast(
+            this,
+            7,
+            Intent(ACTION_ACTIVITY).setPackage(packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
+        activityIntent = pending
+        ActivityRecognition.getClient(this).requestActivityUpdates(30_000L, pending)
+    }
+
+    private val batteryPoll = Runnable {
+        if (!autoWatching || storedMode() != "auto") return@Runnable
+        if (batteryForcesLowPower() && activeMode() != "significant") {
+            prefs.edit().putString("auto_effective", "significant").apply()
+            LogManager.add("Auto: low power, battery")
+            startLocationUpdates()
+        }
+        mainHandler.postDelayed(batteryPoll, 60_000L)
+    }
+
+    private fun stopAutoWatch() {
+        if (!autoWatching) return
+        autoWatching = false
+        pendingAuto = null
+        mainHandler.removeCallbacks(applyAuto)
+        mainHandler.removeCallbacks(batteryPoll)
+        try {
+            unregisterReceiver(activityReceiver)
+        } catch (_: Exception) {
+        }
+        try {
+            unregisterReceiver(batteryReceiver)
+        } catch (_: Exception) {
+        }
+        activityIntent?.let { pending ->
+            ActivityRecognition.getClient(this).removeActivityUpdates(pending)
+            pending.cancel()
+        }
+        activityIntent = null
+    }
+
     override fun onDestroy() {
+        stopAutoWatch()
         stopLowPower()
         mainHandler.removeCallbacksAndMessages(null)
         io.shutdownNow()
@@ -902,6 +1068,7 @@ class LocationPublishService : Service() {
 
     companion object {
         const val ACTION_PUBLISH_ONCE = "com.example.ncphonetrack.PUBLISH_ONCE"
+        private const val ACTION_ACTIVITY = "com.example.ncphonetrack.ACTIVITY"
         private const val MAX_BUFFER = 7200
 
         fun defaultPostedName(context: Context): String {

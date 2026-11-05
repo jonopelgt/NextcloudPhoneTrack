@@ -35,13 +35,13 @@ object SharingControl {
     fun startTimer(context: Context, durationMs: Long) {
         val duration = DURATIONS.minByOrNull { kotlin.math.abs(it - durationMs) } ?: DEFAULT_MS
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
-        val mode = prefs.getString("position_mode", "move") ?: "move"
+        val mode = prefs.getString("position_mode", "auto") ?: "auto"
         val edit = prefs.edit()
             .putBoolean("location_sharing", true)
             .putLong("share_timer_ms", duration)
             .putLong("share_timer_end", System.currentTimeMillis() + duration)
         if (mode == "quiet") {
-            val resume = prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move"
+            val resume = prefs.getString("share_mode", "auto")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "auto"
             edit.putString("position_mode", resume)
         }
         edit.apply()
@@ -71,9 +71,9 @@ object SharingControl {
         val edit = prefs.edit().putBoolean("location_sharing", on)
         if (clearTimer || (end > 0L && now >= end)) edit.putLong("share_timer_end", 0L)
         if (on) {
-            val mode = prefs.getString("position_mode", "move") ?: "move"
+            val mode = prefs.getString("position_mode", "auto") ?: "auto"
             if (mode == "quiet") {
-                val resume = prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move"
+                val resume = prefs.getString("share_mode", "auto")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "auto"
                 edit.putString("position_mode", resume)
             }
         } else {
