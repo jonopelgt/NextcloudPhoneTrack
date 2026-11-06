@@ -933,7 +933,7 @@ class LocationPublishService : Service() {
         return built
     }
 
-    private fun storedMode(): String = prefs.getString("position_mode", "auto") ?: "auto"
+    private fun storedMode(): String = prefs.getString("position_mode", "move") ?: "move"
 
     private fun activeMode(): String {
         val stored = storedMode()
@@ -1133,7 +1133,7 @@ class LocationPublishService : Service() {
 
         fun syncAutoPermissionNotice(context: Context) {
             val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
-            val auto = (prefs.getString("position_mode", "auto") ?: "auto") == "auto"
+            val auto = (prefs.getString("position_mode", "move") ?: "move") == "auto"
             val missing = Build.VERSION.SDK_INT >= 29 &&
                 context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
             val manager = context.getSystemService(NotificationManager::class.java)

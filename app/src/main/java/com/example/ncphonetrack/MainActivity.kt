@@ -127,14 +127,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         prefs = getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
-        if (!prefs.getBoolean("auto_default_set", false)) {
-            val savedMode = prefs.getString("position_mode", null)
-            val edit = prefs.edit().putBoolean("auto_default_set", true)
-            if (savedMode.isNullOrBlank() || savedMode == "move") {
-                edit.putString("position_mode", "auto")
-                LogManager.modeChange("Position", if (savedMode.isNullOrBlank()) "unset" else modeLabel(savedMode), "Auto")
-            }
-            edit.apply()
+        if (prefs.getString("position_mode", null).isNullOrBlank()) {
+            prefs.edit().putString("position_mode", "move").apply()
         }
         SharingControl.ensureFirstShare(this)
         backfillPostedNames()
@@ -319,8 +313,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         navView.setNavigationItemSelectedListener { item ->
-            if (item.hasSubMenu()) return@setNavigationItemSelectedListener false
             when (item.itemId) {
+                R.id.nav_diagnostics -> {
+                    val show = navView.menu.findItem(R.id.nav_status)?.isVisible != true
+                    navView.menu.findItem(R.id.nav_status)?.isVisible = show
+                    navView.menu.findItem(R.id.nav_position_mode)?.isVisible = show
+                }
                 R.id.nav_status -> {
                     showStatusPanel()
                     drawerLayout.closeDrawers()
@@ -2525,7 +2523,7 @@ class MainActivity : AppCompatActivity() {
             needed.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         }
         if (Build.VERSION.SDK_INT >= 29 &&
-            (prefs.getString("position_mode", "auto") ?: "auto") == "auto" &&
+            (prefs.getString("position_mode", "move") ?: "move") == "auto" &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
         ) {
             needed.add(Manifest.permission.ACTIVITY_RECOGNITION)
@@ -3867,7 +3865,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(pad, pad, pad, 0)
         }
         var selectedMode = currentPositionMode().let { mode ->
-            if (mode == "quiet") prefs.getString("share_mode", "auto")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "auto" else mode
+            if (mode == "quiet") prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move" else mode
         }
         val modeList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun renderModes() {
@@ -4093,7 +4091,7 @@ class MainActivity : AppCompatActivity() {
 
     private val positionModes = listOf("auto", "manual", "significant", "walk", "move", "rapid")
 
-    private fun currentPositionMode(): String = prefs.getString("position_mode", "auto") ?: "auto"
+    private fun currentPositionMode(): String = prefs.getString("position_mode", "move") ?: "move"
 
     private fun modeLabel(mode: String): String = when (mode) {
         "quiet" -> "Off"
@@ -4185,7 +4183,7 @@ class MainActivity : AppCompatActivity() {
             samples = DiagLog.samples(this@MainActivity)
         }
         val legend = TextView(this).apply {
-            text = "Blue, on the left, is Android activity. Orange, on the right, is the location mode in use."
+            text = "Blue, on the left, is Android activity. Orange, on the right, is the location mode. Green is battery percent, 0 at the bottom and 100 at the top."
             setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
         }
         val box = LinearLayout(this).apply {

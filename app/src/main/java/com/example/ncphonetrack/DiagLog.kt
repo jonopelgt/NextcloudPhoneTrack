@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.os.BatteryManager
 import android.view.View
 import com.google.android.gms.location.DetectedActivity
 import org.json.JSONArray
@@ -13,7 +14,7 @@ import java.util.Date
 import java.util.Locale
 
 object DiagLog {
-    data class Sample(val time: Long, val activity: String, val mode: String)
+    data class Sample(val time: Long, val activity: String, val mode: String, val charge: Int)
 
     private const val KEY = "diag_samples"
     private const val MAX = 240
@@ -32,7 +33,7 @@ object DiagLog {
     fun outputMode(context: Context): String {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         if (!SharingControl.isOn(context)) return "Off"
-        val stored = prefs.getString("position_mode", "auto") ?: "auto"
+        val stored = prefs.getString("position_mode", "move") ?: "move"
         val mode = if (stored == "auto") prefs.getString("auto_effective", "significant") ?: "significant" else stored
         return when (mode) {
             "significant" -> "Low power"
@@ -67,7 +68,7 @@ object DiagLog {
         val out = ArrayList<Sample>(arr.length())
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
-            out.add(Sample(item.optLong("t"), item.optString("a", "Unknown"), item.optString("m", "Off")))
+            out.add(Sample(item.optLong("t"), item.optString("a", "Unknown"), item.optString("m", "Off"), item.optInt("b", -1)))
         }
         return out
     }
@@ -80,11 +81,20 @@ object DiagLog {
             JSONArray()
         }
         val now = System.currentTimeMillis()
+        val charge = batteryCharge(context)
         val last = if (arr.length() == 0) null else arr.optJSONObject(arr.length() - 1)
-        if (last != null && last.optString("a") == activity && last.optString("m") == mode && now - last.optLong("t") < 60_000L) return
-        arr.put(JSONObject().put("t", now).put("a", activity).put("m", mode))
+        if (last != null && last.optString("a") == activity && last.optString("m") == mode &&
+            last.optInt("b", -1) == charge && now - last.optLong("t") < 60_000L
+        ) return
+        arr.put(JSONObject().put("t", now).put("a", activity).put("m", mode).put("b", charge))
         while (arr.length() > MAX) arr.remove(0)
         prefs.edit().putString(KEY, arr.toString()).apply()
+    }
+
+    private fun batteryCharge(context: Context): Int {
+        val pct = context.getSystemService(BatteryManager::class.java)
+            ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: return -1
+        return if (pct in 0..100) pct else -1
     }
 }
 
@@ -106,6 +116,9 @@ class DiagChart(context: Context) : View(context) {
     }
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1565C0"); textSize = 26f }
     private val modeLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#EF6C00"); textSize = 26f }
+    private val chargePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#2E7D32"); strokeWidth = 4f; style = Paint.Style.STROKE
+    }
     private val clock = SimpleDateFormat("h:mm a", Locale.getDefault())
 
     override fun onDraw(canvas: Canvas) {
@@ -129,6 +142,9 @@ class DiagChart(context: Context) : View(context) {
         canvas.drawLine(left, bottom, right, bottom, axis)
         drawStep(canvas, samples.map { x(it.time) to yActivity(activityOrder.indexOf(it.activity).coerceAtLeast(0)) }, activityPaint)
         drawStep(canvas, samples.map { x(it.time) to yMode(modeOrder.indexOf(it.mode).coerceAtLeast(0)) }, modePaint)
+        drawCharge(canvas, samples.mapNotNull { sample ->
+            if (sample.charge < 0) null else x(sample.time) to (bottom - (bottom - top) * sample.charge / 100f)
+        })
         activityOrder.forEachIndexed { index, name -> canvas.drawText(name, 8f, yActivity(index) + 8f, label) }
         modeOrder.forEachIndexed { index, name -> canvas.drawText(name, right + 8f, yMode(index) + 8f, modeLabelPaint) }
         canvas.drawText(clock.format(Date(start)), left, height - 12f, label)
@@ -143,6 +159,15 @@ class DiagChart(context: Context) : View(context) {
             val current = points[i]
             canvas.drawLine(previous.first, previous.second, current.first, previous.second, paint)
             canvas.drawLine(current.first, previous.second, current.first, current.second, paint)
+        }
+    }
+
+    private fun drawCharge(canvas: Canvas, points: List<Pair<Float, Float>>) {
+        if (points.size < 2) return
+        for (i in 1 until points.size) {
+            val previous = points[i - 1]
+            val current = points[i]
+            canvas.drawLine(previous.first, previous.second, current.first, current.second, chargePaint)
         }
     }
 }

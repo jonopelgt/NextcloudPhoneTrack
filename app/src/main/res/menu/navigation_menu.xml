@@ -1,42 +1,45 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <item
-        android:id="@+id/nav_map"
-        android:title="Maps"
-        android:icon="@android:drawable/ic_menu_mapmode" />
-    <item
-        android:id="@+id/nav_friends"
-        android:title="Friends"
-        android:icon="@android:drawable/ic_menu_myplaces" />
-    <item
-        android:id="@+id/nav_location"
-        android:title="Location"
-        android:icon="@android:drawable/ic_menu_mylocation" />
-    <item
-        android:id="@+id/nav_sessions"
-        android:title="Sessions"
-        android:icon="@android:drawable/ic_menu_agenda" />
-    <item
-        android:id="@+id/nav_diagnostics"
-        android:title="Diagnostics"
-        android:icon="@android:drawable/ic_menu_sort_by_size">
-        <menu>
-            <item
-                android:id="@+id/nav_status"
-                android:title="Connection Status"
-                android:icon="@android:drawable/ic_menu_info_details" />
-            <item
-                android:id="@+id/nav_position_mode"
-                android:title="Position update mode"
-                android:icon="@android:drawable/ic_menu_sort_by_size" />
-        </menu>
-    </item>
-    <item
-        android:id="@+id/nav_settings"
-        android:title="Settings"
-        android:icon="@android:drawable/ic_menu_preferences" />
-    <item
-        android:id="@+id/nav_about"
-        android:title="About"
-        android:icon="@android:drawable/ic_menu_help" />
+    <group android:id="@+id/nav_main">
+        <item
+            android:id="@+id/nav_map"
+            android:title="Maps"
+            android:icon="@android:drawable/ic_menu_mapmode" />
+        <item
+            android:id="@+id/nav_friends"
+            android:title="Friends"
+            android:icon="@android:drawable/ic_menu_myplaces" />
+        <item
+            android:id="@+id/nav_location"
+            android:title="Location"
+            android:icon="@android:drawable/ic_menu_mylocation" />
+        <item
+            android:id="@+id/nav_sessions"
+            android:title="Sessions"
+            android:icon="@android:drawable/ic_menu_agenda" />
+        <item
+            android:id="@+id/nav_settings"
+            android:title="Settings"
+            android:icon="@android:drawable/ic_menu_preferences" />
+        <item
+            android:id="@+id/nav_about"
+            android:title="About"
+            android:icon="@android:drawable/ic_menu_help" />
+    </group>
+    <group android:id="@+id/nav_diag">
+        <item
+            android:id="@+id/nav_diagnostics"
+            android:title="Diagnostics"
+            android:icon="@android:drawable/ic_menu_sort_by_size" />
+        <item
+            android:id="@+id/nav_status"
+            android:title="Connection Status"
+            android:icon="@android:drawable/ic_menu_info_details"
+            android:visible="false" />
+        <item
+            android:id="@+id/nav_position_mode"
+            android:title="Position update mode"
+            android:icon="@android:drawable/ic_menu_sort_by_size"
+            android:visible="false" />
+    </group>
 </menu>
