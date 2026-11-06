@@ -31,15 +31,5 @@
             android:id="@+id/nav_diagnostics"
             android:title="Diagnostics"
             android:icon="@android:drawable/ic_menu_sort_by_size" />
-        <item
-            android:id="@+id/nav_status"
-            android:title="Connection Status"
-            android:icon="@android:drawable/ic_menu_info_details"
-            android:visible="false" />
-        <item
-            android:id="@+id/nav_position_mode"
-            android:title="Position update mode"
-            android:icon="@android:drawable/ic_menu_sort_by_size"
-            android:visible="false" />
     </group>
 </menu>

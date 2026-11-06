@@ -308,3 +308,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 199 (2026-11-05): Diagnostics plots the location mode on a right axis. Superuser mode also shows the mode Auto is using.
 - Rev 200 (2026-11-05): Connection Status and Position update mode are under Diagnostics. The position chart is on Position update mode.
 - Rev 201 (2026-11-05): Settings and About are above the Diagnostics divider. Those two Diagnostics pages stay hidden until Diagnostics is selected. Move is the default position mode. The chart adds battery percent.
+- Rev 202 (2026-11-05): Tapping Diagnostics shows Connection Status and Position update mode under it. Tapping Diagnostics again hides them.

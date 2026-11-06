@@ -315,9 +315,17 @@ class MainActivity : AppCompatActivity() {
         navView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_diagnostics -> {
-                    val show = navView.menu.findItem(R.id.nav_status)?.isVisible != true
-                    navView.menu.findItem(R.id.nav_status)?.isVisible = show
-                    navView.menu.findItem(R.id.nav_position_mode)?.isVisible = show
+                    val menu = navView.menu
+                    if (menu.findItem(R.id.nav_status) != null) {
+                        menu.removeItem(R.id.nav_status)
+                        menu.removeItem(R.id.nav_position_mode)
+                    } else {
+                        val order = menu.findItem(R.id.nav_diagnostics).order
+                        menu.add(R.id.nav_diag, R.id.nav_status, order + 1, "Connection Status")
+                            .setIcon(android.R.drawable.ic_menu_info_details)
+                        menu.add(R.id.nav_diag, R.id.nav_position_mode, order + 2, "Position update mode")
+                            .setIcon(android.R.drawable.ic_menu_sort_by_size)
+                    }
                 }
                 R.id.nav_status -> {
                     showStatusPanel()
