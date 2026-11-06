@@ -315,17 +315,7 @@ class MainActivity : AppCompatActivity() {
         navView.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.nav_diagnostics -> {
-                    val menu = navView.menu
-                    if (menu.findItem(R.id.nav_status) != null) {
-                        menu.removeItem(R.id.nav_status)
-                        menu.removeItem(R.id.nav_position_mode)
-                    } else {
-                        val order = menu.findItem(R.id.nav_diagnostics).order
-                        menu.add(R.id.nav_diag, R.id.nav_status, order + 1, "Connection Status")
-                            .setIcon(android.R.drawable.ic_menu_info_details)
-                        menu.add(R.id.nav_diag, R.id.nav_position_mode, order + 2, "Position update mode")
-                            .setIcon(android.R.drawable.ic_menu_sort_by_size)
-                    }
+                    navView.post { toggleDiagnosticPages(navView) }
                 }
                 R.id.nav_status -> {
                     showStatusPanel()
@@ -387,6 +377,19 @@ class MainActivity : AppCompatActivity() {
             promptBackgroundOnce()
         }
         offerHereState()
+    }
+
+    private fun toggleDiagnosticPages(navView: NavigationView) {
+        val menu = navView.menu
+        if (menu.findItem(R.id.nav_status) != null) {
+            menu.removeItem(R.id.nav_status)
+            menu.removeItem(R.id.nav_position_mode)
+            return
+        }
+        menu.add(R.id.nav_diag, R.id.nav_status, 7, "Connection Status")
+            .setIcon(android.R.drawable.ic_menu_info_details)
+        menu.add(R.id.nav_diag, R.id.nav_position_mode, 8, "Position update mode")
+            .setIcon(android.R.drawable.ic_menu_sort_by_size)
     }
 
     private fun correctSavedServerUrl() {
