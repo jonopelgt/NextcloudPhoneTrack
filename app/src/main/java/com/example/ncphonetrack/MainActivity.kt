@@ -319,6 +319,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         navView.setNavigationItemSelectedListener { item ->
+            if (item.hasSubMenu()) return@setNavigationItemSelectedListener false
             when (item.itemId) {
                 R.id.nav_status -> {
                     showStatusPanel()
@@ -340,7 +341,7 @@ class MainActivity : AppCompatActivity() {
                     showSettings()
                     drawerLayout.closeDrawers()
                 }
-                R.id.nav_diagnostics -> {
+                R.id.nav_position_mode -> {
                     showDiagnostics()
                     drawerLayout.closeDrawers()
                 }
@@ -4194,7 +4195,7 @@ class MainActivity : AppCompatActivity() {
             addView(legend)
         }
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
-            .setTitle("Diagnostics")
+            .setTitle("Position update mode")
             .setView(box)
             .setPositiveButton("Close", null)
             .create()

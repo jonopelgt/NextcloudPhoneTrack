@@ -17,13 +17,20 @@
         android:title="Sessions"
         android:icon="@android:drawable/ic_menu_agenda" />
     <item
-        android:id="@+id/nav_status"
-        android:title="Connection Status"
-        android:icon="@android:drawable/ic_menu_info_details" />
-    <item
         android:id="@+id/nav_diagnostics"
         android:title="Diagnostics"
-        android:icon="@android:drawable/ic_menu_sort_by_size" />
+        android:icon="@android:drawable/ic_menu_sort_by_size">
+        <menu>
+            <item
+                android:id="@+id/nav_status"
+                android:title="Connection Status"
+                android:icon="@android:drawable/ic_menu_info_details" />
+            <item
+                android:id="@+id/nav_position_mode"
+                android:title="Position update mode"
+                android:icon="@android:drawable/ic_menu_sort_by_size" />
+        </menu>
+    </item>
     <item
         android:id="@+id/nav_settings"
         android:title="Settings"
