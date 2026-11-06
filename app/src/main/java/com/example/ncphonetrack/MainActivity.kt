@@ -4179,7 +4179,7 @@ class MainActivity : AppCompatActivity() {
         position.text = when {
             prefs.getBoolean("spoof_enabled", false) -> "Spoof"
             currentPositionMode() == "auto" -> {
-                val hidden = prefs.getString("auto_effective", "significant") ?: "significant"
+                val hidden = prefs.getString("auto_effective", "move") ?: "move"
                 "Auto, ${modeLabel(hidden)}"
             }
             else -> modeLabel(currentPositionMode())

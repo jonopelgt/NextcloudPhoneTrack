@@ -938,7 +938,7 @@ class LocationPublishService : Service() {
     private fun activeMode(): String {
         val stored = storedMode()
         if (stored != "auto") return stored
-        return prefs.getString("auto_effective", "significant") ?: "significant"
+        return prefs.getString("auto_effective", "move") ?: "move"
     }
 
     private fun autoLabel(mode: String): String = when (mode) {

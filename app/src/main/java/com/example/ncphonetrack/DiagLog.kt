@@ -34,7 +34,7 @@ object DiagLog {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         if (!SharingControl.isOn(context)) return "Off"
         val stored = prefs.getString("position_mode", "move") ?: "move"
-        val mode = if (stored == "auto") prefs.getString("auto_effective", "significant") ?: "significant" else stored
+        val mode = if (stored == "auto") prefs.getString("auto_effective", "move") ?: "move" else stored
         return when (mode) {
             "significant" -> "Low power"
             "walk" -> "Walk"
