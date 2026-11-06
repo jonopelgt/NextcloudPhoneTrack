@@ -4166,7 +4166,14 @@ class MainActivity : AppCompatActivity() {
         val position = findViewById<TextView>(R.id.tvPositionMode)
         position.visibility = if (superuser) View.VISIBLE else View.GONE
         if (!superuser) return
-        position.text = if (prefs.getBoolean("spoof_enabled", false)) "Spoof" else modeLabel(currentPositionMode())
+        position.text = when {
+            prefs.getBoolean("spoof_enabled", false) -> "Spoof"
+            currentPositionMode() == "auto" -> {
+                val hidden = prefs.getString("auto_effective", "significant") ?: "significant"
+                "Auto, ${modeLabel(hidden)}"
+            }
+            else -> modeLabel(currentPositionMode())
+        }
         position.bringToFront()
     }
 
@@ -4177,7 +4184,7 @@ class MainActivity : AppCompatActivity() {
             samples = DiagLog.samples(this@MainActivity)
         }
         val legend = TextView(this).apply {
-            text = "Blue is Android activity. Orange is the location mode in use."
+            text = "Blue, on the left, is Android activity. Orange, on the right, is the location mode in use."
             setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
         }
         val box = LinearLayout(this).apply {

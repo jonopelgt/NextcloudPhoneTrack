@@ -104,30 +104,33 @@ class DiagChart(context: Context) : View(context) {
     private val modePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#EF6C00"); strokeWidth = 4f; style = Paint.Style.STROKE
     }
-    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#37474F"); textSize = 28f }
+    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1565C0"); textSize = 26f }
+    private val modeLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#EF6C00"); textSize = 26f }
     private val clock = SimpleDateFormat("h:mm a", Locale.getDefault())
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val left = 150f
-        val right = width - 24f
+        val left = 170f
+        val right = width - 170f
         val top = 16f
         val bottom = height - 48f
         canvas.drawColor(Color.WHITE)
         if (samples.size < 2 || right <= left) {
-            canvas.drawText("No diagnostics yet", left, height / 2f, label)
+            canvas.drawText("No diagnostics yet", 24f, height / 2f, label)
             return
         }
-        val rows = activityOrder.size.coerceAtLeast(modeOrder.size)
         val start = samples.first().time
         val end = samples.last().time.coerceAtLeast(start + 1L)
         fun x(time: Long) = left + (right - left) * (time - start).toFloat() / (end - start).toFloat()
-        fun y(index: Int) = bottom - (bottom - top) * index / (rows - 1).coerceAtLeast(1)
+        fun yActivity(index: Int) = bottom - (bottom - top) * index / (activityOrder.size - 1).coerceAtLeast(1)
+        fun yMode(index: Int) = bottom - (bottom - top) * index / (modeOrder.size - 1).coerceAtLeast(1)
         canvas.drawLine(left, top, left, bottom, axis)
+        canvas.drawLine(right, top, right, bottom, axis)
         canvas.drawLine(left, bottom, right, bottom, axis)
-        drawStep(canvas, samples.map { x(it.time) to y(activityOrder.indexOf(it.activity).coerceAtLeast(0)) }, activityPaint)
-        drawStep(canvas, samples.map { x(it.time) to y(modeOrder.indexOf(it.mode).coerceAtLeast(0)) }, modePaint)
-        activityOrder.forEachIndexed { index, name -> canvas.drawText(name, 8f, y(index) + 8f, label) }
+        drawStep(canvas, samples.map { x(it.time) to yActivity(activityOrder.indexOf(it.activity).coerceAtLeast(0)) }, activityPaint)
+        drawStep(canvas, samples.map { x(it.time) to yMode(modeOrder.indexOf(it.mode).coerceAtLeast(0)) }, modePaint)
+        activityOrder.forEachIndexed { index, name -> canvas.drawText(name, 8f, yActivity(index) + 8f, label) }
+        modeOrder.forEachIndexed { index, name -> canvas.drawText(name, right + 8f, yMode(index) + 8f, modeLabelPaint) }
         canvas.drawText(clock.format(Date(start)), left, height - 12f, label)
         val endText = clock.format(Date(end))
         canvas.drawText(endText, right - label.measureText(endText), height - 12f, label)
