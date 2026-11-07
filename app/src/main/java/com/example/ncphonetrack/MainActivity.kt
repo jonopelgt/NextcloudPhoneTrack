@@ -4002,13 +4002,17 @@ class MainActivity : AppCompatActivity() {
             setPadding(pad, pad, pad, 0)
         }
         var selectedMode = currentPositionMode().let { mode ->
-            if (mode == "quiet") prefs.getString("share_mode", "move")?.takeIf { it.isNotBlank() && it != "quiet" } ?: "move" else mode
+            if (mode == "quiet" || mode == "auto") "move" else mode
         }
         val modeList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         fun renderModes() {
             modeList.removeAllViews()
+            modeList.addView(modeChoice("auto", autoEnabled()) {
+                setAuto(true)
+                renderModes()
+            })
             positionModes.forEach { item ->
-                modeList.addView(modeChoice(item, item == selectedMode) {
+                modeList.addView(modeChoice(item, !autoEnabled() && item == selectedMode) {
                     selectedMode = item
                     setPositionMode(item)
                     renderModes()
@@ -4061,7 +4065,7 @@ class MainActivity : AppCompatActivity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         })
         listOf(
-            "Auto starts in Move. Under 0.4 m/s with no recent steps is Low power. From 0.4 to 2.5 m/s, or steps, is Walk. 2.5 m/s or faster is Move. Still to Walk and Walk to Move are immediate. Other changes wait 60 seconds. Battery saver, or a battery under 5 percent, forces Low power.",
+            "Auto is on or off. Choosing a position mode turns it off. It starts in Move. Under 0.4 m/s with no recent steps is Low power. From 0.4 to 2.5 m/s, or steps, is Walk. 2.5 m/s or faster is Move. Still to Walk and Walk to Move are immediate. Other changes wait 60 seconds. Battery saver, or a battery under 5 percent, forces Low power.",
             "Manual sends only when you tap Send now.",
             "Low power sends when a short GPS check shows about 300 meters of movement.",
             "Walk sends after about 30 meters.",
@@ -4148,7 +4152,7 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .create()
         refreshLocationPage = {
-            selectedMode = currentPositionMode()
+            selectedMode = currentPositionMode().let { if (it == "auto" || it == "quiet") "move" else it }
             renderModes()
             spoofAdjusting = true
             spoof.isChecked = prefs.getBoolean("spoof_enabled", false)
@@ -4226,7 +4230,7 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    private val positionModes = listOf("auto", "manual", "significant", "walk", "move", "rapid")
+    private val positionModes = listOf("manual", "significant", "walk", "move", "rapid")
 
     private fun currentPositionMode(): String = prefs.getString("position_mode", "move") ?: "move"
 
@@ -4265,10 +4269,18 @@ class MainActivity : AppCompatActivity() {
         val spoofing = prefs.getBoolean("spoof_enabled", false)
         val sharingOn = !positionUpdatesOff()
         val timing = SharingControl.remaining(this) > 0L
-        btnPositionMode.setImageResource(if (spoofing) R.drawable.ic_mode_spy else modeIcon(currentPositionMode()))
-        val pad = ((if (!spoofing && currentPositionMode() == "auto") 2 else 10) * resources.displayMetrics.density).toInt()
+        btnPositionMode.setImageResource(
+            if (spoofing) R.drawable.ic_mode_spy
+            else if (autoEnabled()) R.drawable.ic_mode_auto
+            else modeIcon(currentPositionMode())
+        )
+        val pad = ((if (!spoofing && autoEnabled()) 2 else 10) * resources.displayMetrics.density).toInt()
         btnPositionMode.setPadding(pad, pad, pad, pad)
-        btnPositionMode.contentDescription = if (spoofing) "Location spoof" else modeLabel(currentPositionMode())
+        btnPositionMode.contentDescription = when {
+            spoofing -> "Location spoof"
+            autoEnabled() -> "Auto"
+            else -> modeLabel(currentPositionMode())
+        }
         if (::btnSharing.isInitialized) {
             btnSharing.setImageResource(
                 when {
@@ -4306,7 +4318,7 @@ class MainActivity : AppCompatActivity() {
         if (!superuser) return
         position.text = when {
             prefs.getBoolean("spoof_enabled", false) -> "Spoof"
-            currentPositionMode() == "auto" -> {
+            autoEnabled() -> {
                 val hidden = prefs.getString("auto_effective", "move") ?: "move"
                 "Auto, ${modeLabel(hidden)}"
             }
@@ -4322,7 +4334,7 @@ class MainActivity : AppCompatActivity() {
             samples = DiagLog.samples(this@MainActivity)
         }
         val legend = TextView(this).apply {
-            text = "Blue, on the left, is Android activity. Orange, on the right, is the location mode. Green is battery percent, 0 at the bottom and 100 at the top."
+            text = "Blue, on the left, is the device state. Orange, on the right, is the position mode. Green is battery percent. Purple is Auto, 0 off and 1 on."
             setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
         }
         val box = LinearLayout(this).apply {
@@ -4367,8 +4379,20 @@ class MainActivity : AppCompatActivity() {
         modePicker.removeAllViews()
         if (kind == "position") {
             modePicker.addView(groupLabel("Position"))
-            listOf("auto", "manual", "significant", "walk", "move", "rapid").forEach { mode ->
-                modePicker.addView(modeChoice(mode, !spoofing && mode == current) {
+            modePicker.addView(modeChoice("auto", autoEnabled() && !spoofing) {
+                closeModeMenu()
+                if (spoofing) {
+                    confirmChoice("Turn off location spoof?") {
+                        logSpoof(false)
+                        removeSpoofMarker()
+                        setAuto(true)
+                    }
+                } else {
+                    setAuto(true)
+                }
+            })
+            positionModes.forEach { mode ->
+                modePicker.addView(modeChoice(mode, !spoofing && !autoEnabled() && mode == current) {
                     closeModeMenu()
                     if (spoofing) {
                         confirmChoice("Turn off location spoof?") {
@@ -4498,11 +4522,36 @@ class MainActivity : AppCompatActivity() {
         LogManager.modeChange("Spoof", if (was) "On" else "Off", if (on) "On" else "Off")
     }
 
+    private fun autoEnabled(): Boolean {
+        if ((prefs.getString("position_mode", "move") ?: "move") == "auto") return true
+        return prefs.getBoolean("auto_enabled", false)
+    }
+
+    private fun setAuto(on: Boolean) {
+        val was = autoEnabled()
+        val edit = prefs.edit().putBoolean("auto_enabled", on)
+        if ((prefs.getString("position_mode", "move") ?: "move") == "auto") {
+            val kept = prefs.getString("auto_effective", "move") ?: "move"
+            edit.putString("position_mode", kept).putString("share_mode", kept)
+        }
+        edit.apply()
+        LogManager.modeChange("Auto", if (was) "On" else "Off", if (on) "On" else "Off")
+        LocationPublishService.syncAutoPermissionNotice(this)
+        refreshModeButton()
+        if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()
+    }
+
     private fun setPositionMode(mode: String) {
-        if (mode == "quiet") return
+        if (mode == "quiet" || mode == "auto") return
         val previous = currentPositionMode()
-        prefs.edit().putString("position_mode", mode).putString("share_mode", mode).apply()
+        val wasAuto = autoEnabled()
+        prefs.edit()
+            .putString("position_mode", mode)
+            .putString("share_mode", mode)
+            .putBoolean("auto_enabled", false)
+            .apply()
         LogManager.modeChange("Position", modeLabel(previous), modeLabel(mode))
+        if (wasAuto) LogManager.modeChange("Auto", "On", "Off")
         LocationPublishService.syncAutoPermissionNotice(this)
         refreshModeButton()
         if (!prefs.getString("url", "").isNullOrBlank()) startTrackingFromPrefs()

@@ -13,7 +13,7 @@ import java.util.Date
 import java.util.Locale
 
 object DiagLog {
-    data class Sample(val time: Long, val activity: String, val mode: String, val charge: Int)
+    data class Sample(val time: Long, val activity: String, val mode: String, val charge: Int, val auto: Int)
 
     private const val KEY = "diag_samples"
     private const val MAX = 800
@@ -23,14 +23,14 @@ object DiagLog {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         if (!SharingControl.isOn(context)) return "Off"
         val stored = prefs.getString("position_mode", "move") ?: "move"
-        val mode = if (stored == "auto") prefs.getString("auto_effective", "move") ?: "move" else stored
+        val auto = stored == "auto" || prefs.getBoolean("auto_enabled", false)
+        val mode = if (auto) prefs.getString("auto_effective", "move") ?: "move" else stored
         return when (mode) {
             "significant" -> "Low power"
             "walk" -> "Walk"
             "rapid" -> "Rapid"
             "manual" -> "Manual"
             "quiet" -> "Off"
-            "auto" -> "Auto"
             else -> "Move"
         }
     }
@@ -57,7 +57,13 @@ object DiagLog {
         val out = ArrayList<Sample>(arr.length())
         for (i in 0 until arr.length()) {
             val item = arr.optJSONObject(i) ?: continue
-            out.add(Sample(item.optLong("t"), item.optString("a", "Unknown"), item.optString("m", "Off"), item.optInt("b", -1)))
+            out.add(Sample(
+                item.optLong("t"),
+                item.optString("a", "Unknown"),
+                item.optString("m", "Off"),
+                item.optInt("b", -1),
+                item.optInt("u", 0)
+            ))
         }
         return out
     }
@@ -71,11 +77,12 @@ object DiagLog {
         }
         val now = System.currentTimeMillis()
         val charge = batteryCharge(context)
+        val auto = if ((prefs.getString("position_mode", "move") ?: "move") == "auto" || prefs.getBoolean("auto_enabled", false)) 1 else 0
         val last = if (arr.length() == 0) null else arr.optJSONObject(arr.length() - 1)
         if (last != null && last.optString("a") == activity && last.optString("m") == mode &&
-            last.optInt("b", -1) == charge && now - last.optLong("t") < 60_000L
+            last.optInt("b", -1) == charge && last.optInt("u", 0) == auto && now - last.optLong("t") < 60_000L
         ) return
-        arr.put(JSONObject().put("t", now).put("a", activity).put("m", mode).put("b", charge))
+        arr.put(JSONObject().put("t", now).put("a", activity).put("m", mode).put("b", charge).put("u", auto))
         while (arr.length() > 0) {
             val oldest = arr.optJSONObject(0)?.optLong("t") ?: break
             if (now - oldest <= HOUR_MS) break
@@ -100,7 +107,7 @@ class DiagChart(context: Context) : View(context) {
         }
 
     private val activityOrder = listOf("Unknown", "Still", "Walking", "In vehicle")
-    private val modeOrder = listOf("Off", "Manual", "Low power", "Walk", "Move", "Rapid", "Auto")
+    private val modeOrder = listOf("Off", "Manual", "Low power", "Walk", "Move", "Rapid")
     private val axis = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#90A4AE"); strokeWidth = 2f }
     private val activityPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#1565C0"); strokeWidth = 4f; style = Paint.Style.STROKE
@@ -111,6 +118,10 @@ class DiagChart(context: Context) : View(context) {
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1565C0"); textSize = 42f }
     private val modeLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#EF6C00"); textSize = 42f }
     private val clockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1565C0"); textSize = 28f }
+    private val autoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.parseColor("#6A1B9A"); strokeWidth = 4f; style = Paint.Style.STROKE
+    }
+    private val autoLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#6A1B9A"); textSize = 32f }
     private val chargePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#2E7D32"); strokeWidth = 4f; style = Paint.Style.STROKE
     }
@@ -134,16 +145,20 @@ class DiagChart(context: Context) : View(context) {
         fun x(time: Long) = left + (right - left) * (time - start).toFloat() / (end - start).toFloat()
         fun yActivity(index: Int) = bottom - (bottom - top) * index / (activityOrder.size - 1).coerceAtLeast(1)
         fun yMode(index: Int) = bottom - (bottom - top) * index / (modeOrder.size - 1).coerceAtLeast(1)
+        fun yAuto(value: Int) = bottom - (bottom - top) * value.coerceIn(0, 1)
         canvas.drawLine(left, top, left, bottom, axis)
         canvas.drawLine(right, top, right, bottom, axis)
         canvas.drawLine(left, bottom, right, bottom, axis)
         drawStep(canvas, window.map { x(it.time) to yActivity(activityOrder.indexOf(it.activity).coerceAtLeast(0)) }, activityPaint)
         drawStep(canvas, window.map { x(it.time) to yMode(modeOrder.indexOf(it.mode).coerceAtLeast(0)) }, modePaint)
+        drawStep(canvas, window.map { x(it.time) to yAuto(it.auto) }, autoPaint)
         drawCharge(canvas, window.mapNotNull { sample ->
             if (sample.charge < 0) null else x(sample.time) to (bottom - (bottom - top) * sample.charge / 100f)
         })
         activityOrder.forEachIndexed { index, name -> canvas.drawText(name, 8f, yActivity(index) + 8f, label) }
         modeOrder.forEachIndexed { index, name -> canvas.drawText(name, right + 8f, yMode(index) + 8f, modeLabelPaint) }
+        canvas.drawText("1", left - autoLabel.measureText("1") - 8f, yAuto(1) + 10f, autoLabel)
+        canvas.drawText("0", left - autoLabel.measureText("0") - 8f, yAuto(0) + 10f, autoLabel)
         canvas.drawText(clock.format(Date(start)), left, height - 12f, clockPaint)
         val endText = clock.format(Date(end))
         canvas.drawText(endText, right - clockPaint.measureText(endText), height - 12f, clockPaint)

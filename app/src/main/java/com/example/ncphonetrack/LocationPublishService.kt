@@ -74,12 +74,12 @@ class LocationPublishService : Service() {
     private val applyAuto = Runnable {
         val next = pendingAuto ?: return@Runnable
         pendingAuto = null
-        if (storedMode() != "auto" || batteryForcesLowPower()) return@Runnable
+        if (!autoOn() || batteryForcesLowPower()) return@Runnable
         if (commitAutoMode(next)) startLocationUpdates()
     }
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (storedMode() != "auto") return
+            if (!autoOn()) return
             if (!batteryForcesLowPower()) return
             pendingAuto = null
             mainHandler.removeCallbacks(applyAuto)
@@ -151,7 +151,7 @@ class LocationPublishService : Service() {
     private fun startLocationUpdates() {
         stopGpsUpdates()
         stopLowPower()
-        if (storedMode() == "auto") {
+        if (autoOn()) {
             ensureAutoWatch()
             if (batteryForcesLowPower()) commitAutoMode("significant", "battery")
         } else {
@@ -437,7 +437,7 @@ class LocationPublishService : Service() {
     private fun publishLocation(location: Location) {
         val fix = spoofedLocation() ?: location
         val spoofing = prefs.getBoolean("spoof_enabled", false)
-        if (storedMode() == "auto" && !spoofing) considerAutoFix(fix)
+        if (autoOn() && !spoofing) considerAutoFix(fix)
         val mode = activeMode()
         val forced = forceNext
         forceNext = false
@@ -837,11 +837,24 @@ class LocationPublishService : Service() {
         return built
     }
 
-    private fun storedMode(): String = prefs.getString("position_mode", "move") ?: "move"
+    private fun autoOn(): Boolean {
+        if ((prefs.getString("position_mode", "move") ?: "move") == "auto") {
+            val kept = prefs.getString("auto_effective", "move") ?: "move"
+            prefs.edit()
+                .putBoolean("auto_enabled", true)
+                .putString("position_mode", if (kept == "auto") "move" else kept)
+                .apply()
+        }
+        return prefs.getBoolean("auto_enabled", false)
+    }
+
+    private fun storedMode(): String {
+        val stored = prefs.getString("position_mode", "move") ?: "move"
+        return if (stored == "auto") "move" else stored
+    }
 
     private fun activeMode(): String {
-        val stored = storedMode()
-        if (stored != "auto") return stored
+        if (!autoOn()) return storedMode()
         return prefs.getString("auto_effective", "move") ?: "move"
     }
 
@@ -852,7 +865,7 @@ class LocationPublishService : Service() {
     }
 
     private fun commitAutoMode(next: String, because: String = ""): Boolean {
-        if (storedMode() != "auto" || activeMode() == next) return false
+        if (!autoOn() || activeMode() == next) return false
         val from = autoModeName(activeMode())
         prefs.edit().putString("auto_effective", next).apply()
         val to = if (because.isBlank()) autoModeName(next) else "${autoModeName(next)}, $because"
@@ -902,7 +915,7 @@ class LocationPublishService : Service() {
     }
 
     private fun noteAutoCandidate(candidate: String) {
-        if (storedMode() != "auto") return
+        if (!autoOn()) return
         if (batteryForcesLowPower()) {
             pendingAuto = null
             mainHandler.removeCallbacks(applyAuto)
@@ -976,7 +989,7 @@ class LocationPublishService : Service() {
     }
 
     private fun onAutoMotion() {
-        if (storedMode() != "auto" || activeMode() != "significant") return
+        if (!autoOn() || activeMode() != "significant") return
         DiagLog.noteActivity(this, "Walking")
         noteAutoCandidate("walk")
         val now = System.currentTimeMillis()
@@ -1051,7 +1064,7 @@ class LocationPublishService : Service() {
 
     private val batteryPoll: Runnable = object : Runnable {
         override fun run() {
-            if (!autoWatching || storedMode() != "auto") return
+            if (!autoWatching || !autoOn()) return
             if (batteryForcesLowPower()) {
                 pendingAuto = null
                 mainHandler.removeCallbacks(applyAuto)
