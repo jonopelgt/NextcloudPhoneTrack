@@ -317,3 +317,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 208 (2026-11-06): Connection Status no longer shows Waiting. A session that is keeping up shows Healthy. If the waiting reads plus that session's unsent points are more than 10, the status is Queue constipated, in brown.
 - Rev 209 (2026-11-06): Tapping the connection-fail banner opens Connection Status. The banner clears when a read or a push for that session succeeds.
 - Rev 210 (2026-11-06): Position update mode charts the calculated states Still, Walking, and In vehicle. Location comes from the phone's own providers. Google Play Services is not required.
+- Rev 211 (2026-11-06): The telemetry log path starts with Shared.

@@ -1061,7 +1061,7 @@ class MainActivity : AppCompatActivity() {
         fun enc(value: String) = java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
         val client = CertHelper.buildClient(prefs)
         val auth = Credentials.basic(user, pass)
-        val parts = listOf("shared", "nextcloud development file share", "Telemetry", "NC-phone-track-client-app")
+        val parts = listOf("Shared", "nextcloud development file share", "Telemetry", "NC-phone-track-client-app")
         var folder = "$server/remote.php/dav/files/${enc(user)}"
         try {
             for (part in parts) {
