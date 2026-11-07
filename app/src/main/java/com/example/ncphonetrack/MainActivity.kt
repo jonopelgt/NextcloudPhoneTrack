@@ -839,7 +839,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val shown = displayedToken()
-        val quiet = (prefs.getString("logging_state", "") ?: "") == "off"
         val nameWeight = 1.4f
         val creatorWeight = 1f
         val statusWeight = 1f
@@ -896,19 +895,14 @@ class MainActivity : AppCompatActivity() {
                     color = "#C62828"
                     rowColor = Color.TRANSPARENT
                 }
-                sessionLink.pushFresh && sessionLink.readOk -> {
-                    status = "OK"
-                    color = "#1B7F3A"
-                    rowColor = Color.TRANSPARENT
-                }
-                quiet && sessionLink.readOk -> {
-                    status = "OK"
-                    color = "#1B7F3A"
-                    rowColor = Color.TRANSPARENT
+                ReadLanes.waiting() + bufferedFor(token) > 10 -> {
+                    status = "Queue constipated"
+                    color = "#4E342E"
+                    rowColor = Color.parseColor("#D7CCC8")
                 }
                 else -> {
-                    status = "Waiting"
-                    color = "#E65100"
+                    status = "Healthy"
+                    color = "#1B7F3A"
                     rowColor = Color.TRANSPARENT
                 }
             }

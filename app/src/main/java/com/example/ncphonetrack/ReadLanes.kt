@@ -17,6 +17,8 @@ object ReadLanes {
     private val cursor = AtomicInteger(0)
     private var pinStamp = ""
 
+    fun waiting(): Int = lanes.sumOf { it.queue.size }
+
     fun execute(context: Context, block: (OkHttpClient) -> Unit): Boolean {
         val index = Math.floorMod(cursor.getAndIncrement(), COUNT)
         return try {

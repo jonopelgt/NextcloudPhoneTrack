@@ -314,3 +314,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 205 (2026-11-06): Auto uses GPS speed and the phone's motion sensors. Play Services activity recognition is not used.
 - Rev 206 (2026-11-06): The location page states the current Auto rules. Connection Status can post the log to the telemetry folder. The log records the app version, user, phone, Android version, session, sharing state, and position mode.
 - Rev 207 (2026-11-06): Map, track, friends, and session reads use ten reader threads. Each thread keeps its own connection. A new read rotates to the next thread.
+- Rev 208 (2026-11-06): Connection Status no longer shows Waiting. A session that is keeping up shows Healthy. If the waiting reads plus that session's unsent points are more than 10, the status is Queue constipated, in brown.
