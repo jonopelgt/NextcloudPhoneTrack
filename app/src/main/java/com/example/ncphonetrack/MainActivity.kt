@@ -218,9 +218,9 @@ class MainActivity : AppCompatActivity() {
         btnZoomIn = findViewById(R.id.btnZoomIn)
         btnZoomOut = findViewById(R.id.btnZoomOut)
         zoomSlide = findViewById(R.id.zoomSlide)
-        zoomSlide.limits = { 6.0 to 19.0 }
+        zoomSlide.limits = { 6.0 to 20.0 }
         zoomSlide.onZoom = { level ->
-            pendingSlideZoom = level.coerceIn(6.0, 19.0)
+            pendingSlideZoom = level.coerceIn(6.0, 20.0)
             OfflineMaps.scaleOnly = true
             if (!slideFramePosted) {
                 slideFramePosted = true
@@ -1062,25 +1062,20 @@ class MainActivity : AppCompatActivity() {
         fun enc(value: String) = java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
         val client = CertHelper.buildClient(prefs)
         val auth = Credentials.basic(user, pass)
-        val parts = listOf("Shared", "nextcloud development file share", "Telemetry", "NC-phone-track-client-app")
-        var folder = "$server/remote.php/dav/files/${enc(user)}"
-        try {
-            for (part in parts) {
-                folder += "/${enc(part)}"
-                val made = Request.Builder().url(folder).method("MKCOL", null).header("Authorization", auth).build()
-                client.newCall(made).execute().close()
-            }
-            val url = "$folder/${enc(name)}"
+        val parts = listOf("Shared", "Nextcloud Development File Share", "Telemetry", "NC-phone-track-client-app")
+        val folder = "$server/remote.php/dav/files/${enc(user)}/" + parts.joinToString("/") { enc(it) }
+        val url = "$folder/${enc(name)}"
+        return try {
             val put = Request.Builder()
                 .url(url)
                 .put(text.toRequestBody("text/plain".toMediaType()))
                 .header("Authorization", auth)
                 .build()
             client.newCall(put).execute().use { response ->
-                return if (response.isSuccessful) "Log posted to telemetry" else "Log post failed: ${response.code}"
+                if (response.isSuccessful) "Log posted to $url" else "Log post failed: ${response.code} $url"
             }
         } catch (e: Exception) {
-            return "Log post failed: ${e.message}"
+            "Log post failed: ${e.message}"
         }
     }
 
@@ -3052,13 +3047,25 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent.createChooser(view, "Share location"))
     }
 
+    private fun mapTextSp(): Float {
+        val steps = floatArrayOf(12f, 14f, 16f, 18f, 22f, 28f)
+        val saved = prefs.getFloat("map_text_sp", 14f)
+        return steps.minBy { kotlin.math.abs(it - saved) }
+    }
+
     private fun deviceBubble(): org.osmdroid.views.overlay.infowindow.InfoWindow {
         deviceBubbleWindow?.let { return it }
         val window = object : org.osmdroid.views.overlay.infowindow.InfoWindow(R.layout.device_bubble, map) {
             override fun onOpen(item: Any?) {
                 val marker = item as? Marker ?: return
-                mView.findViewById<TextView>(R.id.bubbleTitle).text = marker.title ?: ""
-                mView.findViewById<TextView>(R.id.bubbleSnippet).text = marker.snippet ?: ""
+                mView.findViewById<TextView>(R.id.bubbleTitle).apply {
+                    text = marker.title ?: ""
+                    textSize = mapTextSp()
+                }
+                mView.findViewById<TextView>(R.id.bubbleSnippet).apply {
+                    text = marker.snippet ?: ""
+                    textSize = (mapTextSp() - 2f).coerceAtLeast(10f)
+                }
                 mView.findViewById<View>(R.id.bubbleShare).setOnClickListener {
                     val title = marker.title ?: "Location"
                     sharePosition(title, marker.position.latitude, marker.position.longitude)
@@ -3472,6 +3479,42 @@ class MainActivity : AppCompatActivity() {
             addView(refreshLabel)
         })
         box.addView(TextView(this).apply {
+            text = "Map text"
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        val textSteps = floatArrayOf(12f, 14f, 16f, 18f, 22f, 28f)
+        val textLabel = TextView(this).apply {
+            text = "${mapTextSp().toInt()} sp"
+            textSize = 16f
+        }
+        box.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            addView(android.widget.SeekBar(this@MainActivity).apply {
+                max = textSteps.lastIndex
+                progress = textSteps.indexOfFirst { it == mapTextSp() }.coerceAtLeast(0)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                        textLabel.text = "${textSteps[progress.coerceIn(0, textSteps.lastIndex)].toInt()} sp"
+                    }
+                    override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {
+                        val size = textSteps[progress.coerceIn(0, textSteps.lastIndex)]
+                        prefs.edit().putFloat("map_text_sp", size).apply()
+                        textLabel.text = "${size.toInt()} sp"
+                    }
+                })
+            })
+            addView(textLabel)
+        })
+        box.addView(TextView(this).apply {
+            text = "Tile labels stay in the map image. This size is used for map text."
+            textSize = 12f
+            setTextColor(Color.parseColor("#616161"))
+        })
+        box.addView(TextView(this).apply {
             text = "Base map"
             textSize = 16f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
@@ -3883,7 +3926,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun zoomAroundFollow(level: Double) {
         map.controller.stopAnimation(false)
-        map.controller.setZoom(level.coerceIn(6.0, 19.0))
+        map.controller.setZoom(level.coerceIn(6.0, 20.0))
     }
 
     private fun keepFollow(changeZoom: () -> Unit) {
@@ -4222,6 +4265,8 @@ class MainActivity : AppCompatActivity() {
         val sharingOn = !positionUpdatesOff()
         val timing = SharingControl.remaining(this) > 0L
         btnPositionMode.setImageResource(if (spoofing) R.drawable.ic_mode_spy else modeIcon(currentPositionMode()))
+        val pad = ((if (!spoofing && currentPositionMode() == "auto") 2 else 10) * resources.displayMetrics.density).toInt()
+        btnPositionMode.setPadding(pad, pad, pad, pad)
         btnPositionMode.contentDescription = if (spoofing) "Location spoof" else modeLabel(currentPositionMode())
         if (::btnSharing.isInitialized) {
             btnSharing.setImageResource(

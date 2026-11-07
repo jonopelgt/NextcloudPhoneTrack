@@ -319,3 +319,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 210 (2026-11-06): Position update mode charts the calculated states Still, Walking, and In vehicle. Location comes from the phone's own providers. Google Play Services is not required.
 - Rev 211 (2026-11-06): The telemetry log path starts with Shared.
 - Rev 212 (2026-11-06): The telemetry button shows a file icon and a share icon. A finished map read is drawn when it is newer than the last one drawn.
+- Rev 213 (2026-11-06): Telemetry posts to /Shared/Nextcloud Development File Share/Telemetry/NC-phone-track-client-app and does not create that folder. The position chart shows the last hour with larger labels. The Auto glyph fills its button. Map zoom goes through 20, scaling lower-resolution tiles. Maps settings has a text-size slider for map text.

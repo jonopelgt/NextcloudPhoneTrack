@@ -49,6 +49,7 @@ data class BaseMap(
 object OfflineMaps {
     const val FRESH_MS = 30L * 24 * 60 * 60 * 1000
     private const val MIN_ZOOM = 6
+    const val VIEW_MAX_ZOOM = 20
     private const val MAX_ZOOM = 12
     private const val MAX_TILES_PER_ZOOM = 4000
 
@@ -139,7 +140,7 @@ object OfflineMaps {
     fun base(id: String): BaseMap = bases.firstOrNull { it.id == id } ?: bases.first()
 
     fun tileSource(map: BaseMap): OnlineTileSourceBase {
-        val ceiling = if (map.maxZoom < 19) 21 else map.maxZoom
+        val ceiling = maxOf(map.maxZoom, VIEW_MAX_ZOOM)
         return object : OnlineTileSourceBase(map.id, 0, ceiling, 256, map.ext, arrayOf("https://localhost/")) {
             override fun getTileURLString(index: Long): String {
                 val zoom = MapTileIndex.getZoom(index)
@@ -166,7 +167,7 @@ object OfflineMaps {
     fun installBase(context: Context, mapView: MapView, base: BaseMap) {
         mapRef.set(java.lang.ref.WeakReference(mapView))
         mapView.setTileProvider(OfflineTileProvider(context, tileSource(base), base))
-        mapView.maxZoomLevel = if (base.maxZoom < 19) 21.0 else 19.0
+        mapView.maxZoomLevel = VIEW_MAX_ZOOM.toDouble()
         mapView.setUseDataConnection(true)
         mapView.invalidate()
     }
@@ -293,7 +294,7 @@ object OfflineMaps {
     ) : MapTileProviderBasic(context, source, ViewedTileWriter(context, base)) {
         init {
             mTileProviderList.add(0, LocalTileModule(context, base))
-            if (base.maxZoom < 19) {
+            if (base.maxZoom < VIEW_MAX_ZOOM) {
                 val index = mTileProviderList.indexOfFirst { it.usesDataConnection }.coerceAtLeast(0)
                 mTileProviderList.add(index, OverzoomModule(context, base))
             }
@@ -309,7 +310,7 @@ object OfflineMaps {
 
         override fun getUsesDataConnection(): Boolean = false
         override fun getMinimumZoomLevel(): Int = 0
-        override fun getMaximumZoomLevel(): Int = 21
+        override fun getMaximumZoomLevel(): Int = VIEW_MAX_ZOOM
         override fun setTileSource(tileSource: ITileSource?) = Unit
         override fun getName(): String = "local-${base.id}"
         override fun getThreadGroupName(): String = "localtiles"
@@ -375,7 +376,7 @@ object OfflineMaps {
 
         override fun getUsesDataConnection(): Boolean = true
         override fun getMinimumZoomLevel(): Int = base.maxZoom + 1
-        override fun getMaximumZoomLevel(): Int = 21
+        override fun getMaximumZoomLevel(): Int = VIEW_MAX_ZOOM
         override fun setTileSource(tileSource: ITileSource?) = Unit
         override fun getName(): String = "overzoom"
         override fun getThreadGroupName(): String = "overzoom"
@@ -383,7 +384,7 @@ object OfflineMaps {
             override fun loadTile(pMapTileIndex: Long): Drawable? {
                 val zoom = MapTileIndex.getZoom(pMapTileIndex)
                 val diff = zoom - base.maxZoom
-                if (diff <= 0 || diff > 4) return null
+                if (diff <= 0 || zoom > VIEW_MAX_ZOOM) return null
                 val x = MapTileIndex.getX(pMapTileIndex)
                 val y = MapTileIndex.getY(pMapTileIndex)
                 val parent = parentBitmap(x shr diff, y shr diff) ?: return null

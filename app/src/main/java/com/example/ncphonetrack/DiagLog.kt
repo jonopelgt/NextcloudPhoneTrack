@@ -16,7 +16,8 @@ object DiagLog {
     data class Sample(val time: Long, val activity: String, val mode: String, val charge: Int)
 
     private const val KEY = "diag_samples"
-    private const val MAX = 240
+    private const val MAX = 800
+    const val HOUR_MS = 60L * 60L * 1000L
 
     fun outputMode(context: Context): String {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
@@ -75,6 +76,11 @@ object DiagLog {
             last.optInt("b", -1) == charge && now - last.optLong("t") < 60_000L
         ) return
         arr.put(JSONObject().put("t", now).put("a", activity).put("m", mode).put("b", charge))
+        while (arr.length() > 0) {
+            val oldest = arr.optJSONObject(0)?.optLong("t") ?: break
+            if (now - oldest <= HOUR_MS) break
+            arr.remove(0)
+        }
         while (arr.length() > MAX) arr.remove(0)
         prefs.edit().putString(KEY, arr.toString()).apply()
     }
@@ -102,8 +108,9 @@ class DiagChart(context: Context) : View(context) {
     private val modePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#EF6C00"); strokeWidth = 4f; style = Paint.Style.STROKE
     }
-    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1565C0"); textSize = 26f }
-    private val modeLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#EF6C00"); textSize = 26f }
+    private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1565C0"); textSize = 42f }
+    private val modeLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#EF6C00"); textSize = 42f }
+    private val clockPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#1565C0"); textSize = 28f }
     private val chargePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.parseColor("#2E7D32"); strokeWidth = 4f; style = Paint.Style.STROKE
     }
@@ -111,33 +118,35 @@ class DiagChart(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val left = 170f
-        val right = width - 170f
-        val top = 16f
-        val bottom = height - 48f
+        val now = System.currentTimeMillis()
+        val start = now - DiagLog.HOUR_MS
+        val window = samples.filter { it.time >= start }
+        val left = 250f
+        val right = width - 230f
+        val top = 24f
+        val bottom = height - 56f
         canvas.drawColor(Color.WHITE)
-        if (samples.size < 2 || right <= left) {
+        if (window.isEmpty() || right <= left) {
             canvas.drawText("No diagnostics yet", 24f, height / 2f, label)
             return
         }
-        val start = samples.first().time
-        val end = samples.last().time.coerceAtLeast(start + 1L)
+        val end = now
         fun x(time: Long) = left + (right - left) * (time - start).toFloat() / (end - start).toFloat()
         fun yActivity(index: Int) = bottom - (bottom - top) * index / (activityOrder.size - 1).coerceAtLeast(1)
         fun yMode(index: Int) = bottom - (bottom - top) * index / (modeOrder.size - 1).coerceAtLeast(1)
         canvas.drawLine(left, top, left, bottom, axis)
         canvas.drawLine(right, top, right, bottom, axis)
         canvas.drawLine(left, bottom, right, bottom, axis)
-        drawStep(canvas, samples.map { x(it.time) to yActivity(activityOrder.indexOf(it.activity).coerceAtLeast(0)) }, activityPaint)
-        drawStep(canvas, samples.map { x(it.time) to yMode(modeOrder.indexOf(it.mode).coerceAtLeast(0)) }, modePaint)
-        drawCharge(canvas, samples.mapNotNull { sample ->
+        drawStep(canvas, window.map { x(it.time) to yActivity(activityOrder.indexOf(it.activity).coerceAtLeast(0)) }, activityPaint)
+        drawStep(canvas, window.map { x(it.time) to yMode(modeOrder.indexOf(it.mode).coerceAtLeast(0)) }, modePaint)
+        drawCharge(canvas, window.mapNotNull { sample ->
             if (sample.charge < 0) null else x(sample.time) to (bottom - (bottom - top) * sample.charge / 100f)
         })
         activityOrder.forEachIndexed { index, name -> canvas.drawText(name, 8f, yActivity(index) + 8f, label) }
         modeOrder.forEachIndexed { index, name -> canvas.drawText(name, right + 8f, yMode(index) + 8f, modeLabelPaint) }
-        canvas.drawText(clock.format(Date(start)), left, height - 12f, label)
+        canvas.drawText(clock.format(Date(start)), left, height - 12f, clockPaint)
         val endText = clock.format(Date(end))
-        canvas.drawText(endText, right - label.measureText(endText), height - 12f, label)
+        canvas.drawText(endText, right - clockPaint.measureText(endText), height - 12f, clockPaint)
     }
 
     private fun drawStep(canvas: Canvas, points: List<Pair<Float, Float>>, paint: Paint) {
