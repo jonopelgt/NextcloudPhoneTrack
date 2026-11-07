@@ -459,7 +459,6 @@ class LocationPublishService : Service() {
         LogManager.add("Fix lat=${snapshot.optDouble("lat")} lon=${snapshot.optDouble("lon")}")
         logFixClocks(fix)
         prefs.edit().putString("logging_state", "tracking").apply()
-        targets.forEach { noteAccepted(this, it.optString("token")) }
         val queued = submit {
             targets.forEach { session ->
                 val name = session.optString("name").ifBlank { "Unnamed session" }
@@ -474,7 +473,7 @@ class LocationPublishService : Service() {
             markSent(fix)
             trySend()
         }
-        if (!queued) targets.forEach { noteSettled(it.optString("token"), 1) }
+        if (!queued) LogManager.add("Fix not queued")
     }
 
     private fun logFixClocks(location: Location) {
@@ -645,6 +644,7 @@ class LocationPublishService : Service() {
                 if (pointKey(queue.getJSONObject(i)) == key) return
             }
             queue.put(point)
+            noteAccepted(this, token)
             var dropped = 0
             while (queue.length() > MAX_BUFFER) {
                 queue.remove(0)
@@ -1135,8 +1135,7 @@ class LocationPublishService : Service() {
 
         fun unsent(context: Context, token: String): Int {
             if (token.isBlank()) return 0
-            ensureSeeded(context)
-            return unsent[token]?.get() ?: 0
+            return pendingCounts(context)[token] ?: 0
         }
 
         private fun pendingCounts(context: Context): Map<String, Int> {

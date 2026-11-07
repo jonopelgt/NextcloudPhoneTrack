@@ -2756,7 +2756,7 @@ class MainActivity : AppCompatActivity() {
             val positions = PhoneTrackApi.getLastPositions(this, url, token, client = client)
             val ageOut = ageOutMinutes(token)
             runOnUiThread {
-                if (epoch != mapEpoch) return@runOnUiThread
+                if (epoch != mapEpoch || isDestroyed || !::map.isInitialized) return@runOnUiThread
                 if (positions == null) {
                     if (seq < mapReadSeq.get()) return@runOnUiThread
                     prefs.edit().putString("last_read_result", "failed").apply()
@@ -2780,6 +2780,7 @@ class MainActivity : AppCompatActivity() {
         positions: Map<String, GeoPointData>,
         ageOut: Int
     ) {
+        if (isDestroyed || !::map.isInitialized) return
         prefs.edit()
             .putString("last_read_result", "ok")
             .putLong("last_map_ok", System.currentTimeMillis())
@@ -4619,11 +4620,13 @@ class MainActivity : AppCompatActivity() {
             return
         }
         if (points.size == 1) {
-            val here = map.mapCenter
-            val same = kotlin.math.abs(here.latitude - points[0].latitude) < 0.00001 &&
-                kotlin.math.abs(here.longitude - points[0].longitude) < 0.00001
-            if (same && kotlin.math.abs(map.zoomLevelDouble - 16.0) < 0.2) return
-            map.controller.setZoom(16.0)
+            val name = lastPoints.keys.firstOrNull()
+            if (name != null && mapFollow == MapFollow.GROUP) {
+                trackedUser = name
+                mapFollow = MapFollow.USER
+                refreshZoomKeys()
+            }
+            map.controller.setZoom(map.maxZoomLevel)
             centerAboveBanner(points[0])
             return
         }

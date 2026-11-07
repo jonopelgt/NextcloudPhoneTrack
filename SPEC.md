@@ -320,3 +320,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 211 (2026-11-06): The telemetry log path starts with Shared.
 - Rev 212 (2026-11-06): The telemetry button shows a file icon and a share icon. A finished map read is drawn when it is newer than the last one drawn.
 - Rev 213 (2026-11-06): Telemetry posts to /Shared/Nextcloud Development File Share/Telemetry/NC-phone-track-client-app and does not create that folder. The position chart shows the last hour with larger labels. The Auto glyph fills its button. Map zoom goes through 20, scaling lower-resolution tiles. Maps settings has a text-size slider for map text.
+- Rev 214 (2026-11-07): A map read does not draw markers until the map exists. Buffered points is the number still waiting for that session. All with one user follows that user at the highest zoom.
