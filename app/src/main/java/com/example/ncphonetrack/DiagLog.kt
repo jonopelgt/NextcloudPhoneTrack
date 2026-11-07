@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.os.BatteryManager
 import android.view.View
-import com.google.android.gms.location.DetectedActivity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.SimpleDateFormat
@@ -18,17 +17,6 @@ object DiagLog {
 
     private const val KEY = "diag_samples"
     private const val MAX = 240
-
-    fun activityName(type: Int): String = when (type) {
-        DetectedActivity.STILL -> "Still"
-        DetectedActivity.WALKING -> "Walking"
-        DetectedActivity.RUNNING -> "Running"
-        DetectedActivity.ON_FOOT -> "On foot"
-        DetectedActivity.ON_BICYCLE -> "On bicycle"
-        DetectedActivity.IN_VEHICLE -> "In vehicle"
-        DetectedActivity.TILTING -> "Tilting"
-        else -> "Unknown"
-    }
 
     fun outputMode(context: Context): String {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
@@ -105,7 +93,7 @@ class DiagChart(context: Context) : View(context) {
             invalidate()
         }
 
-    private val activityOrder = listOf("Unknown", "Tilting", "Still", "On foot", "Walking", "Running", "On bicycle", "In vehicle")
+    private val activityOrder = listOf("Unknown", "Still", "Walking", "In vehicle")
     private val modeOrder = listOf("Off", "Manual", "Low power", "Walk", "Move", "Rapid", "Auto")
     private val axis = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#90A4AE"); strokeWidth = 2f }
     private val activityPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

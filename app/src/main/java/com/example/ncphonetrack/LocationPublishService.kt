@@ -30,12 +30,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.tasks.CancellationTokenSource
 import java.util.concurrent.RejectedExecutionException
 import okhttp3.ConnectionPool
 import okhttp3.FormBody
@@ -52,11 +46,8 @@ import java.util.concurrent.atomic.AtomicInteger
 
 class LocationPublishService : Service() {
 
-    private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var prefs: SharedPreferences
-    private var locationCallback: LocationCallback? = null
-    private var legacyListener: LocationListener? = null
-    private val legacyStarted = AtomicBoolean(false)
+    private var gpsListener: LocationListener? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var nextcloudUrl: String = ""
     private var token: String = ""
@@ -158,18 +149,7 @@ class LocationPublishService : Service() {
     }
 
     private fun startLocationUpdates() {
-        if (!::fusedLocationClient.isInitialized) {
-            fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        }
-        locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
-        legacyListener?.let { listener ->
-            try {
-                getSystemService(LocationManager::class.java)?.removeUpdates(listener)
-            } catch (_: Exception) {
-            }
-        }
-        legacyListener = null
-        legacyStarted.set(false)
+        stopGpsUpdates()
         stopLowPower()
         if (storedMode() == "auto") {
             ensureAutoWatch()
@@ -187,93 +167,92 @@ class LocationPublishService : Service() {
         }
         if (!spoofing && mode == "significant") {
             forceNext = true
-            try {
-                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                    if (location != null) publishLocation(location)
-                }
-                fusedLocationClient.getCurrentLocation(
-                    LocationRequest.PRIORITY_HIGH_ACCURACY,
-                    CancellationTokenSource().token
-                ).addOnSuccessListener { location ->
-                    if (location != null) publishLocation(location)
-                }
-            } catch (e: SecurityException) {
-                LogManager.add("Location permission missing")
-                prefs.edit().putString("logging_state", "permission denied").apply()
-                return
-            }
+            requestPhoneFix { location -> if (location != null) publishLocation(location) }
             armLowPower()
             LogManager.add("Low power: send once, then after about 300 meters")
             return
         }
+        startGpsUpdates()
+        LogManager.add(when {
+            spoofing -> "Spoofed location every ${publishIntervalMs() / 1000}s"
+            mode == "walk" -> "Walk: send after about 30 meters"
+            mode == "rapid" -> "Location updates every 1s"
+            else -> "Move: send every 5s"
+        })
+    }
 
-        val locationRequest = if (spoofing) {
-            val interval = publishIntervalMs()
-            LocationRequest.create().apply {
-                this.interval = interval
-                fastestInterval = interval
-                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
-            }
-        } else when (mode) {
-            "walk" -> LocationRequest.create().apply {
-                interval = 10_000L
-                fastestInterval = 5_000L
-                smallestDisplacement = 30f
-                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
-            }
-            "rapid" -> LocationRequest.create().apply {
-                interval = 1000L
-                fastestInterval = 1000L
-                smallestDisplacement = 0f
-                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
-            }
-            else -> LocationRequest.create().apply {
-                interval = 5_000L
-                fastestInterval = 5_000L
-                smallestDisplacement = 0f
-                priority = LocationRequest.PRIORITY_HIGH_ACCURACY
+    private fun phoneProvider(): String? {
+        val manager = getSystemService(LocationManager::class.java) ?: return null
+        return when {
+            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+            else -> null
+        }
+    }
+
+    private fun stopGpsUpdates() {
+        gpsListener?.let { listener ->
+            try {
+                getSystemService(LocationManager::class.java)?.removeUpdates(listener)
+            } catch (_: Exception) {
             }
         }
+        gpsListener = null
+    }
 
-        val callback = object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.let { publishLocation(it) }
-            }
+    private fun startGpsUpdates() {
+        val manager = getSystemService(LocationManager::class.java) ?: return
+        val provider = phoneProvider()
+        if (provider == null) {
+            LogManager.add("Location providers are off")
+            prefs.edit().putString("logging_state", "location off").apply()
+            return
         }
-        locationCallback = callback
-
+        val listener = LocationListener { publishLocation(it) }
+        gpsListener = listener
+        val mode = activeMode()
+        val period = when (mode) {
+            "walk" -> 10_000L
+            "rapid" -> 1_000L
+            else -> 5_000L
+        }
+        val distance = if (mode == "walk") 30f else 0f
         try {
-            fusedLocationClient.requestLocationUpdates(locationRequest, callback, Looper.getMainLooper())
-                .addOnFailureListener { error ->
-                    LogManager.add("Play location failed: ${error.message}")
-                    startLegacyUpdates()
-                }
-            fusedLocationClient.lastLocation
-                .addOnSuccessListener { location ->
-                    if (location != null) publishLocation(location)
-                    else LogManager.add("No last location yet")
-                }
-                .addOnFailureListener { error ->
-                    LogManager.add("Last location failed: ${error.message}")
-                }
-            fusedLocationClient.getCurrentLocation(
-                LocationRequest.PRIORITY_HIGH_ACCURACY,
-                CancellationTokenSource().token
-            ).addOnSuccessListener { location ->
-                if (location != null) publishLocation(location)
-            }.addOnFailureListener { error ->
-                LogManager.add("Current location failed: ${error.message}")
-                startLegacyUpdates()
-            }
-            LogManager.add(when {
-                spoofing -> "Spoofed location every ${publishIntervalMs() / 1000}s"
-                mode == "walk" -> "Walk: send after about 30 meters"
-                mode == "rapid" -> "Location updates every 1s"
-                else -> "Move: send every 5s"
-            })
+            manager.requestLocationUpdates(provider, period, distance, listener, Looper.getMainLooper())
+            LogManager.add("Location updates from $provider")
+            manager.getLastKnownLocation(provider)?.let { publishLocation(it) }
         } catch (e: SecurityException) {
             LogManager.add("Location permission missing")
             prefs.edit().putString("logging_state", "permission denied").apply()
+            gpsListener = null
+        }
+    }
+
+    private fun requestPhoneFix(current: Boolean = false, onFix: (Location?) -> Unit) {
+        val manager = getSystemService(LocationManager::class.java) ?: run {
+            onFix(null)
+            return
+        }
+        val provider = phoneProvider()
+        if (provider == null) {
+            LogManager.add("Location providers are off")
+            prefs.edit().putString("logging_state", "location off").apply()
+            onFix(null)
+            return
+        }
+        try {
+            val last = manager.getLastKnownLocation(provider)
+            if (!current && last != null) onFix(last)
+            if (current || last == null) {
+                manager.requestSingleUpdate(provider, { onFix(it) }, Looper.getMainLooper())
+            }
+        } catch (e: SecurityException) {
+            LogManager.add("Location permission missing")
+            prefs.edit().putString("logging_state", "permission denied").apply()
+            onFix(null)
+        } catch (e: Exception) {
+            LogManager.add("Location fix failed: ${e.message}")
+            onFix(null)
         }
     }
 
@@ -325,33 +304,23 @@ class LocationPublishService : Service() {
     private fun checkLowPower(generation: Int, attemptsLeft: Int, rearm: Boolean) {
         if (generation != lowPowerGeneration) return
         if ((activeMode()) != "significant") return
-        if (!::fusedLocationClient.isInitialized) return
-        try {
-            fusedLocationClient.getCurrentLocation(
-                LocationRequest.PRIORITY_HIGH_ACCURACY,
-                CancellationTokenSource().token
-            ).addOnSuccessListener { location ->
-                if (generation != lowPowerGeneration) return@addOnSuccessListener
-                if (location == null) {
-                    if (rearm) armLowPower()
-                    return@addOnSuccessListener
-                }
-                if (movedFar(location, 300f)) {
-                    publishLocation(location)
-                    if (rearm) armLowPower()
-                    return@addOnSuccessListener
-                }
-                val moving = location.hasSpeed() && location.speed >= 0.5f
-                if (!moving || attemptsLeft <= 1) {
-                    if (rearm) armLowPower()
-                    return@addOnSuccessListener
-                }
-                mainHandler.postDelayed({ checkLowPower(generation, attemptsLeft - 1, rearm) }, 60_000L)
-            }.addOnFailureListener {
-                if (generation == lowPowerGeneration && rearm) armLowPower()
+        requestPhoneFix(current = true) { location ->
+            if (generation != lowPowerGeneration) return@requestPhoneFix
+            if (location == null) {
+                if (rearm) armLowPower()
+                return@requestPhoneFix
             }
-        } catch (_: SecurityException) {
-            LogManager.add("Location permission missing")
+            if (movedFar(location, 300f)) {
+                publishLocation(location)
+                if (rearm) armLowPower()
+                return@requestPhoneFix
+            }
+            val moving = location.hasSpeed() && location.speed >= 0.5f
+            if (!moving || attemptsLeft <= 1) {
+                if (rearm) armLowPower()
+                return@requestPhoneFix
+            }
+            mainHandler.postDelayed({ checkLowPower(generation, attemptsLeft - 1, rearm) }, 60_000L)
         }
     }
 
@@ -370,70 +339,16 @@ class LocationPublishService : Service() {
             .apply()
     }
 
-    private fun startLegacyUpdates() {
-        if (!legacyStarted.compareAndSet(false, true)) return
-        val manager = getSystemService(LocationManager::class.java) ?: return
-        val provider = when {
-            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
-            else -> {
-                LogManager.add("Location providers are off")
-                prefs.edit().putString("logging_state", "location off").apply()
-                return
-            }
-        }
-        val listener = LocationListener { publishLocation(it) }
-        legacyListener = listener
-        val mode = activeMode()
-        val period = when (mode) {
-            "walk" -> 10_000L
-            "rapid" -> 1_000L
-            else -> 5_000L
-        }
-        val distance = if (mode == "walk") 30f else 0f
-        try {
-            manager.requestLocationUpdates(provider, period, distance, listener, Looper.getMainLooper())
-            LogManager.add("Location updates from $provider")
-            manager.getLastKnownLocation(provider)?.let { publishLocation(it) }
-        } catch (e: SecurityException) {
-            LogManager.add("Location permission missing")
-            prefs.edit().putString("logging_state", "permission denied").apply()
-            legacyListener = null
-        }
-    }
-
     private fun publishOnce() {
         spoofedLocation()?.let {
             publishLocation(it)
             return
         }
-        if (!::fusedLocationClient.isInitialized) {
-            fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        }
-        try {
-            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
-                if (location != null) publishLocation(location) else requestCurrentFix()
+        requestPhoneFix { location ->
+            if (location != null) publishLocation(location) else {
+                LogManager.add("No location to send")
+                prefs.edit().putString("logging_state", "no position").apply()
             }
-        } catch (e: SecurityException) {
-            LogManager.add("Location permission missing")
-        }
-    }
-
-    private fun requestCurrentFix() {
-        try {
-            fusedLocationClient.getCurrentLocation(
-                LocationRequest.PRIORITY_HIGH_ACCURACY,
-                CancellationTokenSource().token
-            ).addOnSuccessListener { location ->
-                if (location != null) publishLocation(location) else {
-                    LogManager.add("No location to send")
-                    prefs.edit().putString("logging_state", "no position").apply()
-                }
-            }.addOnFailureListener { error ->
-                LogManager.add("Current location failed: ${error.message}")
-            }
-        } catch (e: SecurityException) {
-            LogManager.add("Location permission missing")
         }
     }
 
@@ -1166,15 +1081,7 @@ class LocationPublishService : Service() {
         mainHandler.removeCallbacksAndMessages(null)
         io.shutdownNow()
         lanes.forEach { it.shutdownNow() }
-        locationCallback?.let {
-            if (::fusedLocationClient.isInitialized) fusedLocationClient.removeLocationUpdates(it)
-        }
-        legacyListener?.let { listener ->
-            try {
-                getSystemService(LocationManager::class.java)?.removeUpdates(listener)
-            } catch (_: Exception) {
-            }
-        }
+        stopGpsUpdates()
         networkCallback?.let { callback ->
             try {
                 getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(callback)

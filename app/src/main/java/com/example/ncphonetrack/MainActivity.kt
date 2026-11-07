@@ -33,9 +33,6 @@ import okhttp3.Credentials
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationTokenSource
 import com.google.android.material.navigation.NavigationView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -3591,19 +3588,26 @@ class MainActivity : AppCompatActivity() {
         if (hereStateBusy || hereStateDialog?.isShowing == true) return
         if (!checkPermissions()) return
         hereStateBusy = true
-        val client = LocationServices.getFusedLocationProviderClient(this)
-        client.lastLocation.addOnSuccessListener { loc ->
-            if (loc != null) {
-                askToDownloadState(loc.latitude, loc.longitude)
-            } else {
-                client.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, CancellationTokenSource().token)
-                    .addOnSuccessListener { fresh ->
-                        if (fresh != null) askToDownloadState(fresh.latitude, fresh.longitude)
-                        else hereStateBusy = false
-                    }
-                    .addOnFailureListener { hereStateBusy = false }
+        val manager = getSystemService(android.location.LocationManager::class.java)
+        val provider = when {
+            manager?.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) == true -> android.location.LocationManager.GPS_PROVIDER
+            manager?.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) == true -> android.location.LocationManager.NETWORK_PROVIDER
+            else -> {
+                hereStateBusy = false
+                return
             }
-        }.addOnFailureListener { hereStateBusy = false }
+        }
+        try {
+            manager.getLastKnownLocation(provider)?.let {
+                askToDownloadState(it.latitude, it.longitude)
+                return
+            }
+            manager.requestSingleUpdate(provider, { fresh ->
+                askToDownloadState(fresh.latitude, fresh.longitude)
+            }, android.os.Looper.getMainLooper())
+        } catch (_: SecurityException) {
+            hereStateBusy = false
+        }
     }
 
     private fun askToDownloadState(lat: Double, lon: Double) {

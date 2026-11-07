@@ -82,7 +82,7 @@ Android application that connects to a self-hosted Nextcloud instance running th
 ## 4. Non-Functional Requirements
 - Min SDK 24, Target SDK 34.
 - Minimal battery impact (fused location provider).
-- No Google Play Services dependency beyond location (optional fallback later).
+- No Google Play Services dependency. Location uses the phone's own providers.
 - Open source, MIT license.
 - Offline-tolerant (buffer positions).
 
@@ -316,3 +316,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 207 (2026-11-06): Map, track, friends, and session reads use ten reader threads. Each thread keeps its own connection. A new read rotates to the next thread.
 - Rev 208 (2026-11-06): Connection Status no longer shows Waiting. A session that is keeping up shows Healthy. If the waiting reads plus that session's unsent points are more than 10, the status is Queue constipated, in brown.
 - Rev 209 (2026-11-06): Tapping the connection-fail banner opens Connection Status. The banner clears when a read or a push for that session succeeds.
+- Rev 210 (2026-11-06): Position update mode charts the calculated states Still, Walking, and In vehicle. Location comes from the phone's own providers. Google Play Services is not required.
