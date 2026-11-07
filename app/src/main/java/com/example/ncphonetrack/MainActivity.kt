@@ -1607,7 +1607,6 @@ class MainActivity : AppCompatActivity() {
         )
         if (Build.VERSION.SDK_INT >= 29) {
             items.add(RequiredPermission("Background location", Manifest.permission.ACCESS_BACKGROUND_LOCATION, "app"))
-            items.add(RequiredPermission("Physical activity", Manifest.permission.ACTIVITY_RECOGNITION, "app"))
         }
         if (Build.VERSION.SDK_INT >= 33) {
             items.add(RequiredPermission("Notifications", Manifest.permission.POST_NOTIFICATIONS, "notifications"))
@@ -2532,12 +2531,6 @@ class MainActivity : AppCompatActivity() {
         if (!checkPermissions()) needed.add(Manifest.permission.ACCESS_FINE_LOCATION)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             needed.add(Manifest.permission.ACCESS_COARSE_LOCATION)
-        }
-        if (Build.VERSION.SDK_INT >= 29 &&
-            (prefs.getString("position_mode", "move") ?: "move") == "auto" &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
-        ) {
-            needed.add(Manifest.permission.ACTIVITY_RECOGNITION)
         }
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -4661,10 +4654,6 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         map.onResume()
-        if (intent?.action == LocationPublishService.ACTION_ACTIVITY_PERMISSION) {
-            intent.action = null
-            openPermissionPage(RequiredPermission("Physical activity", Manifest.permission.ACTIVITY_RECOGNITION, "app"))
-        }
         LocationPublishService.syncAutoPermissionNotice(this)
         refreshModeButton()
         refreshMapBanner()

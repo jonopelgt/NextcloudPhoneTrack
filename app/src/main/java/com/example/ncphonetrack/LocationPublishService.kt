@@ -18,6 +18,8 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.hardware.TriggerEvent
 import android.hardware.TriggerEventListener
@@ -28,9 +30,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
-import com.google.android.gms.location.ActivityRecognition
-import com.google.android.gms.location.ActivityRecognitionResult
-import com.google.android.gms.location.DetectedActivity
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -76,27 +75,16 @@ class LocationPublishService : Service() {
     private var forceNext = false
     private var autoWatching = false
     private var pendingAuto: String? = null
-    private var activityIntent: PendingIntent? = null
+    private var lastStepAt = 0L
+    private var autoProbeAt = 0L
+    private var stepSensorListener: SensorEventListener? = null
+    private var motionDetectListener: SensorEventListener? = null
+    private var autoSignificant: TriggerEventListener? = null
     private val applyAuto = Runnable {
         val next = pendingAuto ?: return@Runnable
         pendingAuto = null
         if (storedMode() != "auto" || batteryForcesLowPower()) return@Runnable
         if (commitAutoMode(next)) startLocationUpdates()
-    }
-    private val activityReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            val received = intent ?: return
-            if (!ActivityRecognitionResult.hasResult(received)) return
-            val activity = ActivityRecognitionResult.extractResult(received)?.mostProbableActivity ?: return
-            DiagLog.noteActivity(this@LocationPublishService, DiagLog.activityName(activity.type))
-            val candidate = when (activity.type) {
-                DetectedActivity.STILL -> "significant"
-                DetectedActivity.ON_FOOT, DetectedActivity.WALKING, DetectedActivity.RUNNING -> "walk"
-                DetectedActivity.IN_VEHICLE, DetectedActivity.ON_BICYCLE -> "move"
-                else -> return
-            }
-            noteAutoCandidate(candidate)
-        }
     }
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -533,8 +521,9 @@ class LocationPublishService : Service() {
 
     private fun publishLocation(location: Location) {
         val fix = spoofedLocation() ?: location
-        val mode = activeMode()
         val spoofing = prefs.getBoolean("spoof_enabled", false)
+        if (storedMode() == "auto" && !spoofing) considerAutoFix(fix)
+        val mode = activeMode()
         val forced = forceNext
         forceNext = false
         if (!spoofing && !forced) {
@@ -1031,13 +1020,6 @@ class LocationPublishService : Service() {
     private fun ensureAutoWatch() {
         if (autoWatching) return
         autoWatching = true
-        val filter = IntentFilter(ACTION_ACTIVITY)
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(activityReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(activityReceiver, filter)
-        }
         val battery = IntentFilter().apply {
             addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
             addAction(Intent.ACTION_BATTERY_LOW)
@@ -1049,22 +1031,107 @@ class LocationPublishService : Service() {
             registerReceiver(batteryReceiver, battery)
         }
         mainHandler.postDelayed(batteryPoll, 60_000L)
-        if (Build.VERSION.SDK_INT >= 29 &&
-            checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
-        ) {
-            LogManager.add("Auto: activity permission not granted, staying on ${autoLabel(activeMode())}")
-            syncAutoPermissionNotice(this)
-            return
-        }
+        registerAutoSensors()
         syncAutoPermissionNotice(this)
-        val pending = PendingIntent.getBroadcast(
-            this,
-            7,
-            Intent(ACTION_ACTIVITY).setPackage(packageName),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-        )
-        activityIntent = pending
-        ActivityRecognition.getClient(this).requestActivityUpdates(30_000L, pending)
+    }
+
+    private fun considerAutoFix(fix: Location) {
+        if (fix.hasAccuracy() && fix.accuracy > 50f) return
+        if (!fix.hasSpeed()) return
+        val speed = fix.speed
+        val stepsRecent = System.currentTimeMillis() - lastStepAt <= 45_000L
+        val activity: String
+        val candidate: String
+        when {
+            speed >= 2.5f -> {
+                activity = "In vehicle"
+                candidate = "move"
+            }
+            speed >= 0.4f || stepsRecent -> {
+                activity = "Walking"
+                candidate = "walk"
+            }
+            else -> {
+                activity = "Still"
+                candidate = "significant"
+            }
+        }
+        DiagLog.noteActivity(this, activity)
+        noteAutoCandidate(candidate)
+    }
+
+    private fun onAutoMotion() {
+        if (storedMode() != "auto" || activeMode() != "significant") return
+        DiagLog.noteActivity(this, "Walking")
+        noteAutoCandidate("walk")
+        val now = System.currentTimeMillis()
+        if (now - autoProbeAt < 15_000L) return
+        autoProbeAt = now
+        requestOneAutoFix()
+    }
+
+    private fun requestOneAutoFix() {
+        val manager = getSystemService(LocationManager::class.java) ?: return
+        val provider = when {
+            manager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+            else -> return
+        }
+        try {
+            manager.requestSingleUpdate(provider, { location -> considerAutoFix(location) }, Looper.getMainLooper())
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun registerAutoSensors() {
+        val sensors = getSystemService(SensorManager::class.java) ?: return
+        sensors.getDefaultSensor(Sensor.TYPE_STEP_DETECTOR)?.let { sensor ->
+            val listener = object : SensorEventListener {
+                override fun onSensorChanged(event: SensorEvent) {
+                    lastStepAt = System.currentTimeMillis()
+                    onAutoMotion()
+                }
+                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            }
+            if (sensors.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_NORMAL)) stepSensorListener = listener
+        }
+        if (Build.VERSION.SDK_INT >= 24) {
+            sensors.getDefaultSensor(Sensor.TYPE_MOTION_DETECT)?.let { sensor ->
+                val listener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent) {
+                        onAutoMotion()
+                    }
+                    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+                }
+                if (sensors.registerListener(listener, sensor, SensorManager.SENSOR_DELAY_NORMAL)) motionDetectListener = listener
+            }
+        }
+        armAutoSignificant()
+    }
+
+    private fun armAutoSignificant() {
+        val sensors = getSystemService(SensorManager::class.java) ?: return
+        val sensor = sensors.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION) ?: return
+        val trigger = object : TriggerEventListener() {
+            override fun onTrigger(event: TriggerEvent) {
+                autoSignificant = null
+                onAutoMotion()
+                if (autoWatching) armAutoSignificant()
+            }
+        }
+        if (sensors.requestTriggerSensor(trigger, sensor)) autoSignificant = trigger
+    }
+
+    private fun stopAutoSensors() {
+        val sensors = getSystemService(SensorManager::class.java) ?: return
+        stepSensorListener?.let { sensors.unregisterListener(it) }
+        motionDetectListener?.let { sensors.unregisterListener(it) }
+        autoSignificant?.let { trigger ->
+            sensors.getDefaultSensor(Sensor.TYPE_SIGNIFICANT_MOTION)?.let { sensors.cancelTriggerSensor(trigger, it) }
+        }
+        stepSensorListener = null
+        motionDetectListener = null
+        autoSignificant = null
     }
 
     private val batteryPoll: Runnable = object : Runnable {
@@ -1086,18 +1153,10 @@ class LocationPublishService : Service() {
         mainHandler.removeCallbacks(applyAuto)
         mainHandler.removeCallbacks(batteryPoll)
         try {
-            unregisterReceiver(activityReceiver)
-        } catch (_: Exception) {
-        }
-        try {
             unregisterReceiver(batteryReceiver)
         } catch (_: Exception) {
         }
-        activityIntent?.let { pending ->
-            ActivityRecognition.getClient(this).removeActivityUpdates(pending)
-            pending.cancel()
-        }
-        activityIntent = null
+        stopAutoSensors()
         syncAutoPermissionNotice(this)
     }
 
@@ -1128,51 +1187,10 @@ class LocationPublishService : Service() {
     companion object {
         const val ACTION_PUBLISH_ONCE = "com.example.ncphonetrack.PUBLISH_ONCE"
         const val ACTION_ACTIVITY_PERMISSION = "com.example.ncphonetrack.ACTIVITY_PERMISSION"
-        private const val ACTION_ACTIVITY = "com.example.ncphonetrack.ACTIVITY"
         private const val AUTO_PERMISSION_NOTICE = 9
 
         fun syncAutoPermissionNotice(context: Context) {
-            val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
-            val auto = (prefs.getString("position_mode", "move") ?: "move") == "auto"
-            val missing = Build.VERSION.SDK_INT >= 29 &&
-                context.checkSelfPermission(android.Manifest.permission.ACTIVITY_RECOGNITION) != PackageManager.PERMISSION_GRANTED
-            val manager = context.getSystemService(NotificationManager::class.java)
-            if (!auto || !missing) {
-                manager.cancel(AUTO_PERMISSION_NOTICE)
-                return
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    "auto_permission",
-                    "Auto permission",
-                    NotificationManager.IMPORTANCE_DEFAULT
-                )
-                channel.setShowBadge(false)
-                manager.createNotificationChannel(channel)
-            }
-            val open = PendingIntent.getActivity(
-                context,
-                9,
-                Intent(context, MainActivity::class.java).apply {
-                    action = ACTION_ACTIVITY_PERMISSION
-                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                },
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            val notice = NotificationCompat.Builder(context, "auto_permission")
-                .setSmallIcon(R.drawable.ic_stat_broadcast)
-                .setContentTitle("Auto will not work")
-                .setContentText("Physical activity permission is not available")
-                .setStyle(
-                    NotificationCompat.BigTextStyle().bigText(
-                        "Physical activity permission is not available. Auto will not work until it is granted in Settings."
-                    )
-                )
-                .setContentIntent(open)
-                .setAutoCancel(false)
-                .setOnlyAlertOnce(true)
-                .build()
-            manager.notify(AUTO_PERMISSION_NOTICE, notice)
+            context.getSystemService(NotificationManager::class.java).cancel(AUTO_PERMISSION_NOTICE)
         }
         private const val MAX_BUFFER = 7200
 
