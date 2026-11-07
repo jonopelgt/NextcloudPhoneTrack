@@ -29,6 +29,10 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.drawerlayout.widget.DrawerLayout
+import okhttp3.Credentials
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
@@ -186,6 +190,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnCopyLog).setOnClickListener { copyLog() }
         findViewById<Button>(R.id.btnClearLog).setOnClickListener { clearLog() }
         findViewById<Button>(R.id.btnExportLog).setOnClickListener { exportLog() }
+        findViewById<ImageButton>(R.id.btnShareLog).setOnClickListener { postLogToTelemetry() }
         logScroll.setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 logScroll.post {
@@ -790,7 +795,7 @@ class MainActivity : AppCompatActivity() {
         val kept = LogManager.entries().filter { (line, detail) ->
             val message = line.substringAfter(' ').trim()
             val level = if (detail >= 0) detail else logDetail(message)
-            val forSession = verbosity >= 3 || name.isBlank() || message.startsWith("$name:") || message.startsWith("$name ")
+            val forSession = message.startsWith("App ") || verbosity >= 3 || name.isBlank() || message.startsWith("$name:") || message.startsWith("$name ")
             forSession && level <= verbosity
         }
         return kept.joinToString("\n") { it.first }.ifEmpty { "No messages yet" }
@@ -980,7 +985,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exportLog() {
-        val text = selectedSessionLog()
+        val header = debugHeader()
+        LogManager.add(header, 0)
+        refreshLog()
+        val text = "$header\n${selectedSessionLog()}"
         val dir = File(cacheDir, "logs").apply { mkdirs() }
         val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
         val file = File(dir, "phonetrack-log-$stamp.txt")
@@ -1001,6 +1009,70 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Toast.makeText(this, "Could not export the log", Toast.LENGTH_LONG).show()
             LogManager.add("Export log failed: ${e.message}")
+        }
+    }
+
+    private fun debugHeader(): String {
+        val user = prefs.getString("nc_user", "")?.trim().orEmpty().ifBlank { "none" }
+        val phone = Build.MODEL?.trim().orEmpty().ifBlank { "unknown" }
+        val release = Build.VERSION.RELEASE?.trim().orEmpty().ifBlank { "?" }
+        val session = displayedSessionName().ifBlank { "none" }
+        val sharing = SharingControl.statusLabel(this)
+        val position = modeLabel(currentPositionMode())
+        return "App ${readVersion()} user $user phone $phone Android $release session $session sharing $sharing position $position"
+    }
+
+    private fun postLogToTelemetry() {
+        val user = prefs.getString("nc_user", "")?.trim().orEmpty()
+        val pass = prefs.getString("nc_pass", "").orEmpty()
+        val server = PhoneTrackUrl.parse(
+            prefs.getString("nc_auth_url", null)?.takeIf { it.isNotBlank() } ?: prefs.getString("url", "") ?: ""
+        ).base
+        if (user.isBlank() || pass.isBlank() || server.isBlank()) {
+            Toast.makeText(this, "Sign in to Nextcloud first", Toast.LENGTH_LONG).show()
+            return
+        }
+        val header = debugHeader()
+        LogManager.add(header, 0)
+        refreshLog()
+        val text = "$header\n${selectedSessionLog()}"
+        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
+        val name = "phonetrack-log-$stamp.txt"
+        Toast.makeText(this, "Posting log", Toast.LENGTH_SHORT).show()
+        Thread {
+            val result = uploadTelemetryLog(server, user, pass, name, text)
+            runOnUiThread {
+                val named = displayedSessionName().let { if (it.isBlank()) result else "$it: $result" }
+                LogManager.add(named, 0)
+                refreshLog()
+                Toast.makeText(this, result, Toast.LENGTH_LONG).show()
+            }
+        }.start()
+    }
+
+    private fun uploadTelemetryLog(server: String, user: String, pass: String, name: String, text: String): String {
+        fun enc(value: String) = java.net.URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+        val client = CertHelper.buildClient(prefs)
+        val auth = Credentials.basic(user, pass)
+        val parts = listOf("shared", "nextcloud development file share", "Telemetry", "NC-phone-track-client-app")
+        var folder = "$server/remote.php/dav/files/${enc(user)}"
+        try {
+            for (part in parts) {
+                folder += "/${enc(part)}"
+                val made = Request.Builder().url(folder).method("MKCOL", null).header("Authorization", auth).build()
+                client.newCall(made).execute().close()
+            }
+            val url = "$folder/${enc(name)}"
+            val put = Request.Builder()
+                .url(url)
+                .put(text.toRequestBody("text/plain".toMediaType()))
+                .header("Authorization", auth)
+                .build()
+            client.newCall(put).execute().use { response ->
+                return if (response.isSuccessful) "Log posted to telemetry" else "Log post failed: ${response.code}"
+            }
+        } catch (e: Exception) {
+            return "Log post failed: ${e.message}"
         }
     }
 
@@ -2572,6 +2644,7 @@ class MainActivity : AppCompatActivity() {
         val token = prefs.getString("token", "") ?: ""
         val device = prefs.getString("device", "Android") ?: "Android"
         if (!isValidBaseUrl(url) || token.isBlank() || !activeSessionEnabled()) return
+        LogManager.add(debugHeader(), 0)
         val positionId = prefs.getString("nc_user", "")?.trim().orEmpty().ifEmpty { device }
         if (positionUpdatesOff()) {
             stopService(Intent(this, LocationPublishService::class.java))
@@ -3928,7 +4001,7 @@ class MainActivity : AppCompatActivity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         })
         listOf(
-            "Auto follows still, walking, or driving, and uses low power on battery saver or under 5 percent.",
+            "Auto starts in Move. Under 0.4 m/s with no recent steps is Low power. From 0.4 to 2.5 m/s, or steps, is Walk. 2.5 m/s or faster is Move. Still to Walk and Walk to Move are immediate. Other changes wait 60 seconds. Battery saver, or a battery under 5 percent, forces Low power.",
             "Manual sends only when you tap Send now.",
             "Low power sends when a short GPS check shows about 300 meters of movement.",
             "Walk sends after about 30 meters.",

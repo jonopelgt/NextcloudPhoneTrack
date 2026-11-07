@@ -353,6 +353,14 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Export log" />
+
+                <ImageButton
+                    android:id="@+id/btnShareLog"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Post log to telemetry"
+                    android:src="@drawable/ic_log_share" />
             </LinearLayout>
 
             <LinearLayout
