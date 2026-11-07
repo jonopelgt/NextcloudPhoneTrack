@@ -169,6 +169,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
         sessionBanner.setOnClickListener { countSuperuser() }
+        tvMapBanner.setOnClickListener {
+            val link = linkState()
+            val localOnly = link.localUnavailable && !link.readFail && !link.pushFail
+            if (localOnly || connectionFailMessage(displayedSessionName(), link) == null) return@setOnClickListener
+            showStatusPanel()
+        }
         findViewById<Button>(R.id.btnLoginSettings).setOnClickListener { showSettings() }
         tvLastUpdate = findViewById(R.id.tvLastUpdate)
         tvBuffer = findViewById(R.id.tvBuffer)
@@ -711,12 +717,15 @@ class MainActivity : AppCompatActivity() {
     private fun linkState(): LinkState = linkStateFor(displayedToken(), true)
 
     private fun connectionFailMessage(name: String, link: LinkState, includeName: Boolean = true): String? {
+        val recovered = link.readOk || link.pushFresh
+        val readFail = link.readFail && !recovered
+        val pushFail = link.pushFail && !recovered
         val text = when {
-            link.localUnavailable && link.readFail -> "Connection fail read. local position unavailable."
+            link.localUnavailable && readFail -> "Connection fail read. local position unavailable."
             link.localUnavailable -> "local position unavailable."
-            link.readFail && link.pushFail -> "Connection fail read and push"
-            link.readFail -> "Connection fail read"
-            link.pushFail -> "Connection fail push"
+            readFail && pushFail -> "Connection fail read and push"
+            readFail -> "Connection fail read"
+            pushFail -> "Connection fail push"
             else -> return null
         }
         return if (includeName) named(name, text) else text
