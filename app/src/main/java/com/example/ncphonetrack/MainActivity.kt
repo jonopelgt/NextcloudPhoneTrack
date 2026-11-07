@@ -76,6 +76,7 @@ class MainActivity : AppCompatActivity() {
     private var logTimer: Timer? = null
     private var fetchTimer: Timer? = null
     private val mapReadSeq = java.util.concurrent.atomic.AtomicInteger(0)
+    private val mapPaintedSeq = java.util.concurrent.atomic.AtomicInteger(0)
     private val trackReadBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     private val trackCache = mutableMapOf<String, MutableList<TrackPoint>>()
     private var mapEpoch = 0
@@ -193,7 +194,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnCopyLog).setOnClickListener { copyLog() }
         findViewById<Button>(R.id.btnClearLog).setOnClickListener { clearLog() }
         findViewById<Button>(R.id.btnExportLog).setOnClickListener { exportLog() }
-        findViewById<ImageButton>(R.id.btnShareLog).setOnClickListener { postLogToTelemetry() }
+        findViewById<View>(R.id.btnShareLog).setOnClickListener { postLogToTelemetry() }
         logScroll.setOnTouchListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 logScroll.post {
@@ -2760,13 +2761,16 @@ class MainActivity : AppCompatActivity() {
             val positions = PhoneTrackApi.getLastPositions(this, url, token, client = client)
             val ageOut = ageOutMinutes(token)
             runOnUiThread {
-                if (seq != mapReadSeq.get() || epoch != mapEpoch) return@runOnUiThread
+                if (epoch != mapEpoch) return@runOnUiThread
                 if (positions == null) {
+                    if (seq < mapReadSeq.get()) return@runOnUiThread
                     prefs.edit().putString("last_read_result", "failed").apply()
                     updateStatusText("${displayedSessionName()}: Map update failed")
                     refreshConnectionStatus()
                     return@runOnUiThread
                 }
+                if (seq < mapPaintedSeq.get()) return@runOnUiThread
+                mapPaintedSeq.set(seq)
                 paintPositions(token, ownDevice, positions, ageOut)
                 val tracked = positions.keys.filter { tracksOn(token, it) }
                 if (tracked.isNotEmpty()) loadTracks(url, token, ownDevice, epoch, tracked, positions, ageOut)

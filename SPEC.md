@@ -318,3 +318,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 209 (2026-11-06): Tapping the connection-fail banner opens Connection Status. The banner clears when a read or a push for that session succeeds.
 - Rev 210 (2026-11-06): Position update mode charts the calculated states Still, Walking, and In vehicle. Location comes from the phone's own providers. Google Play Services is not required.
 - Rev 211 (2026-11-06): The telemetry log path starts with Shared.
+- Rev 212 (2026-11-06): The telemetry button shows a file icon and a share icon. A finished map read is drawn when it is newer than the last one drawn.
