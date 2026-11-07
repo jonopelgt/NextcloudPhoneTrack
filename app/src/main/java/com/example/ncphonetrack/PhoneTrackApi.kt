@@ -20,13 +20,13 @@ object PhoneTrackApi {
         LogManager.add("Server rate limit, pausing ${wait}s")
     }
 
-    fun getLastPositions(context: Context, baseUrl: String, token: String, quiet: Boolean = false): Map<String, GeoPointData>? {
+    fun getLastPositions(context: Context, baseUrl: String, token: String, quiet: Boolean = false, client: okhttp3.OkHttpClient? = null): Map<String, GeoPointData>? {
         if (rateLimited(context)) {
             if (!quiet) LogManager.add("Map update skipped, server rate limit")
             return null
         }
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
-        val client = CertHelper.buildClient(prefs)
+        val http = client ?: CertHelper.buildClient(prefs)
         val server = PhoneTrackUrl.parse(baseUrl).base
         val user = prefs.getString("nc_user", "")?.trim().orEmpty()
         val pass = prefs.getString("nc_pass", "").orEmpty()
@@ -40,13 +40,13 @@ object PhoneTrackApi {
                 .header("OCS-APIRequest", "true")
                 .build()
             if (!quiet) LogManager.add("GET user last positions")
-            return executePositions(context, client, request, token, quiet)
+            return executePositions(context, http, request, token, quiet)
         }
         if (!publicToken.isNullOrBlank()) {
             val pubEnc = URLEncoder.encode(publicToken, "UTF-8").replace("+", "%20")
             val url = "$server/index.php/apps/phonetrack/api/getlastpositions/$pubEnc"
             if (!quiet) LogManager.add("GET public last positions")
-            return executePositions(context, client, Request.Builder().url(url).build(), publicToken, quiet)
+            return executePositions(context, http, Request.Builder().url(url).build(), publicToken, quiet)
         }
         if (!quiet) LogManager.add("Map skipped: public view token or Nextcloud login required")
         return null
@@ -595,13 +595,14 @@ object PhoneTrackApi {
         baseUrl: String,
         token: String,
         ageOutMin: Int,
-        tsminOverride: Long? = null
+        tsminOverride: Long? = null,
+        client: okhttp3.OkHttpClient? = null
     ): Map<String, List<TrackPoint>> {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         val user = prefs.getString("nc_user", "")?.trim().orEmpty()
         val pass = prefs.getString("nc_pass", "").orEmpty()
         if (user.isBlank() || pass.isBlank()) return emptyMap()
-        val client = CertHelper.buildClient(prefs)
+        val http = client ?: CertHelper.buildClient(prefs)
         val server = PhoneTrackUrl.parse(baseUrl).base
         val tokenEnc = URLEncoder.encode(token, "UTF-8").replace("+", "%20")
         val tsmin = tsminOverride ?: (System.currentTimeMillis() / 1000 - ageOutMin.coerceAtLeast(1) * 60)
@@ -612,7 +613,7 @@ object PhoneTrackApi {
                 .header("Authorization", okhttp3.Credentials.basic(user, pass))
                 .header("OCS-APIRequest", "true")
                 .build()
-            client.newCall(request).execute().use { response ->
+            http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     LogManager.add("Tracks HTTP ${response.code}")
                     return emptyMap()

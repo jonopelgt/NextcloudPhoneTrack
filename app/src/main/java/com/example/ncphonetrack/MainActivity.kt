@@ -78,7 +78,7 @@ class MainActivity : AppCompatActivity() {
     }
     private var logTimer: Timer? = null
     private var fetchTimer: Timer? = null
-    private val mapReadBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val mapReadSeq = java.util.concurrent.atomic.AtomicInteger(0)
     private val trackReadBusy = java.util.concurrent.atomic.AtomicBoolean(false)
     private val trackCache = mutableMapOf<String, MutableList<TrackPoint>>()
     private var mapEpoch = 0
@@ -744,27 +744,34 @@ class MainActivity : AppCompatActivity() {
         if (sessions.isEmpty()) return
         netCheckRunning = true
         lastNetCheck = System.currentTimeMillis()
-        Thread {
-            val results = try {
-                org.json.JSONObject(prefs.getString("session_net", "{}") ?: "{}")
-            } catch (_: Exception) {
-                org.json.JSONObject()
-            }
-            sessions.forEach { session ->
-                val token = session.optString("token")
-                val name = sessionLabel(session)
-                val reached = PhoneTrackApi.getLastPositions(this, session.optString("url"), token, quiet = true) != null
-                val result = if (reached) "ok" else "failed"
-                val previous = results.optJSONObject(token)?.optString("result").orEmpty()
-                results.put(token, org.json.JSONObject().put("result", result).put("epoch", System.currentTimeMillis()))
-                if (previous != result) LogManager.add("$name: connection $result")
-            }
+        val pending = java.util.concurrent.atomic.AtomicInteger(sessions.size)
+        val results = try {
+            org.json.JSONObject(prefs.getString("session_net", "{}") ?: "{}")
+        } catch (_: Exception) {
+            org.json.JSONObject()
+        }
+        fun finish() {
             prefs.edit().putString("session_net", results.toString()).apply()
             netCheckRunning = false
             runOnUiThread {
                 if (!isDestroyed && statusPanel.visibility == View.VISIBLE) refreshConnectionStatus()
             }
-        }.start()
+        }
+        sessions.forEach { session ->
+            val accepted = ReadLanes.execute(this) { client ->
+                val token = session.optString("token")
+                val name = sessionLabel(session)
+                val reached = PhoneTrackApi.getLastPositions(this, session.optString("url"), token, quiet = true, client = client) != null
+                val result = if (reached) "ok" else "failed"
+                synchronized(results) {
+                    val previous = results.optJSONObject(token)?.optString("result").orEmpty()
+                    results.put(token, org.json.JSONObject().put("result", result).put("epoch", System.currentTimeMillis()))
+                    if (previous != result) LogManager.add("$name: connection $result")
+                }
+                if (pending.decrementAndGet() == 0) finish()
+            }
+            if (!accepted && pending.decrementAndGet() == 0) finish()
+        }
     }
 
     private fun verbosityName(level: Int): String = when (level) {
@@ -1465,8 +1472,8 @@ class MainActivity : AppCompatActivity() {
                 }
             })
             list.addView(usersBox)
-            Thread {
-                val positions = PhoneTrackApi.getLastPositions(this, session.optString("url"), token)
+            ReadLanes.execute(this) { client ->
+                val positions = PhoneTrackApi.getLastPositions(this, session.optString("url"), token, client = client)
                 val data = FriendLoad(
                     positions?.mapValues { (_, item) -> GeoPoint(item.lat, item.lon) }.orEmpty(),
                     positions?.mapValues { (_, item) -> item.timestamp }.orEmpty(),
@@ -1478,7 +1485,7 @@ class MainActivity : AppCompatActivity() {
                     if (data.reachable) rememberFriends(token, data.points, data.seen)
                     paintUsers(token, session, usersBox, titleView, enabled, data)
                 }
-            }.start()
+            }
         }
     }
 
@@ -2748,27 +2755,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateMapWithPositions(url: String, token: String, ownDevice: String, epoch: Int) {
-        if (!mapReadBusy.compareAndSet(false, true)) return
-        Thread {
-            try {
-                val positions = PhoneTrackApi.getLastPositions(this, url, token)
-                val ageOut = ageOutMinutes(token)
-                runOnUiThread {
-                    if (epoch != mapEpoch) return@runOnUiThread
-                    if (positions == null) {
-                        prefs.edit().putString("last_read_result", "failed").apply()
-                        updateStatusText("${displayedSessionName()}: Map update failed")
-                        refreshConnectionStatus()
-                        return@runOnUiThread
-                    }
-                    paintPositions(token, ownDevice, positions, ageOut)
-                    val tracked = positions.keys.filter { tracksOn(token, it) }
-                    if (tracked.isNotEmpty()) loadTracks(url, token, ownDevice, epoch, tracked, positions, ageOut)
+        val seq = mapReadSeq.incrementAndGet()
+        val accepted = ReadLanes.execute(this) { client ->
+            val positions = PhoneTrackApi.getLastPositions(this, url, token, client = client)
+            val ageOut = ageOutMinutes(token)
+            runOnUiThread {
+                if (seq != mapReadSeq.get() || epoch != mapEpoch) return@runOnUiThread
+                if (positions == null) {
+                    prefs.edit().putString("last_read_result", "failed").apply()
+                    updateStatusText("${displayedSessionName()}: Map update failed")
+                    refreshConnectionStatus()
+                    return@runOnUiThread
                 }
-            } finally {
-                mapReadBusy.set(false)
+                paintPositions(token, ownDevice, positions, ageOut)
+                val tracked = positions.keys.filter { tracksOn(token, it) }
+                if (tracked.isNotEmpty()) loadTracks(url, token, ownDevice, epoch, tracked, positions, ageOut)
             }
-        }.start()
+        }
+        if (!accepted) mapReadSeq.compareAndSet(seq, seq - 1)
     }
 
     private fun paintPositions(
@@ -2939,7 +2943,7 @@ class MainActivity : AppCompatActivity() {
         ageOut: Int
     ) {
         if (!trackReadBusy.compareAndSet(false, true)) return
-        Thread load@ {
+        val accepted = ReadLanes.execute(this) { client ->
             try {
                 val nowSec = System.currentTimeMillis() / 1000
                 val cutoff = nowSec - ageOut.coerceAtLeast(1) * 60
@@ -2950,7 +2954,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 val newest = tracked.mapNotNull { name -> trackCache[trackKey(token, name)]?.maxOfOrNull { it.timestamp } }
                 val tsmin = if (newest.size == tracked.size && newest.isNotEmpty()) newest.min() + 1 else cutoff
-                val incoming = PhoneTrackApi.getTrackPoints(this, url, token, ageOut, tsmin)
+                val incoming = PhoneTrackApi.getTrackPoints(this, url, token, ageOut, tsmin, client)
                 var added = 0
                 incoming.forEach { (name, points) ->
                     if (tracked.none { it.equals(name, true) }) return@forEach
@@ -2967,7 +2971,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-                if (added == 0 && !dropped) return@load
+                if (added == 0 && !dropped) return@execute
                 val snapshot = tracked.associateWith { name ->
                     trackCache[trackKey(token, name)].orEmpty().filter { it.timestamp >= cutoff }
                 }
@@ -3007,7 +3011,8 @@ class MainActivity : AppCompatActivity() {
             } finally {
                 trackReadBusy.set(false)
             }
-        }.start()
+        }
+        if (!accepted) trackReadBusy.set(false)
     }
 
     private fun trackKey(token: String, name: String) = "$token\n$name"
