@@ -169,7 +169,8 @@ class LocationPublishService : Service() {
             forceNext = true
             requestPhoneFix { location -> if (location != null) publishLocation(location) }
             armLowPower()
-            LogManager.add("Low power: send once, then after about 300 meters")
+            scheduleLowPowerHeartbeat()
+            LogManager.add("Low power: send once, then after about 300 meters, and at least every 10 minutes")
             return
         }
         startGpsUpdates()
@@ -265,8 +266,27 @@ class LocationPublishService : Service() {
         motionListener = null
     }
 
+    private val lowPowerHeartbeat = Runnable { sendLowPowerHeartbeat() }
+
+    private fun scheduleLowPowerHeartbeat() {
+        mainHandler.removeCallbacks(lowPowerHeartbeat)
+        mainHandler.postDelayed(lowPowerHeartbeat, 10 * 60 * 1000L)
+    }
+
+    private fun sendLowPowerHeartbeat() {
+        if (activeMode() != "significant" || prefs.getBoolean("spoof_enabled", false)) return
+        requestPhoneFix(current = true) { location ->
+            if (activeMode() == "significant" && location != null) {
+                forceNext = true
+                publishLocation(location)
+            }
+            if (activeMode() == "significant") scheduleLowPowerHeartbeat()
+        }
+    }
+
     private fun stopLowPower() {
         lowPowerGeneration++
+        mainHandler.removeCallbacks(lowPowerHeartbeat)
         disarmMotion()
     }
 

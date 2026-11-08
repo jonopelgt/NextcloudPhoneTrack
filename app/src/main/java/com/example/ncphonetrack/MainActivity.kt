@@ -4067,7 +4067,7 @@ class MainActivity : AppCompatActivity() {
         listOf(
             "Auto is on or off. Choosing a position mode turns it off. It starts in Move. Under 0.4 m/s with no recent steps is Low power. From 0.4 to 2.5 m/s, or steps, is Walk. 2.5 m/s or faster is Move. Still to Walk and Walk to Move are immediate. Other changes wait 60 seconds. Battery saver, or a battery under 5 percent, forces Low power.",
             "Manual sends only when you tap Send now.",
-            "Low power sends when a short GPS check shows about 300 meters of movement.",
+            "Low power sends when a short GPS check shows about 300 meters of movement, and at least once every 10 minutes.",
             "Walk sends after about 30 meters.",
             "Move sends the current position every 5 seconds.",
             "Rapid sends every second."
