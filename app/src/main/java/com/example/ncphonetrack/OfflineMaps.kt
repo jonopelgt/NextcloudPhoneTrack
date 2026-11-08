@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.tan
@@ -163,6 +164,32 @@ object OfflineMaps {
     private val refreshScheduled = AtomicBoolean(false)
     private val refreshing = ConcurrentHashMap.newKeySet<String>()
     private val refresher = Executors.newFixedThreadPool(2)
+    private val preloader = Executors.newSingleThreadExecutor()
+    private val preloadGeneration = AtomicInteger()
+    @Volatile private var preloadKey = ""
+
+    fun preloadAt(context: Context, base: BaseMap, lat: Double, lon: Double) {
+        val top = base.maxZoom.coerceIn(MIN_ZOOM, VIEW_MAX_ZOOM)
+        val key = "${base.id}/$top/${xTile(lon, top)}/${yTile(lat, top)}"
+        if (key == preloadKey) return
+        preloadKey = key
+        val generation = preloadGeneration.incrementAndGet()
+        val app = context.applicationContext
+        preloader.execute {
+            var added = 0
+            for (zoom in MIN_ZOOM..top) {
+                if (generation != preloadGeneration.get()) return@execute
+                val x = xTile(lon, zoom)
+                val y = yTile(lat, zoom)
+                if (cachedTile(app, base, zoom, x, y) != null) continue
+                val dest = viewedFile(app, base, zoom, x, y)
+                if (saveTile(base.url(zoom, x, y), dest, client) > 0) added++
+            }
+            if (generation != preloadGeneration.get()) return@execute
+            if (added > 0) viewedSize = -1L
+            LogManager.add("Preloaded ${base.label} at the follow position, $added new tiles")
+        }
+    }
 
     fun installBase(context: Context, mapView: MapView, base: BaseMap) {
         mapRef.set(java.lang.ref.WeakReference(mapView))
@@ -812,10 +839,10 @@ object OfflineMaps {
         synchronized(pending) { current = MapJob(job.key, job.state.abbr, job.label(), false, done, total, bps) }
     }
 
-    private fun saveTile(url: String, dest: File): Long {
+    private fun saveTile(url: String, dest: File, http: OkHttpClient = downloadClient): Long {
         return try {
             val request = Request.Builder().url(url).header("User-Agent", "NextcloudPhoneTrack").build()
-            downloadClient.newCall(request).execute().use { response ->
+            http.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return -1L
                 val body = response.body ?: return -1L
                 dest.parentFile?.mkdirs()

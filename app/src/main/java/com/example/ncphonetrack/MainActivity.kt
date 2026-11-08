@@ -4225,6 +4225,8 @@ class MainActivity : AppCompatActivity() {
         map.controller.setCenter(point)
         val lift = mapBottomInset() / 2
         if (lift > 0) map.controller.scrollBy(0, lift)
+        val base = OfflineMaps.base(prefs.getString("base_map", "organic") ?: "organic")
+        OfflineMaps.preloadAt(this, base, point.latitude, point.longitude)
     }
 
     private fun reloadHighestTiles() {
