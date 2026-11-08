@@ -721,7 +721,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         val panel = ::statusPanel.isInitialized && statusPanel.visibility == View.VISIBLE
-        val drawer = ::drawerLayout.isInitialized && ::navView.isInitialized && drawerLayout.isDrawerOpen(navView)
+        val drawer = ::drawerLayout.isInitialized && drawerLayout.isDrawerOpen(android.view.Gravity.START)
         if (panel || drawer) {
             if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
                 screenDownX = ev.rawX
@@ -745,7 +745,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun interactiveAt(root: View, rawX: Float, rawY: Float): Boolean {
-        var view = viewAt(root, rawX, rawY)
+        var view: View? = viewAt(root, rawX, rawY)
         while (view != null) {
             if (view is android.widget.SeekBar || view is android.widget.Switch ||
                 view is EditText || view is android.widget.Spinner ||
