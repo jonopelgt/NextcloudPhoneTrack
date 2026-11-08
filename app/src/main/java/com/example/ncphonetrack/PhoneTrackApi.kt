@@ -131,7 +131,9 @@ object PhoneTrackApi {
                 lat = dev.getDouble("lat"),
                 lon = dev.getDouble("lon"),
                 timestamp = dev.optLong("timestamp", 0),
-                accuracy = dev.optDouble("accuracy", 0.0)
+                accuracy = dev.optDouble("accuracy", 0.0),
+                speed = if (dev.has("speed") && !dev.isNull("speed")) dev.optDouble("speed") else -1.0,
+                bearing = if (dev.has("bearing") && !dev.isNull("bearing")) dev.optDouble("bearing").toFloat() else Float.NaN
             )
         }
         return devices
@@ -678,7 +680,13 @@ object PhoneTrackApi {
             if (lat.isNaN() || lon.isNaN()) continue
             var timestamp = point.optLong("timestamp")
             if (timestamp > 10_000_000_000L) timestamp /= 1000
-            list.add(TrackPoint(lat, lon, timestamp))
+            list.add(TrackPoint(
+                lat,
+                lon,
+                timestamp,
+                speed = if (point.has("speed") && !point.isNull("speed")) point.optDouble("speed") else -1.0,
+                bearing = if (point.has("bearing") && !point.isNull("bearing")) point.optDouble("bearing").toFloat() else Float.NaN
+            ))
         }
         return list
     }
@@ -736,9 +744,22 @@ object PhoneTrackApi {
     }
 }
 
-data class GeoPointData(val lat: Double, val lon: Double, val timestamp: Long, val accuracy: Double)
+data class GeoPointData(
+    val lat: Double,
+    val lon: Double,
+    val timestamp: Long,
+    val accuracy: Double,
+    val speed: Double = -1.0,
+    val bearing: Float = Float.NaN
+)
 
-data class TrackPoint(val lat: Double, val lon: Double, val timestamp: Long)
+data class TrackPoint(
+    val lat: Double,
+    val lon: Double,
+    val timestamp: Long,
+    val speed: Double = -1.0,
+    val bearing: Float = Float.NaN
+)
 
 data class RemoteDevice(val id: Int, val name: String, val color: String)
 

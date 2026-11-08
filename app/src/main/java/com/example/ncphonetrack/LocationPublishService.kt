@@ -470,6 +470,8 @@ class LocationPublishService : Service() {
             .putString("own_lat", snapshot.optDouble("lat").toString())
             .putString("own_lon", snapshot.optDouble("lon").toString())
             .putLong("own_fix_sec", snapshot.optLong("timestamp"))
+            .putFloat("own_speed", snapshot.optDouble("speed").toFloat())
+            .putFloat("own_bearing", snapshot.optDouble("bearing").toFloat())
             .apply()
         val targets = enabledTargets()
         if (targets.isEmpty()) {

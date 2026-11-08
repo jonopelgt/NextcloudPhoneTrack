@@ -517,6 +517,112 @@ class MainActivity : AppCompatActivity() {
         return iconCache.getOrPut(key) { markerIcon(color, diameterDp, bucket / 20f, outline) }
     }
 
+    private fun headingOn(): Boolean = prefs.getBoolean("heading_markers", false)
+
+    private data class HeadingShape(
+        val width: Int,
+        val height: Int,
+        val centerX: Float,
+        val baseY: Float,
+        val tipY: Float,
+        val halfBase: Float,
+        val anchorY: Float
+    )
+
+    private fun headingShape(baseDp: Int, speedMps: Double): HeadingShape {
+        val density = resources.displayMetrics.density
+        val dot = baseDp * density
+        val base = dot / 1.3f
+        val length = (base * 0.85f + speedMps.toFloat().coerceAtLeast(0f) * 8f * density).coerceAtMost(base * 4f)
+        val pad = 4f * density
+        val width = (base + pad * 2f).toInt().coerceAtLeast(1)
+        val height = (length + pad * 2f).toInt().coerceAtLeast(1)
+        val centerX = width / 2f
+        val baseY = height - pad
+        return HeadingShape(width, height, centerX, baseY, baseY - length, base / 2f, baseY / height)
+    }
+
+    private fun headingIcon(color: Int, baseDp: Int, speedMps: Double, alpha: Float, outline: Boolean): BitmapDrawable {
+        val speedBucket = (speedMps.coerceAtLeast(0.0) * 2.0).toInt().coerceIn(0, 80)
+        val bucket = (alpha * 20).toInt().coerceIn(1, 20)
+        val key = "h:$color:$baseDp:$speedBucket:$bucket:$outline"
+        return iconCache.getOrPut(key) { headingBitmap(color, baseDp, speedBucket / 2.0, bucket / 20f, outline) }
+    }
+
+    private fun headingBitmap(color: Int, baseDp: Int, speedMps: Double, alpha: Float, outline: Boolean): BitmapDrawable {
+        val shape = headingShape(baseDp, speedMps)
+        val bmp = android.graphics.Bitmap.createBitmap(shape.width, shape.height, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val a = (alpha.coerceIn(0f, 1f) * 255).toInt()
+        val path = android.graphics.Path().apply {
+            moveTo(shape.centerX, shape.tipY)
+            lineTo(shape.centerX - shape.halfBase, shape.baseY)
+            lineTo(shape.centerX + shape.halfBase, shape.baseY)
+            close()
+        }
+        paint.color = Color.argb(a, Color.red(color), Color.green(color), Color.blue(color))
+        paint.style = Paint.Style.FILL
+        canvas.drawPath(path, paint)
+        if (outline) {
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = shape.halfBase / 3f
+            paint.color = Color.argb(a, 255, 255, 255)
+            canvas.drawPath(path, paint)
+        }
+        paint.style = Paint.Style.STROKE
+        paint.strokeCap = Paint.Cap.ROUND
+        paint.strokeWidth = (2f * resources.displayMetrics.density).coerceAtLeast(2f)
+        paint.color = Color.argb(a, 0, 0, 0)
+        canvas.drawLine(shape.centerX, shape.tipY, shape.centerX, shape.baseY, paint)
+        return BitmapDrawable(resources, bmp)
+    }
+
+    private fun applyMarkerIcon(
+        marker: Marker,
+        color: Int,
+        baseDp: Int,
+        speed: Double,
+        bearing: Float,
+        alpha: Float,
+        outline: Boolean
+    ) {
+        if (!headingOn()) {
+            marker.icon = iconFor(color, baseDp, alpha, outline)
+            marker.rotation = 0f
+            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            return
+        }
+        val safeSpeed = if (speed < 0.0) 0.0 else (speed * 2.0).toInt().coerceIn(0, 80) / 2.0
+        marker.icon = headingIcon(color, baseDp, safeSpeed, alpha, outline)
+        marker.rotation = if (bearing.isNaN()) 0f else bearing
+        marker.setAnchor(Marker.ANCHOR_CENTER, headingShape(baseDp, safeSpeed).anchorY)
+    }
+
+    private fun motionBetween(fromLat: Double, fromLon: Double, toLat: Double, toLon: Double, seconds: Long): Pair<Double, Float> {
+        val out = FloatArray(2)
+        android.location.Location.distanceBetween(fromLat, fromLon, toLat, toLon, out)
+        val speed = out[0] / seconds.coerceAtLeast(1).toDouble()
+        return speed to out[1]
+    }
+
+    private fun trackMotion(points: List<TrackPoint>, index: Int): Pair<Double, Float> {
+        val point = points[index]
+        val knownSpeed = point.speed >= 0.0
+        val knownBearing = !point.bearing.isNaN()
+        if (knownSpeed && knownBearing) return point.speed to point.bearing
+        val previous = if (index > 0) points[index - 1] else null
+        val next = if (index + 1 < points.size) points[index + 1] else null
+        val derived = when {
+            previous != null -> motionBetween(previous.lat, previous.lon, point.lat, point.lon, point.timestamp - previous.timestamp)
+            next != null -> motionBetween(point.lat, point.lon, next.lat, next.lon, next.timestamp - point.timestamp)
+            else -> null
+        }
+        val speed = if (knownSpeed) point.speed else derived?.first ?: 0.0
+        val bearing = if (knownBearing) point.bearing else derived?.second ?: 0f
+        return speed to bearing
+    }
+
     private fun colorKey(token: String, name: String) = "$token|$name"
 
     private fun loadJsonPref(key: String): JSONObject =
@@ -2811,7 +2917,8 @@ class MainActivity : AppCompatActivity() {
             val mine = name == ownDevice || isSelf(name)
             val useLocal = mine && local != null && localSec >= data.timestamp
             val point = if (useLocal && local != null) local else GeoPoint(data.lat, data.lon)
-            if (mine && !useLocal) rememberOwn(data.lat, data.lon)
+            if (mine && !useLocal) rememberOwn(data.lat, data.lon, data.speed, data.bearing)
+            val motion = if (useLocal) ownMotion(data.speed, data.bearing) else data.speed to data.bearing
             lastPoints[name] = point
             val color = personColor(token, name, ownDevice, others)
             shownColor[name] = color
@@ -2819,8 +2926,15 @@ class MainActivity : AppCompatActivity() {
             marker.position = point
             marker.title = if (mine) "You · $name" else name
             marker.snippet = "Acc: ${data.accuracy}m | Age: ${ageText(if (useLocal) localSec else data.timestamp)}"
-            marker.icon = iconFor(color, 28, if (useLocal) ageAlpha(localSec, ageOut).coerceAtLeast(alpha) else alpha)
-            marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+            applyMarkerIcon(
+                marker,
+                color,
+                28,
+                motion.first,
+                motion.second,
+                if (useLocal) ageAlpha(localSec, ageOut).coerceAtLeast(alpha) else alpha,
+                true
+            )
             marker.infoWindow = deviceBubble()
             marker.setOnMarkerClickListener { clicked, _ ->
                 clicked.snippet = marker.snippet
@@ -2840,8 +2954,8 @@ class MainActivity : AppCompatActivity() {
                 marker.position = local
                 marker.title = "You · $ownDevice"
                 marker.snippet = "Age: ${ageText(localSec)}"
-                marker.icon = iconFor(color, 28, alpha)
-                marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                val motion = ownMotion(-1.0, Float.NaN)
+                applyMarkerIcon(marker, color, 28, motion.first, motion.second, alpha, true)
                 marker.infoWindow = deviceBubble()
                 marker.setOnMarkerClickListener { clicked, _ ->
                     enterUserTrack(ownDevice)
@@ -2994,18 +3108,19 @@ class MainActivity : AppCompatActivity() {
                         val color = shownColor.entries.firstOrNull { it.key.equals(name, true) }?.value
                             ?: personColor(token, name, ownDevice, others)
                         val current = positions[name]
-                        history.forEach { point ->
+                        val ordered = history.sortedBy { it.timestamp }
+                        ordered.forEachIndexed { index, point ->
                             if (current != null && kotlin.math.abs(point.lat - current.lat) < 0.00005 && kotlin.math.abs(point.lon - current.lon) < 0.00005) {
-                                return@forEach
+                                return@forEachIndexed
                             }
                             val alpha = ageAlpha(point.timestamp, ageOut)
-                            if (alpha <= 0.05f) return@forEach
+                            if (alpha <= 0.05f) return@forEachIndexed
+                            val motion = trackMotion(ordered, index)
                             val dot = Marker(map)
                             dot.position = GeoPoint(point.lat, point.lon)
                             dot.title = "Track"
                             dot.snippet = "Age: ${ageText(point.timestamp)}"
-                            dot.icon = iconFor(color, 16, alpha, outline = false)
-                            dot.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                            applyMarkerIcon(dot, color, 16, motion.first, motion.second, alpha, false)
                             val seenAt = point.timestamp
                             dot.relatedObject = name
                             dot.setOnMarkerClickListener { clicked, _ ->
@@ -3454,6 +3569,22 @@ class MainActivity : AppCompatActivity() {
                 if (structural) paintSaved() else paintProgress()
             }
         }
+        box.addView(TextView(this).apply {
+            text = "Direction and speed"
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        })
+        box.addView(android.widget.Switch(this).apply {
+            text = "Show heading triangles"
+            isChecked = headingOn()
+            setPadding(0, 0, 0, pad / 2)
+            setOnCheckedChangeListener { _, checked ->
+                prefs.edit().putBoolean("heading_markers", checked).apply()
+                if (::map.isInitialized && fetchUrl.isNotBlank()) {
+                    updateMapWithPositions(fetchUrl, fetchToken, fetchDevice, mapEpoch)
+                }
+            }
+        })
         box.addView(TextView(this).apply {
             text = "Refresh"
             textSize = 16f
@@ -4608,8 +4739,17 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, "Sending position", Toast.LENGTH_SHORT).show()
     }
 
-    private fun rememberOwn(lat: Double, lon: Double) {
-        prefs.edit().putString("own_lat", lat.toString()).putString("own_lon", lon.toString()).apply()
+    private fun rememberOwn(lat: Double, lon: Double, speed: Double = Double.NaN, bearing: Float = Float.NaN) {
+        val edit = prefs.edit().putString("own_lat", lat.toString()).putString("own_lon", lon.toString())
+        if (!speed.isNaN() && speed >= 0.0) edit.putFloat("own_speed", speed.toFloat())
+        if (!bearing.isNaN()) edit.putFloat("own_bearing", bearing)
+        edit.apply()
+    }
+
+    private fun ownMotion(fallbackSpeed: Double, fallbackBearing: Float): Pair<Double, Float> {
+        val speed = if (prefs.contains("own_speed")) prefs.getFloat("own_speed", 0f).toDouble() else fallbackSpeed
+        val bearing = if (prefs.contains("own_bearing")) prefs.getFloat("own_bearing", 0f) else fallbackBearing
+        return speed to bearing
     }
 
     private fun ownLastPoint(): GeoPoint? {
