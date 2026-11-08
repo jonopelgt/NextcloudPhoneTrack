@@ -3,6 +3,7 @@ package com.example.ncphonetrack
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.os.BatteryManager
 import android.view.View
@@ -141,7 +142,9 @@ class DiagChart(context: Context) : View(context) {
         val legendY = height - 28f
         val autoBottom = legendY - 36f
         val autoTop = autoBottom - 80f
-        val bottom = autoTop - 48f
+        val chargeBottom = autoTop - 28f
+        val chargeTop = chargeBottom - 140f
+        val bottom = chargeTop - 48f
         canvas.drawColor(Color.WHITE)
         if (window.isEmpty() || right <= left || bottom <= top) {
             canvas.drawText("No diagnostics yet", 24f, height / 2f, label)
@@ -152,6 +155,7 @@ class DiagChart(context: Context) : View(context) {
         fun yActivity(index: Int) = bottom - (bottom - top) * index / (activityOrder.size - 1).coerceAtLeast(1)
         fun yMode(index: Int) = bottom - (bottom - top) * index / (modeOrder.size - 1).coerceAtLeast(1)
         fun yAuto(value: Int) = autoBottom - (autoBottom - autoTop) * value.coerceIn(0, 1)
+        fun yCharge(percent: Int) = chargeBottom - (chargeBottom - chargeTop) * percent.coerceIn(0, 100) / 100f
         canvas.drawLine(left, top, left, bottom, axis)
         canvas.drawLine(right, top, right, bottom, axis)
         canvas.drawLine(left, bottom, right, bottom, axis)
@@ -159,9 +163,6 @@ class DiagChart(context: Context) : View(context) {
         val modeLine = window.map { x(it.time) to yMode(modeOrder.indexOf(it.mode).coerceAtLeast(0)) }
         drawStep(canvas, activityLine, activityPaint)
         drawStep(canvas, modeLine, modePaint)
-        drawCharge(canvas, window.mapNotNull { sample ->
-            if (sample.charge < 0) null else x(sample.time) to (bottom - (bottom - top) * sample.charge / 100f)
-        })
         modeLine.lastOrNull()?.let { latest ->
             canvas.drawCircle(latest.first, latest.second, 8f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.parseColor("#EF6C00")
@@ -173,6 +174,27 @@ class DiagChart(context: Context) : View(context) {
         canvas.drawText(clock.format(Date(start)), left, bottom + 32f, clockPaint)
         val endText = clock.format(Date(end))
         canvas.drawText(endText, right - clockPaint.measureText(endText), bottom + 32f, clockPaint)
+        canvas.drawLine(left, chargeTop, left, chargeBottom, axis)
+        canvas.drawLine(right, chargeTop, right, chargeBottom, axis)
+        canvas.drawLine(left, chargeBottom, right, chargeBottom, axis)
+        val threshold = Paint(axis).apply {
+            color = Color.parseColor("#2E7D32")
+            pathEffect = DashPathEffect(floatArrayOf(12f, 8f), 0f)
+        }
+        canvas.drawLine(left, yCharge(5), right, yCharge(5), threshold)
+        val chargeLine = window.mapNotNull { sample ->
+            if (sample.charge < 0) null else x(sample.time) to yCharge(sample.charge)
+        }
+        drawCharge(canvas, chargeLine)
+        chargeLine.lastOrNull()?.let { latest ->
+            canvas.drawCircle(latest.first, latest.second, 8f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#2E7D32")
+                style = Paint.Style.FILL
+            })
+        }
+        val chargeLabel = Paint(autoLabel).apply { color = Color.parseColor("#2E7D32") }
+        canvas.drawText("100%", right + 8f, yCharge(100) + 10f, chargeLabel)
+        canvas.drawText("0%", right + 8f, yCharge(0) + 10f, chargeLabel)
         canvas.drawLine(left, autoTop, left, autoBottom, axis)
         canvas.drawLine(right, autoTop, right, autoBottom, axis)
         canvas.drawLine(left, autoBottom, right, autoBottom, axis)
