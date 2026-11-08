@@ -3742,7 +3742,7 @@ class MainActivity : AppCompatActivity() {
             addView(refreshLabel)
         })
         box.addView(TextView(this).apply {
-            text = "Map text"
+            text = "Bubble message text size"
             textSize = 16f
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         })
@@ -3773,7 +3773,7 @@ class MainActivity : AppCompatActivity() {
             addView(textLabel)
         })
         box.addView(TextView(this).apply {
-            text = "Tile labels stay in the map image. This size is used for map text."
+            text = "Tile labels stay in the map image. This size is the bubble message."
             textSize = 12f
             setTextColor(Color.parseColor("#616161"))
         })
