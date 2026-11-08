@@ -283,6 +283,7 @@ class MainActivity : AppCompatActivity() {
         var downX = 0f
         var downY = 0f
         var dragged = false
+        var mapMoved = false
         val longPress = Runnable {
             if (!superuser || dragged || statusPanel.visibility == View.VISIBLE) return@Runnable
             val geo = map.projection.fromPixels(downX.toInt(), downY.toInt())
@@ -294,24 +295,28 @@ class MainActivity : AppCompatActivity() {
                     downX = event.x
                     downY = event.y
                     dragged = false
+                    mapMoved = false
                     closeModeMenu()
                     map.removeCallbacks(longPress)
                     map.postDelayed(longPress, android.view.ViewConfiguration.getLongPressTimeout().toLong())
                 }
                 MotionEvent.ACTION_POINTER_DOWN -> {
                     map.removeCallbacks(longPress)
+                    mapMoved = true
                     if (statusPanel.visibility != View.VISIBLE) enterManual()
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val moved = kotlin.math.abs(event.x - downX) > 24 || kotlin.math.abs(event.y - downY) > 24
                     if (moved) {
                         dragged = true
+                        mapMoved = true
                         map.removeCallbacks(longPress)
                     }
                     if (statusPanel.visibility != View.VISIBLE && (event.pointerCount > 1 || moved)) enterManual()
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     map.removeCallbacks(longPress)
+                    if (mapMoved) preloadManualMap()
                     if (!dragged && event.actionMasked == MotionEvent.ACTION_UP && statusPanel.visibility == View.VISIBLE) showMap()
                 }
             }
@@ -3434,6 +3439,7 @@ class MainActivity : AppCompatActivity() {
     private fun applyBaseMap(id: String) {
         if (!::map.isInitialized) return
         OfflineMaps.installBase(this, map, OfflineMaps.base(id))
+        preloadManualMap()
     }
 
     private fun fetchIntervalMs(): Long {
@@ -5020,6 +5026,13 @@ class MainActivity : AppCompatActivity() {
             true
         }
         map.overlays.add(marker)
+    }
+
+    private fun preloadManualMap() {
+        if (!::map.isInitialized || mapFollow != MapFollow.MANUAL) return
+        val center = map.mapCenter
+        val base = OfflineMaps.base(prefs.getString("base_map", "organic") ?: "organic")
+        OfflineMaps.preloadAt(this, base, center.latitude, center.longitude)
     }
 
     private fun enterManual() {

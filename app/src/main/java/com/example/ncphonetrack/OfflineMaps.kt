@@ -187,7 +187,7 @@ object OfflineMaps {
             }
             if (generation != preloadGeneration.get()) return@execute
             if (added > 0) viewedSize = -1L
-            LogManager.add("Preloaded ${base.label} at the follow position, $added new tiles")
+            LogManager.add("Preloaded ${base.label} at the map position, $added new tiles")
         }
     }
 
