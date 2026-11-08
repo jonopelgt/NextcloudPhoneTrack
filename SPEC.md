@@ -323,3 +323,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 214 (2026-11-07): A map read does not draw markers until the map exists. Buffered points is the number still waiting for that session. All with one user follows that user at the highest zoom.
 - Rev 215 (2026-11-07): Auto is on or off, not a position mode. Choosing a position mode turns Auto off. The diagnostics chart shows Auto on its own line, 0 off and 1 on.
 - Rev 216 (2026-11-07): Low power sends at least once every 10 minutes, as well as after about 300 meters.
+- Rev 217 (2026-11-07): The location page states the send logic for Auto, Manual, Low power, Walk, Move, Rapid, Spoof, and sharing.

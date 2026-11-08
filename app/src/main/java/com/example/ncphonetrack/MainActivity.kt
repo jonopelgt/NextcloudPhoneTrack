@@ -4065,12 +4065,12 @@ class MainActivity : AppCompatActivity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         })
         listOf(
-            "Auto is on or off. Choosing a position mode turns it off. It starts in Move. Under 0.4 m/s with no recent steps is Low power. From 0.4 to 2.5 m/s, or steps, is Walk. 2.5 m/s or faster is Move. Still to Walk and Walk to Move are immediate. Other changes wait 60 seconds. Battery saver, or a battery under 5 percent, forces Low power.",
-            "Manual sends only when you tap Send now.",
-            "Low power sends when a short GPS check shows about 300 meters of movement, and at least once every 10 minutes.",
-            "Walk sends after about 30 meters.",
+            "Auto is on or off. Choosing a position mode turns it off. While it is on, it picks the mode and starts in Move. Under 0.4 m/s, with no steps in the last 45 seconds, is Low power. From 0.4 to 2.5 m/s, or steps, is Walk. 2.5 m/s or faster is Move. A fix worse than 50 meters is ignored. Still to Walk and Walk to Move happen immediately. Any other change waits 60 seconds. Battery saver, or a battery under 5 percent, forces Low power.",
+            "Manual does not send on its own. It sends only when you tap Send now.",
+            "Low power sends one point when it starts. It sends again after about 300 meters, and at least once every 10 minutes.",
+            "Walk sends after about 30 meters. It does not ask for a fix more often than about every 10 seconds. Standing still does not send another point.",
             "Move sends the current position every 5 seconds.",
-            "Rapid sends every second."
+            "Rapid sends the current position every second."
         ).forEach { line ->
             box.addView(TextView(this).apply {
                 text = "\u2022 $line"
@@ -4079,6 +4079,10 @@ class MainActivity : AppCompatActivity() {
         }
         box.addView(modeList)
         if (superuser) {
+            box.addView(TextView(this).apply {
+                text = "Spoof sends the latitude and longitude below instead of the phone position."
+                setPadding(0, pad / 2, 0, 0)
+            })
             box.addView(LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
@@ -4131,7 +4135,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, pad, 0, pad / 4)
         })
         box.addView(TextView(this).apply {
-            text = "Pick a duration, then press Reset to start it. Opening this page does not change a running timer. Turning sharing on or off does not change the time left."
+            text = "Off sends nothing. On keeps sharing until you turn it off. A timer keeps sharing until the time runs out, then turns off. Pick a duration, then press Reset to start it. Opening this page does not change a running timer."
             setPadding(0, 0, 0, pad / 2)
         })
         box.addView(durationSpinner)
