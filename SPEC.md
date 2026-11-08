@@ -324,3 +324,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 215 (2026-11-07): Auto is on or off, not a position mode. Choosing a position mode turns Auto off. The diagnostics chart shows Auto on its own line, 0 off and 1 on.
 - Rev 216 (2026-11-07): Low power sends at least once every 10 minutes, as well as after about 300 meters.
 - Rev 217 (2026-11-07): The location page states the send logic for Auto, Manual, Low power, Walk, Move, Rapid, Spoof, and sharing.
+- Rev 218 (2026-11-07): The connection Status column does not say local position unavailable. The position chart keeps the last saved values across a quiet hour.

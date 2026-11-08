@@ -131,7 +131,10 @@ class DiagChart(context: Context) : View(context) {
         super.onDraw(canvas)
         val now = System.currentTimeMillis()
         val start = now - DiagLog.HOUR_MS
-        val window = samples.filter { it.time >= start }
+        val prior = samples.filter { it.time < start }.maxByOrNull { it.time }
+        val window = samples.filter { it.time >= start }.toMutableList()
+        if (prior != null) window.add(0, prior.copy(time = start))
+        if (window.isNotEmpty() && window.last().time < now) window.add(window.last().copy(time = now))
         val left = 250f
         val right = width - 230f
         val top = 24f

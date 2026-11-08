@@ -819,7 +819,15 @@ class MainActivity : AppCompatActivity() {
         val name = displayedSessionName()
         val token = displayedToken()
         val link = linkState()
-        val message = connectionFailMessage(name, link)
+        val recovered = link.readOk || link.pushFresh
+        val readFail = link.readFail && !recovered
+        val pushFail = link.pushFail && !recovered
+        val connection = when {
+            readFail && pushFail -> "Connection fail read and push"
+            readFail -> "Connection fail read"
+            pushFail -> "Connection fail push"
+            else -> null
+        }
         val (pushResult, pushEpoch) = sessionPush(token)
         val result = pushResult.ifBlank {
             if (token.isNotBlank()) prefs.getString("last_result", "") ?: "" else ""
@@ -829,7 +837,7 @@ class MainActivity : AppCompatActivity() {
         tvStatusCreator.text = "Session creator: ${displayedSession()?.optString("owner").orEmpty().ifBlank { "—" }}"
         tvStatusToken.text = "Token: $token"
         val detail = named(name, "Logging: $state (${resultLabel(result)})")
-        tvLoggingState.text = if (message == null) detail else "$message\n$detail"
+        tvLoggingState.text = if (connection == null) detail else "${named(name, connection)}\n$detail"
         val ageSec = if (pushEpoch <= 0L) Long.MAX_VALUE else (System.currentTimeMillis() - pushEpoch) / 1000
         tvLastUpdate.text = if (pushEpoch <= 0L) named(name, "Last update: never") else named(name, "Last update: ${ageSec}s ago")
         tvBuffer.text = named(name, "Buffered points: ${bufferedFor(token)}")
@@ -882,23 +890,26 @@ class MainActivity : AppCompatActivity() {
             val selected = token.isNotBlank() && token == shown
             val sessionLink = linkStateFor(token, selected)
             val label = sessionLabel(session)
-            val message = connectionFailMessage(label, sessionLink, includeName = false)
             val status: String
             val color: String
             val rowColor: Int
+            val recovered = sessionLink.readOk || sessionLink.pushFresh
+            val readFail = sessionLink.readFail && !recovered
+            val pushFail = sessionLink.pushFail && !recovered
+            val connection = when {
+                readFail && pushFail -> "Connection fail read and push"
+                readFail -> "Connection fail read"
+                pushFail -> "Connection fail push"
+                else -> null
+            }
             when {
                 !enabled -> {
                     status = "Off"
                     color = "#9E9E9E"
                     rowColor = Color.TRANSPARENT
                 }
-                message != null && sessionLink.localUnavailable && !sessionLink.readFail && !sessionLink.pushFail -> {
-                    status = message
-                    color = "#424242"
-                    rowColor = Color.parseColor("#E0E0E0")
-                }
-                message != null -> {
-                    status = message
+                connection != null -> {
+                    status = connection
                     color = "#C62828"
                     rowColor = Color.TRANSPARENT
                 }
