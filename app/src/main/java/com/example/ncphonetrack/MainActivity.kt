@@ -16,6 +16,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
+import android.view.Window
 import android.widget.Button
 import android.widget.ImageButton
 import android.widget.EditText
@@ -162,7 +163,7 @@ class MainActivity : AppCompatActivity() {
                     AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
                         .setMessage("Superuser mode is active.")
                         .setPositiveButton("OK", null)
-                        .show()
+                        .show().enableSwipeExit()
                 }
             }
         }
@@ -356,7 +357,7 @@ class MainActivity : AppCompatActivity() {
                         .setTitle("About Nextcloud PhoneTrack")
                         .setMessage("cyberchilli LLC\nRevision $version\nLocation sharing via Nextcloud PhoneTrack")
                         .setPositiveButton("OK", null)
-                        .create()
+                        .create().enableSwipeExit()
                         .also { dialog ->
                             dialog.show()
                             pinZoomControls(dialog)
@@ -451,7 +452,7 @@ class MainActivity : AppCompatActivity() {
                     .setTitle("Certificate already trusted")
                     .setMessage(certMessage(cert, "Android already trusts this server. You do not need to accept it."))
                     .setPositiveButton("OK", null)
-                    .show()
+                    .show().enableSwipeExit()
             }
             CertTrust.UNTRUSTED -> {
                 if (cert == null) {
@@ -467,7 +468,7 @@ class MainActivity : AppCompatActivity() {
                         Toast.makeText(this, "Certificate accepted", Toast.LENGTH_SHORT).show()
                     }
                     .setNegativeButton("Cancel", null)
-                    .show()
+                    .show().enableSwipeExit()
             }
             CertTrust.FAILED -> {
                 Toast.makeText(this, probe.message, Toast.LENGTH_LONG).show()
@@ -690,7 +691,7 @@ class MainActivity : AppCompatActivity() {
             val pad = (12 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad, pad, pad)
         }
-        val dialog = AlertDialog.Builder(this).setTitle("Color").setView(box).setNegativeButton("Cancel", null).create()
+        val dialog = AlertDialog.Builder(this).setTitle("Color").setView(box).setNegativeButton("Cancel", null).create().enableSwipeExit()
         colorChoices.forEach { hex ->
             box.addView(TextView(this).apply {
                 text = " "
@@ -712,6 +713,125 @@ class MainActivity : AppCompatActivity() {
         statusPanel.visibility = View.GONE
         refreshMapBanner()
         refreshZoomKeys()
+    }
+
+    private var screenDownX = 0f
+    private var screenDownY = 0f
+    private var screenIgnoreSwipe = false
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        val panel = ::statusPanel.isInitialized && statusPanel.visibility == View.VISIBLE
+        val drawer = ::drawerLayout.isInitialized && ::navView.isInitialized && drawerLayout.isDrawerOpen(navView)
+        if (panel || drawer) {
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                screenDownX = ev.rawX
+                screenDownY = ev.rawY
+                screenIgnoreSwipe = interactiveAt(window.decorView, ev.rawX, ev.rawY)
+            }
+            if (ev.actionMasked == MotionEvent.ACTION_UP && !screenIgnoreSwipe && movedLeft(ev.rawX, ev.rawY, screenDownX, screenDownY)) {
+                if (panel) showMap()
+                if (drawer) drawerLayout.closeDrawers()
+                return true
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun movedLeft(x: Float, y: Float, startX: Float, startY: Float): Boolean {
+        val dx = x - startX
+        val dy = y - startY
+        val threshold = 72f * resources.displayMetrics.density
+        return dx <= -threshold && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.3f
+    }
+
+    private fun interactiveAt(root: View, rawX: Float, rawY: Float): Boolean {
+        var view = viewAt(root, rawX, rawY)
+        while (view != null) {
+            if (view is android.widget.SeekBar || view is android.widget.Switch ||
+                view is EditText || view is android.widget.Spinner ||
+                view is android.widget.HorizontalScrollView
+            ) return true
+            view = view.parent as? View
+        }
+        return false
+    }
+
+    private fun viewAt(root: View, rawX: Float, rawY: Float): View {
+        if (root is android.view.ViewGroup) {
+            for (index in root.childCount - 1 downTo 0) {
+                val child = root.getChildAt(index)
+                if (child.visibility != View.VISIBLE) continue
+                val location = IntArray(2)
+                child.getLocationOnScreen(location)
+                val x = rawX - location[0]
+                val y = rawY - location[1]
+                if (x >= 0f && y >= 0f && x < child.width && y < child.height) return viewAt(child, rawX, rawY)
+            }
+        }
+        return root
+    }
+
+    private fun AlertDialog.enableSwipeExit(): AlertDialog {
+        val host = window ?: return this
+        val base = host.callback
+        if (base is SwipeWindowCallback) return this
+        host.callback = SwipeWindowCallback(base, resources.displayMetrics.density, host) { dismiss() }
+        return this
+    }
+
+    private class SwipeWindowCallback(
+        private val base: Window.Callback,
+        private val density: Float,
+        private val host: Window,
+        private val onExit: () -> Unit
+    ) : Window.Callback by base {
+        private var startX = 0f
+        private var startY = 0f
+        private var ignore = false
+
+        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                startX = event.rawX
+                startY = event.rawY
+                ignore = interactive(host.decorView, event.rawX, event.rawY)
+            }
+            if (event.actionMasked == MotionEvent.ACTION_UP && !ignore) {
+                val dx = event.rawX - startX
+                val dy = event.rawY - startY
+                if (dx <= -72f * density && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.3f) {
+                    onExit()
+                    return true
+                }
+            }
+            return base.dispatchTouchEvent(event)
+        }
+
+        private fun interactive(root: View, rawX: Float, rawY: Float): Boolean {
+            var view: View? = hit(root, rawX, rawY)
+            while (view != null) {
+                if (view is android.widget.SeekBar || view is android.widget.Switch ||
+                    view is EditText || view is android.widget.Spinner ||
+                    view is android.widget.HorizontalScrollView
+                ) return true
+                view = view.parent as? View
+            }
+            return false
+        }
+
+        private fun hit(root: View, rawX: Float, rawY: Float): View {
+            if (root is android.view.ViewGroup) {
+                for (index in root.childCount - 1 downTo 0) {
+                    val child = root.getChildAt(index)
+                    if (child.visibility != View.VISIBLE) continue
+                    val location = IntArray(2)
+                    child.getLocationOnScreen(location)
+                    val x = rawX - location[0]
+                    val y = rawY - location[1]
+                    if (x >= 0f && y >= 0f && x < child.width && y < child.height) return hit(child, rawX, rawY)
+                }
+            }
+            return root
+        }
     }
 
     private fun showStatusPanel() {
@@ -1349,7 +1469,7 @@ class MainActivity : AppCompatActivity() {
                 .setView(scroll)
                 .setNeutralButton("New session") { _, _ -> openNewSessionForm() }
                 .setPositiveButton("Close", null)
-                .create()
+                .create().enableSwipeExit()
             sessionsDialog?.setOnDismissListener {
                 sessionsDialog = null
                 sessionsList = null
@@ -1402,7 +1522,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Friends")
             .setView(scroll)
             .setPositiveButton("Close", null)
-            .create()
+            .create().enableSwipeExit()
         dialog.show()
         pinZoomControls(dialog)
         if (sessions.isEmpty()) return
@@ -1755,7 +1875,7 @@ class MainActivity : AppCompatActivity() {
                 refreshMapBanner()
             }
             .setNegativeButton("Cancel", null)
-            .create()
+            .create().enableSwipeExit()
         dialog.setOnShowListener {
             dialog.window?.setLayout(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1904,7 +2024,7 @@ class MainActivity : AppCompatActivity() {
                 onAccepted()
             }
             .setNegativeButton("Cancel") { _, _ -> refreshMapBanner() }
-            .show()
+            .show().enableSwipeExit()
     }
 
     private fun promptLoadSessions() {
@@ -1943,7 +2063,7 @@ class MainActivity : AppCompatActivity() {
             .setView(box)
             .setPositiveButton("Load", null)
             .setNegativeButton("Cancel") { _, _ -> showSessions() }
-            .create()
+            .create().enableSwipeExit()
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val url = PhoneTrackUrl.loginBase(urlField.text.toString())
@@ -2057,7 +2177,7 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel") { _, _ -> dismissedMissing = keys }
             .setOnDismissListener { missingPrompt = null }
-            .create()
+            .create().enableSwipeExit()
         missingPrompt?.show()
     }
 
@@ -2446,7 +2566,7 @@ class MainActivity : AppCompatActivity() {
             .setView(scroll)
             .setPositiveButton(if (creating) "Create" else "Save", null)
             .setNegativeButton("Cancel", null)
-            .create()
+            .create().enableSwipeExit()
         fun showDevices(detail: SessionDetail?) {
             devicesBox.removeAllViews()
             val devices = detail?.devices.orEmpty()
@@ -2580,7 +2700,7 @@ class MainActivity : AppCompatActivity() {
                                 .setTitle("Session")
                                 .setMessage(notes.joinToString("\n"))
                                 .setPositiveButton("OK") { _, _ -> showSessions() }
-                                .show()
+                                .show().enableSwipeExit()
                         }
                     }.start()
                     return@setOnClickListener
@@ -2621,7 +2741,7 @@ class MainActivity : AppCompatActivity() {
                                 .setTitle("Session created")
                                 .setMessage(summary)
                                 .setPositiveButton("OK") { _, _ -> showSessions() }
-                                .show()
+                                .show().enableSwipeExit()
                         }
                     }
                 }.start()
@@ -2697,7 +2817,7 @@ class MainActivity : AppCompatActivity() {
                                 .setTitle("Session not deleted")
                                 .setMessage(error)
                                 .setPositiveButton("OK", null)
-                                .show()
+                                .show().enableSwipeExit()
                             return@runOnUiThread
                         }
                         val url = session.optString("url")
@@ -2712,7 +2832,7 @@ class MainActivity : AppCompatActivity() {
                 }.start()
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .show().enableSwipeExit()
     }
 
     private fun checkPermissions(): Boolean =
@@ -2807,7 +2927,7 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Not now") { _, _ ->
                 Toast.makeText(this, "Sharing continues while the app is open. Background updates may stop.", Toast.LENGTH_LONG).show()
             }
-            .show()
+            .show().enableSwipeExit()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -3759,7 +3879,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Maps")
             .setView(scroll)
             .setPositiveButton("Close", null)
-            .create()
+            .create().enableSwipeExit()
             .also { dialog ->
                 mapsDialog = dialog
                 dialog.show()
@@ -3825,7 +3945,7 @@ class MainActivity : AppCompatActivity() {
                 hereStateDialog = null
                 hereStateBusy = false
             }
-            .create()
+            .create().enableSwipeExit()
         prefs.edit().putBoolean("asked_here_state", true).apply()
         hereStateDialog?.show()
     }
@@ -3973,7 +4093,7 @@ class MainActivity : AppCompatActivity() {
                 confirmMeteredDownload(chosen, force, onLine)
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .show().enableSwipeExit()
     }
 
     private fun confirmMeteredDownload(picks: List<OfflineMaps.MapPick>, force: Boolean, onLine: (String) -> Unit) {
@@ -4016,7 +4136,7 @@ class MainActivity : AppCompatActivity() {
                         .setMessage("This connection is metered. Download offline maps anyway?")
                         .setPositiveButton("Download") { _, _ -> go() }
                         .setNegativeButton("Cancel", null)
-                        .show()
+                        .show().enableSwipeExit()
                 } else {
                     go()
                 }
@@ -4296,7 +4416,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton("Save", null)
             .setNeutralButton("Send now", null)
             .setNegativeButton("Cancel", null)
-            .create()
+            .create().enableSwipeExit()
         refreshLocationPage = {
             selectedMode = currentPositionMode().let { if (it == "auto" || it == "quiet") "move" else it }
             renderModes()
@@ -4493,7 +4613,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle("Position update mode")
             .setView(box)
             .setPositiveButton("Close", null)
-            .create()
+            .create().enableSwipeExit()
         val refresh = object : Runnable {
             override fun run() {
                 if (!dialog.isShowing) return
@@ -4652,7 +4772,7 @@ class MainActivity : AppCompatActivity() {
             .setMessage(message)
             .setPositiveButton("Yes") { _, _ -> onYes() }
             .setNegativeButton("No", null)
-            .show()
+            .show().enableSwipeExit()
     }
 
     private fun activateSpoofAt(lat: Double, lon: Double) {
