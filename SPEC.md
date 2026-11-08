@@ -328,3 +328,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 219 (2026-11-07): Map settings can replace position markers and track dots with heading triangles. The base matches the current dot. Length grows with speed. A black line runs from the tip to the center of the base.
 - Rev 220 (2026-11-07): A swipe left closes the current screen and returns toward the map. This covers dialogs, the connection page, and the menu.
 - Rev 221 (2026-11-08): Manual mode and the location-page logic descriptions are shown only in superuser mode.
+- Rev 222 (2026-11-08): A position-mode change sends one point immediately. Low power wakes the phone for its 10-minute send. The position chart has a color legend and a dot on the latest mode.

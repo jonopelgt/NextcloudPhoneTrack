@@ -4330,7 +4330,7 @@ class MainActivity : AppCompatActivity() {
             listOf(
                 "Auto is on or off. Choosing a position mode turns it off. While it is on, it picks the mode and starts in Move. Under 0.4 m/s, with no steps in the last 45 seconds, is Low power. From 0.4 to 2.5 m/s, or steps, is Walk. 2.5 m/s or faster is Move. A fix worse than 50 meters is ignored. Still to Walk and Walk to Move happen immediately. Any other change waits 60 seconds. Battery saver, or a battery under 5 percent, forces Low power.",
                 "Manual does not send on its own. It sends only when you tap Send now.",
-                "Low power sends one point when it starts. It sends again after about 300 meters, and at least once every 10 minutes.",
+                "Low power sends one point when it starts. It sends again after about 300 meters, and at least once every 10 minutes. The 10-minute send wakes the phone.",
                 "Walk sends after about 30 meters. It does not ask for a fix more often than about every 10 seconds. Standing still does not send another point.",
                 "Move sends the current position every 5 seconds.",
                 "Rapid sends the current position every second."
@@ -4598,18 +4598,13 @@ class MainActivity : AppCompatActivity() {
     private fun showDiagnostics() {
         DiagLog.noteMode(this)
         val chart = DiagChart(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (280 * resources.displayMetrics.density).toInt())
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (340 * resources.displayMetrics.density).toInt())
             samples = DiagLog.samples(this@MainActivity)
-        }
-        val legend = TextView(this).apply {
-            text = "Blue, on the left, is the device state. Orange, on the right, is the position mode. Green is battery percent. Purple is Auto, 0 off and 1 on."
-            setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
         }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 0)
             addView(chart)
-            addView(legend)
         }
         val dialog = AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
             .setTitle("Position update mode")
@@ -4802,6 +4797,7 @@ class MainActivity : AppCompatActivity() {
             val kept = prefs.getString("auto_effective", "move") ?: "move"
             edit.putString("position_mode", kept).putString("share_mode", kept)
         }
+        if (on != was) edit.putBoolean("send_on_mode_change", true)
         edit.apply()
         LogManager.modeChange("Auto", if (was) "On" else "Off", if (on) "On" else "Off")
         LocationPublishService.syncAutoPermissionNotice(this)
@@ -4813,11 +4809,13 @@ class MainActivity : AppCompatActivity() {
         if (mode == "quiet" || mode == "auto") return
         val previous = currentPositionMode()
         val wasAuto = autoEnabled()
-        prefs.edit()
+        val changed = wasAuto || previous != mode
+        val edit = prefs.edit()
             .putString("position_mode", mode)
             .putString("share_mode", mode)
             .putBoolean("auto_enabled", false)
-            .apply()
+        if (changed) edit.putBoolean("send_on_mode_change", true)
+        edit.apply()
         LogManager.modeChange("Position", modeLabel(previous), modeLabel(mode))
         if (wasAuto) LogManager.modeChange("Auto", "On", "Off")
         LocationPublishService.syncAutoPermissionNotice(this)

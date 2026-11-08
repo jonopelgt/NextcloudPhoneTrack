@@ -138,9 +138,9 @@ class DiagChart(context: Context) : View(context) {
         val left = 250f
         val right = width - 230f
         val top = 24f
-        val bottom = height - 56f
+        val bottom = height - 118f
         canvas.drawColor(Color.WHITE)
-        if (window.isEmpty() || right <= left) {
+        if (window.isEmpty() || right <= left || bottom <= top) {
             canvas.drawText("No diagnostics yet", 24f, height / 2f, label)
             return
         }
@@ -152,19 +152,47 @@ class DiagChart(context: Context) : View(context) {
         canvas.drawLine(left, top, left, bottom, axis)
         canvas.drawLine(right, top, right, bottom, axis)
         canvas.drawLine(left, bottom, right, bottom, axis)
-        drawStep(canvas, window.map { x(it.time) to yActivity(activityOrder.indexOf(it.activity).coerceAtLeast(0)) }, activityPaint)
-        drawStep(canvas, window.map { x(it.time) to yMode(modeOrder.indexOf(it.mode).coerceAtLeast(0)) }, modePaint)
+        val activityLine = window.map { x(it.time) to yActivity(activityOrder.indexOf(it.activity).coerceAtLeast(0)) }
+        val modeLine = window.map { x(it.time) to yMode(modeOrder.indexOf(it.mode).coerceAtLeast(0)) }
+        drawStep(canvas, activityLine, activityPaint)
+        drawStep(canvas, modeLine, modePaint)
         drawStep(canvas, window.map { x(it.time) to yAuto(it.auto) }, autoPaint)
         drawCharge(canvas, window.mapNotNull { sample ->
             if (sample.charge < 0) null else x(sample.time) to (bottom - (bottom - top) * sample.charge / 100f)
         })
+        modeLine.lastOrNull()?.let { latest ->
+            canvas.drawCircle(latest.first, latest.second, 8f, Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#EF6C00")
+                style = Paint.Style.FILL
+            })
+        }
         activityOrder.forEachIndexed { index, name -> canvas.drawText(name, 8f, yActivity(index) + 8f, label) }
         modeOrder.forEachIndexed { index, name -> canvas.drawText(name, right + 8f, yMode(index) + 8f, modeLabelPaint) }
         canvas.drawText("1", left - autoLabel.measureText("1") - 8f, yAuto(1) + 10f, autoLabel)
         canvas.drawText("0", left - autoLabel.measureText("0") - 8f, yAuto(0) + 10f, autoLabel)
-        canvas.drawText(clock.format(Date(start)), left, height - 12f, clockPaint)
+        canvas.drawText(clock.format(Date(start)), left, bottom + 32f, clockPaint)
         val endText = clock.format(Date(end))
-        canvas.drawText(endText, right - clockPaint.measureText(endText), height - 12f, clockPaint)
+        canvas.drawText(endText, right - clockPaint.measureText(endText), bottom + 32f, clockPaint)
+        drawLegend(canvas, height - 36f)
+    }
+
+    private fun drawLegend(canvas: Canvas, y: Float) {
+        val text = Paint(clockPaint).apply {
+            color = Color.parseColor("#37474F")
+            textSize = 32f
+        }
+        val items = listOf(
+            "Activity" to activityPaint,
+            "Mode" to modePaint,
+            "Auto" to autoPaint,
+            "Battery" to chargePaint
+        )
+        var x = 8f
+        items.forEach { (name, paint) ->
+            canvas.drawLine(x, y, x + 42f, y, paint)
+            canvas.drawText(name, x + 50f, y + 10f, text)
+            x += 50f + text.measureText(name) + 24f
+        }
     }
 
     private fun drawStep(canvas: Canvas, points: List<Pair<Float, Float>>, paint: Paint) {

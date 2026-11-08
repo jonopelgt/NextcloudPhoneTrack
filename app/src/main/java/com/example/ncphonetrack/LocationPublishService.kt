@@ -1,5 +1,6 @@
 package com.example.ncphonetrack
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -100,7 +101,12 @@ class LocationPublishService : Service() {
 
         createNotificationChannel()
         startForeground(1, createNotification())
+        if (intent?.action == ACTION_LOW_POWER_WAKE) {
+            freshFix = true
+            holdBriefWake()
+        }
         if (SharingControl.expireIfDue(this)) {
+            releaseBriefWake()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -108,6 +114,7 @@ class LocationPublishService : Service() {
         if (enabledTargets().isEmpty()) {
             LogManager.add("Service stopped: no enabled session")
             prefs.edit().putString("logging_state", "stopped").apply()
+            releaseBriefWake()
             stopSelf()
             return START_NOT_STICKY
         }
@@ -159,17 +166,29 @@ class LocationPublishService : Service() {
         }
         val mode = activeMode()
         DiagLog.noteMode(this)
+        consumeTransitionSend()
         val spoofing = prefs.getBoolean("spoof_enabled", false)
-        if (!spoofing && (mode == "quiet" || mode == "manual")) {
-            prefs.edit().putString("logging_state", if (mode == "quiet") "off" else "manual").apply()
-            LogManager.add(if (mode == "quiet") "Position updates are off" else "Position updates are manual")
+        if (!spoofing && mode == "quiet") {
+            prefs.edit().putString("logging_state", "off").apply()
+            LogManager.add("Position updates are off")
+            return
+        }
+        if (!spoofing && mode == "manual") {
+            prefs.edit().putString("logging_state", "manual").apply()
+            LogManager.add("Position updates are manual")
+            if (forceNext) requestPhoneFix { location -> if (location != null) publishLocation(location) }
             return
         }
         if (!spoofing && mode == "significant") {
             forceNext = true
-            requestPhoneFix { location -> if (location != null) publishLocation(location) }
+            val fresh = freshFix
+            freshFix = false
+            requestPhoneFix(current = fresh) { location ->
+                if (location != null) publishLocation(location)
+                releaseBriefWake()
+            }
             armLowPower()
-            scheduleLowPowerHeartbeat()
+            scheduleLowPowerWake()
             LogManager.add("Low power: send once, then after about 300 meters, and at least every 10 minutes")
             return
         }
@@ -266,27 +285,57 @@ class LocationPublishService : Service() {
         motionListener = null
     }
 
-    private val lowPowerHeartbeat = Runnable { sendLowPowerHeartbeat() }
+    private var freshFix = false
+    private var briefWake: PowerManager.WakeLock? = null
 
-    private fun scheduleLowPowerHeartbeat() {
-        mainHandler.removeCallbacks(lowPowerHeartbeat)
-        mainHandler.postDelayed(lowPowerHeartbeat, 10 * 60 * 1000L)
+    private fun holdBriefWake() {
+        val lock = briefWake ?: (getSystemService(PowerManager::class.java)
+            ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ncphonetrack:lowpower")
+            ?.apply { setReferenceCounted(false) }
+            ?: return)
+        briefWake = lock
+        if (!lock.isHeld) lock.acquire(30_000L)
     }
 
-    private fun sendLowPowerHeartbeat() {
-        if (activeMode() != "significant" || prefs.getBoolean("spoof_enabled", false)) return
-        requestPhoneFix(current = true) { location ->
-            if (activeMode() == "significant" && location != null) {
-                forceNext = true
-                publishLocation(location)
-            }
-            if (activeMode() == "significant") scheduleLowPowerHeartbeat()
+    private fun releaseBriefWake() {
+        if (briefWake?.isHeld == true) briefWake?.release()
+    }
+
+    private fun consumeTransitionSend() {
+        if (!prefs.getBoolean("send_on_mode_change", false)) return
+        prefs.edit().putBoolean("send_on_mode_change", false).apply()
+        forceNext = true
+    }
+
+    private fun lowPowerIntent(): PendingIntent {
+        return PendingIntent.getBroadcast(
+            this,
+            11,
+            Intent(this, LowPowerWake::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+
+    private fun scheduleLowPowerWake() {
+        val alarm = getSystemService(AlarmManager::class.java) ?: return
+        val pending = lowPowerIntent()
+        val at = System.currentTimeMillis() + 10 * 60 * 1000L
+        val exact = Build.VERSION.SDK_INT < 31 || alarm.canScheduleExactAlarms()
+        try {
+            if (exact) alarm.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+            else alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+        } catch (_: SecurityException) {
+            alarm.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
         }
+    }
+
+    private fun cancelLowPowerWake() {
+        getSystemService(AlarmManager::class.java)?.cancel(lowPowerIntent())
     }
 
     private fun stopLowPower() {
         lowPowerGeneration++
-        mainHandler.removeCallbacks(lowPowerHeartbeat)
+        cancelLowPowerWake()
         disarmMotion()
     }
 
@@ -481,6 +530,7 @@ class LocationPublishService : Service() {
         LogManager.add("Fix lat=${snapshot.optDouble("lat")} lon=${snapshot.optDouble("lon")}")
         logFixClocks(fix)
         prefs.edit().putString("logging_state", "tracking").apply()
+        if (mode == "significant") scheduleLowPowerWake()
         val queued = submit {
             targets.forEach { session ->
                 val name = session.optString("name").ifBlank { "Unnamed session" }
@@ -894,6 +944,7 @@ class LocationPublishService : Service() {
         LogManager.modeChange("Auto", from, to)
         notifyAutoSwitch(next)
         DiagLog.noteMode(this)
+        forceNext = true
         return true
     }
 
@@ -1128,6 +1179,7 @@ class LocationPublishService : Service() {
 
     companion object {
         const val ACTION_PUBLISH_ONCE = "com.example.ncphonetrack.PUBLISH_ONCE"
+        const val ACTION_LOW_POWER_WAKE = "com.example.ncphonetrack.LOW_POWER_WAKE"
         const val ACTION_ACTIVITY_PERMISSION = "com.example.ncphonetrack.ACTIVITY_PERMISSION"
         private const val AUTO_PERMISSION_NOTICE = 9
 
