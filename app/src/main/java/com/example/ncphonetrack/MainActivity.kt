@@ -4606,7 +4606,7 @@ class MainActivity : AppCompatActivity() {
     private fun showDiagnostics() {
         DiagLog.noteMode(this)
         val chart = DiagChart(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (340 * resources.displayMetrics.density).toInt())
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (420 * resources.displayMetrics.density).toInt())
             samples = DiagLog.samples(this@MainActivity)
         }
         val box = LinearLayout(this).apply {

@@ -331,3 +331,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 222 (2026-11-08): A position-mode change sends one point immediately. Low power wakes the phone for its 10-minute send. The position chart has a color legend and a dot on the latest mode.
 - Rev 223 (2026-11-08): The selected map is preloaded and cached for every zoom level at the current follow position.
 - Rev 224 (2026-11-08): A map positioned by hand preloads the selected map in the background for every zoom level at that position.
+- Rev 225 (2026-11-08): Auto is a short graph below the position-mode graph. Its axis reads Enabled and Disabled, and a dot marks the latest point.
