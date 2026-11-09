@@ -333,3 +333,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 224 (2026-11-08): A map positioned by hand preloads the selected map in the background for every zoom level at that position.
 - Rev 225 (2026-11-08): Auto is a short graph below the position-mode graph. Its axis reads Enabled and Disabled, and a dot marks the latest point.
 - Rev 226 (2026-11-08): Battery charge is its own graph below the mode graph. The right axis reads 0% and 100%. A dashed line marks 5%, and a dot marks the latest charge.
+- Rev 227 (2026-11-08): A heading triangle points along the line from the previous point to that point. The GPS bearing is not used. If that line cannot be computed, the marker is a dot.

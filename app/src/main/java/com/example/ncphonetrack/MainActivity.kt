@@ -593,7 +593,7 @@ class MainActivity : AppCompatActivity() {
         alpha: Float,
         outline: Boolean
     ) {
-        if (!headingOn()) {
+        if (!headingOn() || bearing.isNaN()) {
             marker.icon = iconFor(color, baseDp, alpha, outline)
             marker.rotation = 0f
             marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
@@ -605,28 +605,39 @@ class MainActivity : AppCompatActivity() {
         marker.setAnchor(Marker.ANCHOR_CENTER, headingShape(baseDp, safeSpeed).anchorY)
     }
 
-    private fun motionBetween(fromLat: Double, fromLon: Double, toLat: Double, toLon: Double, seconds: Long): Pair<Double, Float> {
+    private fun lineHeading(fromLat: Double, fromLon: Double, toLat: Double, toLon: Double): Float? {
         val out = FloatArray(2)
         android.location.Location.distanceBetween(fromLat, fromLon, toLat, toLon, out)
-        val speed = out[0] / seconds.coerceAtLeast(1).toDouble()
-        return speed to out[1]
+        if (out[0] < 1f) return null
+        return out[1]
     }
 
     private fun trackMotion(points: List<TrackPoint>, index: Int): Pair<Double, Float> {
         val point = points[index]
-        val knownSpeed = point.speed >= 0.0
-        val knownBearing = !point.bearing.isNaN()
-        if (knownSpeed && knownBearing) return point.speed to point.bearing
-        val previous = if (index > 0) points[index - 1] else null
-        val next = if (index + 1 < points.size) points[index + 1] else null
-        val derived = when {
-            previous != null -> motionBetween(previous.lat, previous.lon, point.lat, point.lon, point.timestamp - previous.timestamp)
-            next != null -> motionBetween(point.lat, point.lon, next.lat, next.lon, next.timestamp - point.timestamp)
-            else -> null
+        var bearing = Float.NaN
+        var derivedSpeed = 0.0
+        for (earlier in index - 1 downTo 0) {
+            val previous = points[earlier]
+            val heading = lineHeading(previous.lat, previous.lon, point.lat, point.lon) ?: continue
+            val seconds = (point.timestamp - previous.timestamp).coerceAtLeast(1)
+            val out = FloatArray(1)
+            android.location.Location.distanceBetween(previous.lat, previous.lon, point.lat, point.lon, out)
+            derivedSpeed = out[0] / seconds.toDouble()
+            bearing = heading
+            break
         }
-        val speed = if (knownSpeed) point.speed else derived?.first ?: 0.0
-        val bearing = if (knownBearing) point.bearing else derived?.second ?: 0f
+        val speed = if (point.speed >= 0.0) point.speed else derivedSpeed
         return speed to bearing
+    }
+
+    private fun deviceHeading(token: String, name: String, lat: Double, lon: Double): Float {
+        val history = trackCache[trackKey(token, name)].orEmpty().sortedBy { it.timestamp }
+        for (index in history.lastIndex downTo 0) {
+            val previous = history[index]
+            val heading = lineHeading(previous.lat, previous.lon, lat, lon)
+            if (heading != null) return heading
+        }
+        return Float.NaN
     }
 
     private fun colorKey(token: String, name: String) = "$token|$name"
@@ -3043,7 +3054,8 @@ class MainActivity : AppCompatActivity() {
             val useLocal = mine && local != null && localSec >= data.timestamp
             val point = if (useLocal && local != null) local else GeoPoint(data.lat, data.lon)
             if (mine && !useLocal) rememberOwn(data.lat, data.lon, data.speed, data.bearing)
-            val motion = if (useLocal) ownMotion(data.speed, data.bearing) else data.speed to data.bearing
+            val speed = if (useLocal) ownMotion(data.speed, data.bearing).first else data.speed
+            val bearing = deviceHeading(token, name, point.latitude, point.longitude)
             lastPoints[name] = point
             val color = personColor(token, name, ownDevice, others)
             shownColor[name] = color
@@ -3055,8 +3067,8 @@ class MainActivity : AppCompatActivity() {
                 marker,
                 color,
                 28,
-                motion.first,
-                motion.second,
+                speed,
+                bearing,
                 if (useLocal) ageAlpha(localSec, ageOut).coerceAtLeast(alpha) else alpha,
                 true
             )
@@ -3079,8 +3091,9 @@ class MainActivity : AppCompatActivity() {
                 marker.position = local
                 marker.title = "You · $ownDevice"
                 marker.snippet = "Age: ${ageText(localSec)}"
-                val motion = ownMotion(-1.0, Float.NaN)
-                applyMarkerIcon(marker, color, 28, motion.first, motion.second, alpha, true)
+                val speed = ownMotion(-1.0, Float.NaN).first
+                val bearing = deviceHeading(token, ownDevice, local.latitude, local.longitude)
+                applyMarkerIcon(marker, color, 28, speed, bearing, alpha, true)
                 marker.infoWindow = deviceBubble()
                 marker.setOnMarkerClickListener { clicked, _ ->
                     enterUserTrack(ownDevice)
@@ -3255,6 +3268,18 @@ class MainActivity : AppCompatActivity() {
                             }
                             map.overlays.add(0, dot)
                         }
+                    }
+                    map.overlays.forEach { overlay ->
+                        val marker = overlay as? Marker ?: return@forEach
+                        val title = marker.title ?: return@forEach
+                        if (title == "Track" || title == "Spoof") return@forEach
+                        val name = title.removePrefix("You · ")
+                        val data = positions.entries.firstOrNull { it.key.equals(name, true) }?.value
+                        val color = shownColor.entries.firstOrNull { it.key.equals(name, true) }?.value ?: return@forEach
+                        val speed = data?.speed ?: -1.0
+                        val heading = deviceHeading(token, name, marker.position.latitude, marker.position.longitude)
+                        val alpha = if (data == null) 1f else ageAlpha(data.timestamp, ageOut)
+                        applyMarkerIcon(marker, color, 28, speed, heading, alpha, true)
                     }
                     map.invalidate()
                     LogManager.add("Tracks showing ${snapshot.values.sumOf { it.size }} points, $added new")
