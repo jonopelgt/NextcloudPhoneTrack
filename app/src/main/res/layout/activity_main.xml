@@ -165,7 +165,7 @@
             android:textStyle="bold"
             android:visibility="gone" />
 
-        <ImageButton
+        <LinearLayout
             android:id="@+id/btnReticle"
             android:layout_width="48dp"
             android:layout_height="48dp"
@@ -173,11 +173,34 @@
             android:layout_marginEnd="16dp"
             android:layout_marginBottom="72dp"
             android:background="@drawable/zoom_key_bg"
-            android:contentDescription="Center on you"
+            android:contentDescription="Follow"
             android:elevation="8dp"
-            android:padding="10dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_reticle" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="10dp"
+            android:paddingEnd="10dp">
+
+            <ImageView
+                android:id="@+id/btnReticleIcon"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:contentDescription="Follow"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_reticle" />
+
+            <TextView
+                android:id="@+id/btnReticleName"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:maxWidth="220dp"
+                android:textColor="#111111"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/mapBanners"

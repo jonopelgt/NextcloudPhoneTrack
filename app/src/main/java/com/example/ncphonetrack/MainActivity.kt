@@ -16,9 +16,11 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.Window
 import android.widget.Button
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -92,7 +94,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnZoomOut: TextView
     private lateinit var zoomSlide: ZoomSlide
     private lateinit var btnGroupView: TextView
-    private lateinit var btnReticle: ImageButton
+    private lateinit var btnReticle: LinearLayout
+    private lateinit var btnReticleIcon: ImageView
+    private lateinit var btnReticleName: TextView
     private var allMode = false
     private lateinit var mapControls: View
     private lateinit var btnPositionMode: ImageButton
@@ -255,6 +259,8 @@ class MainActivity : AppCompatActivity() {
         })
         btnGroupView = findViewById(R.id.btnGroupView)
         btnReticle = findViewById(R.id.btnReticle)
+        btnReticleIcon = findViewById(R.id.btnReticleIcon)
+        btnReticleName = findViewById(R.id.btnReticleName)
         mapControls = findViewById(R.id.mapControls)
         btnPositionMode = findViewById(R.id.btnPositionMode)
         btnSharing = findViewById(R.id.btnSharing)
@@ -4944,6 +4950,25 @@ class MainActivity : AppCompatActivity() {
         trackedUser = next
         refreshZoomKeys()
         centerAboveBanner(point)
+        showFollowName(next)
+    }
+
+    private val collapseFollowName = Runnable {
+        if (!::btnReticle.isInitialized) return@Runnable
+        btnReticleName.visibility = View.GONE
+        btnReticle.layoutParams = btnReticle.layoutParams.apply {
+            width = (48 * resources.displayMetrics.density).toInt()
+        }
+    }
+
+    private fun showFollowName(name: String) {
+        btnReticleName.text = name
+        btnReticleName.visibility = View.VISIBLE
+        btnReticle.layoutParams = btnReticle.layoutParams.apply {
+            width = ViewGroup.LayoutParams.WRAP_CONTENT
+        }
+        btnReticle.removeCallbacks(collapseFollowName)
+        btnReticle.postDelayed(collapseFollowName, 5_000L)
     }
 
     private fun followTargets(): List<String> {
@@ -5113,7 +5138,7 @@ class MainActivity : AppCompatActivity() {
         val name = trackedUser
         val following = mapFollow == MapFollow.USER && !name.isNullOrBlank()
         if (!following) {
-            btnReticle.setImageResource(R.drawable.ic_reticle)
+            btnReticleIcon.setImageResource(R.drawable.ic_reticle)
             return
         }
         val followed = name ?: return
@@ -5124,8 +5149,8 @@ class MainActivity : AppCompatActivity() {
             val others = lastPoints.keys.filter { it != own }.sorted()
             personColor(token, followed, own, others)
         }
-        btnReticle.imageTintList = null
-        btnReticle.clearColorFilter()
+        btnReticleIcon.imageTintList = null
+        btnReticleIcon.clearColorFilter()
         val size = (24 * resources.displayMetrics.density).toInt().coerceAtLeast(24)
         val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(bitmap)
@@ -5134,7 +5159,7 @@ class MainActivity : AppCompatActivity() {
         base?.draw(canvas)
         val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
         canvas.drawCircle(size / 2f, size / 2f, size * 0.18f, paint)
-        btnReticle.setImageDrawable(android.graphics.drawable.BitmapDrawable(resources, bitmap))
+        btnReticleIcon.setImageDrawable(android.graphics.drawable.BitmapDrawable(resources, bitmap))
     }
 
     private fun applyMapFollow(points: List<GeoPoint>) {
