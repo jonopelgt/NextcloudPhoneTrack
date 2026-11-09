@@ -2972,6 +2972,7 @@ class MainActivity : AppCompatActivity() {
         intent.putExtra("url", url)
         intent.putExtra("token", token)
         intent.putExtra("device", device)
+        intent.putExtra("request_fix", true)
         try {
             ContextCompat.startForegroundService(this, intent)
         } catch (e: Exception) {

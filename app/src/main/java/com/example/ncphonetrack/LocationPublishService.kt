@@ -125,6 +125,7 @@ class LocationPublishService : Service() {
         prefs.edit().putString("logging_state", "waiting for GPS").apply()
         ensureSeeded(this)
         startLocationUpdates()
+        if (intent?.getBooleanExtra("request_fix", false) == true) requestImmediateFix()
         if (intent?.action == ACTION_PUBLISH_ONCE) publishOnce()
         watchNetwork()
         flushBufferAsync()
@@ -199,6 +200,17 @@ class LocationPublishService : Service() {
             mode == "rapid" -> "Location updates every 1s"
             else -> "Move: send every 5s"
         })
+    }
+
+    private fun requestImmediateFix() {
+        if (prefs.getBoolean("spoof_enabled", false)) return
+        if (activeMode() == "quiet") return
+        LogManager.add("Requesting one GPS fix")
+        requestPhoneFix(current = true) { location ->
+            if (location == null) return@requestPhoneFix
+            forceNext = true
+            publishLocation(location)
+        }
     }
 
     private fun phoneProvider(): String? {
