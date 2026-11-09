@@ -336,3 +336,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 227 (2026-11-08): A heading triangle points along the line from the previous point to that point. The GPS bearing is not used. If that line cannot be computed, the marker is a dot.
 - Rev 228 (2026-11-08): When the app starts and sharing is on, it requests one GPS fix immediately and posts it.
 - Rev 229 (2026-11-08): Auto forces Low power when battery saver is on, or when the charge is under 5 percent and the phone is unplugged. Plugging in, with battery saver off, returns to the movement logic.
+- Rev 230 (2026-11-08): A heading triangle points in the direction of travel. The map's rotation sign is reversed so the tip follows the line from the previous point.

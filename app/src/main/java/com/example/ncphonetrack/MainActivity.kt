@@ -601,7 +601,7 @@ class MainActivity : AppCompatActivity() {
         }
         val safeSpeed = if (speed < 0.0) 0.0 else (speed * 2.0).toInt().coerceIn(0, 80) / 2.0
         marker.icon = headingIcon(color, baseDp, safeSpeed, alpha, outline)
-        marker.rotation = if (bearing.isNaN()) 0f else bearing
+        marker.rotation = -bearing
         marker.setAnchor(Marker.ANCHOR_CENTER, headingShape(baseDp, safeSpeed).anchorY)
     }
 
