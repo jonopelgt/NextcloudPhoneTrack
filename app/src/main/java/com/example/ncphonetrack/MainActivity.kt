@@ -4362,7 +4362,7 @@ class MainActivity : AppCompatActivity() {
         })
         if (superuser) {
             listOf(
-                "Auto is on or off. Choosing a position mode turns it off. While it is on, it picks the mode and starts in Move. Under 0.4 m/s, with no steps in the last 45 seconds, is Low power. From 0.4 to 2.5 m/s, or steps, is Walk. 2.5 m/s or faster is Move. A fix worse than 50 meters is ignored. Still to Walk and Walk to Move happen immediately. Any other change waits 60 seconds. Battery saver, or a battery under 5 percent, forces Low power.",
+                "Auto is on or off. Choosing a position mode turns it off. While it is on, it picks the mode and starts in Move. Under 0.4 m/s, with no steps in the last 45 seconds, is Low power. From 0.4 to 2.5 m/s, or steps, is Walk. 2.5 m/s or faster is Move. A fix worse than 50 meters is ignored. Still to Walk and Walk to Move happen immediately. Any other change waits 60 seconds. Battery saver forces Low power. A battery under 5 percent forces Low power only while unplugged. Plugging in, with battery saver off, returns to the movement logic.",
                 "Manual does not send on its own. It sends only when you tap Send now.",
                 "Low power sends one point when it starts. It sends again after about 300 meters, and at least once every 10 minutes. The 10-minute send wakes the phone.",
                 "Walk sends after about 30 meters. It does not ask for a fix more often than about every 10 seconds. Standing still does not send another point.",

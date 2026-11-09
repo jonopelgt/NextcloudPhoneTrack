@@ -80,11 +80,7 @@ class LocationPublishService : Service() {
     }
     private val batteryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (!autoOn()) return
-            if (!batteryForcesLowPower()) return
-            pendingAuto = null
-            mainHandler.removeCallbacks(applyAuto)
-            if (commitAutoMode("significant", "battery")) startLocationUpdates()
+            applyBatteryRule()
         }
     }
 
@@ -991,12 +987,28 @@ class LocationPublishService : Service() {
         getSystemService(NotificationManager::class.java).notify(8, notice)
     }
 
+    private fun pluggedIn(): Boolean {
+        val status = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return false
+        return status.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0
+    }
+
     private fun batteryForcesLowPower(): Boolean {
-        val saver = getSystemService(PowerManager::class.java)?.isPowerSaveMode == true
-        if (saver) return true
+        if (getSystemService(PowerManager::class.java)?.isPowerSaveMode == true) return true
+        if (pluggedIn()) return false
         val pct = getSystemService(BatteryManager::class.java)
             ?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: return false
         return pct in 0..4
+    }
+
+    private fun applyBatteryRule() {
+        if (!autoOn()) return
+        if (batteryForcesLowPower()) {
+            pendingAuto = null
+            mainHandler.removeCallbacks(applyAuto)
+            if (commitAutoMode("significant", "battery")) startLocationUpdates()
+            return
+        }
+        if (activeMode() == "significant") requestOneAutoFix()
     }
 
     private fun noteAutoCandidate(candidate: String) {
@@ -1035,7 +1047,10 @@ class LocationPublishService : Service() {
         autoWatching = true
         val battery = IntentFilter().apply {
             addAction(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
             addAction(Intent.ACTION_BATTERY_LOW)
+            addAction(Intent.ACTION_BATTERY_OKAY)
         }
         if (Build.VERSION.SDK_INT >= 33) {
             registerReceiver(batteryReceiver, battery, RECEIVER_NOT_EXPORTED)
@@ -1150,11 +1165,7 @@ class LocationPublishService : Service() {
     private val batteryPoll: Runnable = object : Runnable {
         override fun run() {
             if (!autoWatching || !autoOn()) return
-            if (batteryForcesLowPower()) {
-                pendingAuto = null
-                mainHandler.removeCallbacks(applyAuto)
-                if (commitAutoMode("significant", "battery")) startLocationUpdates()
-            }
+            applyBatteryRule()
             mainHandler.postDelayed(this, 60_000L)
         }
     }
