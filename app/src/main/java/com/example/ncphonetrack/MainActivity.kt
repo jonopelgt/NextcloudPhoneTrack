@@ -22,6 +22,8 @@ import android.widget.Button
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.EditText
+import android.animation.ValueAnimator
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.PopupMenu
@@ -94,9 +96,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnZoomOut: TextView
     private lateinit var zoomSlide: ZoomSlide
     private lateinit var btnGroupView: TextView
-    private lateinit var btnReticle: LinearLayout
+    private lateinit var btnReticle: FrameLayout
     private lateinit var btnReticleIcon: ImageView
     private lateinit var btnReticleName: TextView
+    private lateinit var historySlide: HistorySlide
+    private var reticleAnimator: ValueAnimator? = null
+    private var historyAgoSec = 0
+    private var historyLoadedAt = 0L
+    private val historyCache = mutableMapOf<String, List<TrackPoint>>()
+    private val historyReadBusy = java.util.concurrent.atomic.AtomicBoolean(false)
+    private val hideHistorySlide = Runnable { fadeHistorySlide() }
     private var allMode = false
     private lateinit var mapControls: View
     private lateinit var btnPositionMode: ImageButton
@@ -261,6 +270,9 @@ class MainActivity : AppCompatActivity() {
         btnReticle = findViewById(R.id.btnReticle)
         btnReticleIcon = findViewById(R.id.btnReticleIcon)
         btnReticleName = findViewById(R.id.btnReticleName)
+        historySlide = findViewById(R.id.historySlide)
+        historySlide.onAgo = { seconds -> setHistoryAgo(seconds) }
+        historySlide.onGesture = { active -> if (active) holdHistorySlide() else armHistorySlideHide() }
         mapControls = findViewById(R.id.mapControls)
         btnPositionMode = findViewById(R.id.btnPositionMode)
         btnSharing = findViewById(R.id.btnSharing)
@@ -1227,13 +1239,15 @@ class MainActivity : AppCompatActivity() {
         tvMapBanner.text = message ?: named(name, "Not connected")
         val localOnly = link.localUnavailable && !link.readFail && !link.pushFail
         tvMapBanner.setBackgroundColor(Color.parseColor(if (localOnly) "#757575" else "#C62828"))
-        sessionBanner.text = if (SharingControl.remaining(this) > 0L && !positionUpdatesOff()) {
+        sessionBanner.text = if (historyAgoSec > 0) {
+            historyBanner(historyAgoSec)
+        } else if (SharingControl.remaining(this) > 0L && !positionUpdatesOff()) {
             val left = SharingControl.remainingWithUntil(this)
             if (name.isBlank()) "($left)" else "$name ($left)"
         } else {
             name
         }
-        sessionBanner.visibility = if (name.isNotBlank() && !noneActive && mapVisible) View.VISIBLE else View.GONE
+        sessionBanner.visibility = if ((historyAgoSec > 0 || (name.isNotBlank() && !noneActive)) && mapVisible) View.VISIBLE else View.GONE
         noSessionBanner.visibility = if (noneActive && mapVisible) View.VISIBLE else View.GONE
         tvMapBanner.visibility = if (message != null && !noneActive && mapVisible) View.VISIBLE else View.GONE
         loginBanner.visibility = if (!verified && mapVisible) View.VISIBLE else View.GONE
@@ -3048,7 +3062,7 @@ class MainActivity : AppCompatActivity() {
         refreshMapBanner()
         map.overlays.removeAll { overlay ->
             val marker = overlay as? Marker ?: return@removeAll true
-            marker.title != "Track"
+            marker.title != "Track" && marker.relatedObject != "history"
         }
         lastPoints.clear()
         val localSec = prefs.getLong("own_fix_sec", 0L)
@@ -3379,6 +3393,7 @@ class MainActivity : AppCompatActivity() {
         lastSeenPoint = point
         lastSeenText = lastSeenLabel(seenSec).ifBlank { "unknown" }
         lastSeenAlpha = 1f
+        clearHistorySlide()
         val now = System.currentTimeMillis()
         lastSeenUntil = now + 30_000
         lastSeenBubbleUntil = now + 20_000
@@ -4951,24 +4966,175 @@ class MainActivity : AppCompatActivity() {
         refreshZoomKeys()
         centerAboveBanner(point)
         showFollowName(next)
+        showHistorySlide()
     }
 
-    private val collapseFollowName = Runnable {
-        if (!::btnReticle.isInitialized) return@Runnable
-        btnReticleName.visibility = View.GONE
-        btnReticle.layoutParams = btnReticle.layoutParams.apply {
-            width = (48 * resources.displayMetrics.density).toInt()
-        }
+    private val collapseFollowName = Runnable { shrinkFollowName() }
+
+    private fun reticleCollapsed(): Int = (48 * resources.displayMetrics.density).toInt()
+
+    private fun setReticleWidth(px: Int) {
+        val params = btnReticle.layoutParams
+        params.width = px
+        btnReticle.layoutParams = params
     }
 
     private fun showFollowName(name: String) {
+        reticleAnimator?.cancel()
         btnReticleName.text = name
         btnReticleName.visibility = View.VISIBLE
-        btnReticle.layoutParams = btnReticle.layoutParams.apply {
-            width = ViewGroup.LayoutParams.WRAP_CONTENT
-        }
+        setReticleWidth(ViewGroup.LayoutParams.WRAP_CONTENT)
         btnReticle.removeCallbacks(collapseFollowName)
         btnReticle.postDelayed(collapseFollowName, 5_000L)
+    }
+
+    private fun shrinkFollowName() {
+        if (!::btnReticle.isInitialized) return
+        val from = btnReticle.width.coerceAtLeast(reticleCollapsed())
+        val to = reticleCollapsed()
+        reticleAnimator?.cancel()
+        reticleAnimator = ValueAnimator.ofInt(from, to).apply {
+            duration = 280
+            addUpdateListener { setReticleWidth(it.animatedValue as Int) }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    btnReticleName.visibility = View.GONE
+                    setReticleWidth(to)
+                }
+            })
+            start()
+        }
+    }
+
+    private fun showHistorySlide() {
+        historyAgoSec = 0
+        historySlide.reset()
+        clearHistoryDots()
+        refreshMapBanner()
+        historySlide.animate().cancel()
+        historySlide.alpha = 1f
+        historySlide.visibility = View.VISIBLE
+        historySlide.bringToFront()
+        armHistorySlideHide()
+        loadHistory(force = false)
+    }
+
+    private fun holdHistorySlide() {
+        historySlide.removeCallbacks(hideHistorySlide)
+        historySlide.animate().cancel()
+        historySlide.alpha = 1f
+        historySlide.visibility = View.VISIBLE
+    }
+
+    private fun armHistorySlideHide() {
+        historySlide.removeCallbacks(hideHistorySlide)
+        historySlide.postDelayed(hideHistorySlide, 5_000L)
+    }
+
+    private fun fadeHistorySlide() {
+        if (!::historySlide.isInitialized || historySlide.visibility != View.VISIBLE) return
+        historySlide.animate().alpha(0f).setDuration(400).withEndAction {
+            historySlide.visibility = View.GONE
+            historySlide.alpha = 1f
+        }.start()
+    }
+
+    private fun clearHistorySlide() {
+        if (historyAgoSec == 0 && (!::historySlide.isInitialized || historySlide.visibility != View.VISIBLE)) return
+        historyAgoSec = 0
+        if (::historySlide.isInitialized) {
+            historySlide.removeCallbacks(hideHistorySlide)
+            historySlide.animate().cancel()
+            historySlide.reset()
+            historySlide.visibility = View.GONE
+            historySlide.alpha = 1f
+        }
+        clearHistoryDots()
+        if (::sessionBanner.isInitialized) refreshMapBanner()
+    }
+
+    private fun setHistoryAgo(seconds: Int) {
+        historyAgoSec = seconds.coerceIn(0, 8 * 60 * 60)
+        if (historyAgoSec == 0) clearHistoryDots() else paintHistory()
+        refreshMapBanner()
+        if (System.currentTimeMillis() - historyLoadedAt > 30_000L) loadHistory(force = false)
+    }
+
+    private fun historyBanner(seconds: Int): String {
+        val whenMs = System.currentTimeMillis() - seconds * 1000L
+        val clock = java.text.SimpleDateFormat("h:mm a", java.util.Locale.US).format(java.util.Date(whenMs))
+        val hours = seconds / 3600
+        val minutes = (seconds % 3600) / 60
+        val ago = when {
+            hours > 0 && minutes > 0 -> "${hours}h ${minutes}m ago"
+            hours > 0 -> "${hours}h ago"
+            else -> "${minutes}m ago"
+        }
+        return "History @ $clock ( $ago)"
+    }
+
+    private fun loadHistory(force: Boolean) {
+        if (!force && System.currentTimeMillis() - historyLoadedAt < 30_000L && historyCache.isNotEmpty()) return
+        val url = prefs.getString("url", "") ?: return
+        val token = prefs.getString("token", "") ?: return
+        if (url.isBlank() || token.isBlank()) return
+        if (!historyReadBusy.compareAndSet(false, true)) return
+        val accepted = ReadLanes.execute(this) { client ->
+            try {
+                val tsmin = System.currentTimeMillis() / 1000 - 8 * 60 * 60
+                val incoming = PhoneTrackApi.getTrackPoints(this, url, token, 8 * 60, tsmin, client, 8000)
+                val merged = incoming.mapKeys { trackKey(token, it.key) }
+                runOnUiThread {
+                    if (isDestroyed) return@runOnUiThread
+                    historyCache.clear()
+                    historyCache.putAll(merged)
+                    historyLoadedAt = System.currentTimeMillis()
+                    if (historyAgoSec > 0) paintHistory()
+                }
+            } finally {
+                historyReadBusy.set(false)
+            }
+        }
+        if (!accepted) historyReadBusy.set(false)
+    }
+
+    private fun clearHistoryDots() {
+        if (!::map.isInitialized) return
+        map.overlays.removeAll { (it as? Marker)?.relatedObject == "history" }
+        map.invalidate()
+    }
+
+    private fun paintHistory() {
+        if (!::map.isInitialized || historyAgoSec <= 0) {
+            clearHistoryDots()
+            return
+        }
+        val token = prefs.getString("token", "") ?: ""
+        val target = System.currentTimeMillis() / 1000 - historyAgoSec
+        map.overlays.removeAll { (it as? Marker)?.relatedObject == "history" }
+        val names = (lastPoints.keys + historyCache.keys.map { it.substringAfter('\n') }).distinct()
+        names.forEach { name ->
+            val history = historyCache[trackKey(token, name)].orEmpty().sortedBy { it.timestamp }
+            val point = history.lastOrNull { it.timestamp <= target } ?: return@forEach
+            val color = shownColor[name] ?: personColor(
+                token,
+                name,
+                prefs.getString("device", "") ?: "",
+                names.filter { it != name }.sorted()
+            )
+            val dot = Marker(map)
+            dot.position = GeoPoint(point.lat, point.lon)
+            dot.title = "History"
+            dot.snippet = "$name\n${historyBanner(historyAgoSec)}"
+            dot.relatedObject = "history"
+            applyMarkerIcon(dot, color, 18, point.speed, Float.NaN, 0.4f, false)
+            dot.setOnMarkerClickListener { clicked, _ ->
+                showStatusBubble(clicked)
+                true
+            }
+            map.overlays.add(0, dot)
+        }
+        map.invalidate()
     }
 
     private fun followTargets(): List<String> {
@@ -4987,6 +5153,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun zoomToAll() {
+        clearHistorySlide()
         allMode = true
         mapFollow = MapFollow.GROUP
         trackedUser = null
@@ -5089,6 +5256,7 @@ class MainActivity : AppCompatActivity() {
     private fun enterManual() {
         if (zoomControlActive) return
         if (mapFollow == MapFollow.MANUAL && !allMode) return
+        clearHistorySlide()
         allMode = false
         mapFollow = MapFollow.MANUAL
         trackedUser = null
@@ -5101,9 +5269,11 @@ class MainActivity : AppCompatActivity() {
         trackedUser = name
         refreshZoomKeys()
         lastPoints[name]?.let { centerAboveBanner(it) }
+        showHistorySlide()
     }
 
     private fun enterGroupView() {
+        clearHistorySlide()
         allMode = false
         mapFollow = MapFollow.GROUP
         trackedUser = null
@@ -5129,6 +5299,8 @@ class MainActivity : AppCompatActivity() {
         if (::btnSharing.isInitialized && mapContext) btnSharing.bringToFront()
         if (::btnGroupView.isInitialized && mapContext) btnGroupView.bringToFront()
         if (::btnReticle.isInitialized && mapContext) btnReticle.bringToFront()
+        if (::historySlide.isInitialized && mapContext && historySlide.visibility == View.VISIBLE) historySlide.bringToFront()
+        if (::historySlide.isInitialized && !mapContext) historySlide.visibility = View.GONE
         refreshReticle()
         if (!mapContext && ::statusPanel.isInitialized && statusPanel.visibility == View.VISIBLE) statusPanel.bringToFront()
     }

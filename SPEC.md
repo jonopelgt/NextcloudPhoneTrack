@@ -338,3 +338,4 @@ Problem reports are kept in [PRS.xlsx](PRS.xlsx) at the root of this repository,
 - Rev 229 (2026-11-08): Auto forces Low power when battery saver is on, or when the charge is under 5 percent and the phone is unplugged. Plugging in, with battery saver off, returns to the movement logic.
 - Rev 230 (2026-11-08): A heading triangle points in the direction of travel. The map's rotation sign is reversed so the tip follows the line from the previous point.
 - Rev 231 (2026-11-09): Each time the follow button changes the followed user, the button expands and shows that name for 5 seconds, then returns to its normal size.
+- Rev 232 (2026-11-18): The follow name is on the left and the target icon stays on the right while the button shrinks. Following a user shows an 8-hour time slider for 5 seconds. Moving it adds one faded history dot per device, and the banner reads History @ hh:mm ( hh mm ago). Placing the map by hand clears it. Selecting follow again resets it to now.

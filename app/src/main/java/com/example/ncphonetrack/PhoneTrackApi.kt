@@ -598,7 +598,8 @@ object PhoneTrackApi {
         token: String,
         ageOutMin: Int,
         tsminOverride: Long? = null,
-        client: okhttp3.OkHttpClient? = null
+        client: okhttp3.OkHttpClient? = null,
+        limit: Int = 500
     ): Map<String, List<TrackPoint>> {
         val prefs = context.getSharedPreferences("nc_phonetrack", Context.MODE_PRIVATE)
         val user = prefs.getString("nc_user", "")?.trim().orEmpty()
@@ -608,7 +609,7 @@ object PhoneTrackApi {
         val server = PhoneTrackUrl.parse(baseUrl).base
         val tokenEnc = URLEncoder.encode(token, "UTF-8").replace("+", "%20")
         val tsmin = tsminOverride ?: (System.currentTimeMillis() / 1000 - ageOutMin.coerceAtLeast(1) * 60)
-        val url = "$server/index.php/apps/phonetrack/api/getuserpositions/$tokenEnc?limit=500&tsmin=$tsmin"
+        val url = "$server/index.php/apps/phonetrack/api/getuserpositions/$tokenEnc?limit=$limit&tsmin=$tsmin"
         return try {
             val request = Request.Builder()
                 .url(url)
